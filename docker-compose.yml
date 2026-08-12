@@ -1,0 +1,165 @@
+# Hạ tầng backend + 9 service.
+# PostgreSQL/MongoDB của ứng dụng do codementor-infra quản lý — chạy `docker compose up -d`
+# bên repo đó trước.
+#
+#   docker compose up -d kafka kafka-ui keycloak     # hạ tầng
+#   docker compose up -d                             # thêm cả 9 service
+
+x-service-base: &service-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file: .env
+  environment: &service-env
+    NODE_ENV: production
+    DATABASE_URL: postgresql://codementor:codementor@host.docker.internal:55432/codementor?schema=public
+    MONGO_URI: mongodb://codementor:codementor@host.docker.internal:57017/codementor?authSource=admin
+    KAFKA_BROKERS: kafka:29092
+    KEYCLOAK_ISSUER: http://keycloak:8080/realms/codementor
+  extra_hosts:
+    - 'host.docker.internal:host-gateway'
+  depends_on:
+    kafka:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  # ---------------------------------------------------------------- hạ tầng
+  kafka:
+    # KRaft: không cần ZooKeeper — 1 container thay vì 2, đủ mọi tính năng cần
+    # (topic, partition, consumer group, offset). Đổi sang cluster thật chỉ là đổi config.
+    image: confluentinc/cp-kafka:7.7.1
+    container_name: codementor-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # 1 broker nên replication chỉ có thể là 1.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_NUM_PARTITIONS: 3
+      CLUSTER_ID: codementor-kraft-cluster-1
+    ports:
+      - '9092:9092'
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ['CMD', 'kafka-topics', '--bootstrap-server', 'kafka:29092', '--list']
+      interval: 10s
+      timeout: 10s
+      retries: 15
+
+  kafka-ui:
+    # Xem topic, message, consumer lag. Rất đáng có lúc debug luồng bất đồng bộ và lúc demo.
+    image: provectuslabs/kafka-ui:latest
+    container_name: codementor-kafka-ui
+    environment:
+      KAFKA_CLUSTERS_0_NAME: codementor
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    ports:
+      - '8081:8080'
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  keycloak-db:
+    image: postgres:18-alpine
+    container_name: codementor-keycloak-db
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+      POSTGRES_DB: keycloak
+    volumes:
+      # Keycloak dùng database RIÊNG — nhà cung cấp danh tính không đọc bảng nghiệp vụ.
+      - keycloak-db-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U keycloak']
+      interval: 5s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    container_name: codementor-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KC_HEALTH_ENABLED: 'true'
+    ports:
+      - '8080:8080'
+    volumes:
+      - ./keycloak/realm-codementor.json:/opt/keycloak/data/import/realm-codementor.json:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+
+  # ------------------------------------------------------------- service công khai
+  core-service:
+    <<: *service-base
+    container_name: codementor-core
+    command: ['node', 'dist/apps/core-service/main.js']
+    ports: ['3001:3001']
+
+  learning-service:
+    <<: *service-base
+    container_name: codementor-learning
+    command: ['node', 'dist/apps/learning-service/main.js']
+    ports: ['3002:3002']
+
+  exercise-service:
+    <<: *service-base
+    container_name: codementor-exercise
+    command: ['node', 'dist/apps/exercise-service/main.js']
+    ports: ['3003:3003']
+
+  workspace-service:
+    <<: *service-base
+    container_name: codementor-workspace
+    command: ['node', 'dist/apps/workspace-service/main.js']
+    ports: ['3004:3004']
+
+  document-service:
+    <<: *service-base
+    container_name: codementor-document
+    command: ['node', 'dist/apps/document-service/main.js']
+    ports: ['3005:3005']
+
+  submission-service:
+    <<: *service-base
+    container_name: codementor-submission
+    command: ['node', 'dist/apps/submission-service/main.js']
+    ports: ['3006:3006']
+
+  realtime-service:
+    <<: *service-base
+    container_name: codementor-realtime
+    command: ['node', 'dist/apps/realtime-service/main.js']
+    ports: ['3009:3009']
+
+  # -------------------------------------------------------------- service nội bộ
+  # Không map cổng ra ngoài: chỉ nhận việc qua Kafka, frontend không gọi trực tiếp.
+  judge-service:
+    <<: *service-base
+    container_name: codementor-judge
+    command: ['node', 'dist/apps/judge-service/main.js']
+
+  ai-service:
+    <<: *service-base
+    container_name: codementor-ai
+    command: ['node', 'dist/apps/ai-service/main.js']
+
+volumes:
+  kafka-data:
+  keycloak-db-data:
