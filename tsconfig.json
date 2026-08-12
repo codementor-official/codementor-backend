@@ -1,0 +1,63 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2023",
+    "lib": [
+      "ES2023"
+    ],
+    "moduleResolution": "node",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "strictPropertyInitialization": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@codementor/kernel": [
+        "libs/kernel/src"
+      ],
+      "@codementor/kernel/*": [
+        "libs/kernel/src/*"
+      ],
+      "@codementor/platform": [
+        "libs/platform/src"
+      ],
+      "@codementor/platform/*": [
+        "libs/platform/src/*"
+      ],
+      "@codementor/messaging": [
+        "libs/messaging/src"
+      ],
+      "@codementor/messaging/*": [
+        "libs/messaging/src/*"
+      ],
+      "@codementor/contracts": [
+        "libs/contracts/src"
+      ],
+      "@codementor/contracts/*": [
+        "libs/contracts/src/*"
+      ]
+    }
+  },
+  "include": [
+    "apps/**/*",
+    "libs/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}
