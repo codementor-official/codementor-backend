@@ -1,0 +1,49 @@
+{
+  "realm": "codementor",
+  "enabled": true,
+  "displayName": "CodeMentor",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "resetPasswordAllowed": true,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "learner", "description": "Học viên — vai trò mặc định" },
+      { "name": "admin", "description": "Quản trị viên nền tảng" }
+    ]
+  },
+  "defaultRole": { "name": "learner" },
+  "clients": [
+    {
+      "clientId": "codementor-web",
+      "name": "CodeMentor Frontend",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        {
+          "name": "audience-codementor-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "codementor-api",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "codementor-api",
+      "name": "CodeMentor Backend (resource server)",
+      "bearerOnly": true,
+      "publicClient": false
+    }
+  ],
+  "_comment_identity_providers": "Điền clientId/secret thật rồi bỏ tiền tố _disabled_ để bật. Không commit secret thật.",
+  "identityProviders": []
+}
