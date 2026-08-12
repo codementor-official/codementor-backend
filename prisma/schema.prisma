@@ -1,0 +1,998 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model articles {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug         String         @unique @db.Citext
+  title        String
+  excerpt      String?
+  takeaway     String?
+  author_id    String?        @db.Uuid
+  tag_id       String?        @db.Uuid
+  read_minutes Int?
+  status       content_status @default(draft)
+  content_ref  String?
+  published_at DateTime?      @db.Timestamptz(6)
+  created_at   DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime       @default(now()) @db.Timestamptz(6)
+  users        users?         @relation(fields: [author_id], references: [id], onUpdate: NoAction)
+  tags         tags?          @relation(fields: [tag_id], references: [id], onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model assignments {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id          String            @db.Uuid
+  group_exercise_id String            @db.Uuid
+  member_id         String            @db.Uuid
+  status            assignment_status @default(notstarted)
+  review_status     review_status     @default(pending)
+  feedback          String?
+  started_at        DateTime?         @db.Timestamptz(6)
+  reviewed_by       String?           @db.Uuid
+  reviewed_at       DateTime?         @db.Timestamptz(6)
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime          @default(now()) @db.Timestamptz(6)
+  group_exercises   group_exercises   @relation(fields: [group_id, group_exercise_id], references: [group_id, id], onDelete: Cascade, onUpdate: NoAction, map: "assignments_exercise_in_group")
+  group_members     group_members     @relation(fields: [group_id, member_id], references: [group_id, id], onDelete: Cascade, onUpdate: NoAction, map: "assignments_member_in_group")
+  users             users?            @relation(fields: [reviewed_by], references: [id], onUpdate: NoAction)
+  submissions       submissions[]
+
+  @@unique([group_exercise_id, member_id])
+  @@index([member_id, status], map: "idx_assignments_member")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model chapter_prerequisites {
+  course_id                                                            String   @db.Uuid
+  target_chapter_id                                                    String   @db.Uuid
+  source_chapter_id                                                    String   @db.Uuid
+  group_index                                                          Int      @default(0) @db.SmallInt
+  created_at                                                           DateTime @default(now()) @db.Timestamptz(6)
+  chapters_chapter_prerequisites_course_id_source_chapter_idTochapters chapters @relation("chapter_prerequisites_course_id_source_chapter_idTochapters", fields: [course_id, source_chapter_id], references: [course_id, id], onDelete: Cascade, onUpdate: NoAction, map: "chp_source_in_course")
+  chapters_chapter_prerequisites_course_id_target_chapter_idTochapters chapters @relation("chapter_prerequisites_course_id_target_chapter_idTochapters", fields: [course_id, target_chapter_id], references: [course_id, id], onDelete: Cascade, onUpdate: NoAction, map: "chp_target_in_course")
+
+  @@id([target_chapter_id, source_chapter_id, group_index])
+  @@index([course_id], map: "idx_chp_course")
+  @@index([source_chapter_id], map: "idx_chp_source")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+model chapters {
+  id                                                                                String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  course_id                                                                         String                  @db.Uuid
+  title                                                                             String
+  description                                                                       String?
+  position                                                                          Int
+  is_optional                                                                       Boolean                 @default(false)
+  created_at                                                                        DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at                                                                        DateTime                @default(now()) @db.Timestamptz(6)
+  chapter_prerequisites_chapter_prerequisites_course_id_source_chapter_idTochapters chapter_prerequisites[] @relation("chapter_prerequisites_course_id_source_chapter_idTochapters")
+  chapter_prerequisites_chapter_prerequisites_course_id_target_chapter_idTochapters chapter_prerequisites[] @relation("chapter_prerequisites_course_id_target_chapter_idTochapters")
+  courses                                                                           courses                 @relation(fields: [course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  lessons_lessons_chapter_idTochapters                                              lessons[]               @relation("lessons_chapter_idTochapters")
+  lessons_lessons_course_id_chapter_idTochapters                                    lessons[]               @relation("lessons_course_id_chapter_idTochapters")
+
+  @@unique([course_id, id], map: "chapters_id_course_unique")
+  @@unique([course_id, position], map: "chapters_position_unique")
+  @@index([course_id, position], map: "idx_chapters_course_position")
+}
+
+model companies {
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug               String               @unique @db.Citext
+  name               String
+  logo_url           String?
+  created_at         DateTime             @default(now()) @db.Timestamptz(6)
+  exercise_companies exercise_companies[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an index with non-default null sort order and requires additional setup for migrations. Visit https://pris.ly/d/default-index-null-ordering for more info.
+model course_enrollments {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String            @db.Uuid
+  course_id         String            @db.Uuid
+  via_roadmap_id    String?           @db.Uuid
+  status            enrollment_status @default(active)
+  mode_override     progression_mode?
+  completed_lessons Int               @default(0)
+  progress_percent  Decimal           @default(0) @db.Decimal(5, 2)
+  started_at        DateTime          @default(now()) @db.Timestamptz(6)
+  completed_at      DateTime?         @db.Timestamptz(6)
+  last_activity_at  DateTime?         @db.Timestamptz(6)
+  courses           courses           @relation(fields: [course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users             users             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  roadmaps          roadmaps?         @relation(fields: [via_roadmap_id], references: [id], onUpdate: NoAction)
+
+  @@unique([user_id, course_id])
+  @@index([course_id], map: "idx_course_enrollments_course")
+  @@index([user_id, last_activity_at(sort: Desc)], map: "idx_course_enrollments_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model course_outcomes {
+  course_id String  @db.Uuid
+  position  Int
+  text      String
+  courses   courses @relation(fields: [course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([course_id, position])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model course_prerequisites {
+  target_course_id                                       String   @db.Uuid
+  source_course_id                                       String   @db.Uuid
+  group_index                                            Int      @default(0) @db.SmallInt
+  created_at                                             DateTime @default(now()) @db.Timestamptz(6)
+  courses_course_prerequisites_source_course_idTocourses courses  @relation("course_prerequisites_source_course_idTocourses", fields: [source_course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  courses_course_prerequisites_target_course_idTocourses courses  @relation("course_prerequisites_target_course_idTocourses", fields: [target_course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([target_course_id, source_course_id, group_index])
+  @@index([source_course_id], map: "idx_cp_source")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model course_reviews {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  course_id  String   @db.Uuid
+  user_id    String   @db.Uuid
+  rating     Int      @db.SmallInt
+  comment    String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  courses    courses  @relation(fields: [course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([course_id, user_id])
+}
+
+model course_technologies {
+  course_id     String       @db.Uuid
+  technology_id String       @db.Uuid
+  courses       courses      @relation(fields: [course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  technologies  technologies @relation(fields: [technology_id], references: [id], onUpdate: NoAction)
+
+  @@id([course_id, technology_id])
+  @@index([technology_id], map: "idx_course_technologies_technology")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model courses {
+  id                                                                  String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                                                                String                 @unique @db.Citext
+  title                                                               String
+  description                                                         String?
+  cover_image_url                                                     String?
+  level                                                               current_level
+  duration_hours                                                      Int?
+  instructor_id                                                       String?                @db.Uuid
+  prerequisite_note                                                   String?
+  progression_mode                                                    progression_mode       @default(graph)
+  status                                                              content_status         @default(draft)
+  total_chapters                                                      Int                    @default(0)
+  total_lessons                                                       Int                    @default(0)
+  rating_avg                                                          Decimal?               @db.Decimal(3, 2)
+  rating_count                                                        Int                    @default(0)
+  enrollment_count                                                    Int                    @default(0)
+  created_by                                                          String?                @db.Uuid
+  published_at                                                        DateTime?              @db.Timestamptz(6)
+  created_at                                                          DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at                                                          DateTime               @default(now()) @db.Timestamptz(6)
+  chapters                                                            chapters[]
+  course_enrollments                                                  course_enrollments[]
+  course_outcomes                                                     course_outcomes[]
+  course_prerequisites_course_prerequisites_source_course_idTocourses course_prerequisites[] @relation("course_prerequisites_source_course_idTocourses")
+  course_prerequisites_course_prerequisites_target_course_idTocourses course_prerequisites[] @relation("course_prerequisites_target_course_idTocourses")
+  course_reviews                                                      course_reviews[]
+  course_technologies                                                 course_technologies[]
+  users_courses_created_byTousers                                     users?                 @relation("courses_created_byTousers", fields: [created_by], references: [id], onUpdate: NoAction)
+  users_courses_instructor_idTousers                                  users?                 @relation("courses_instructor_idTousers", fields: [instructor_id], references: [id], onUpdate: NoAction)
+  roadmap_courses                                                     roadmap_courses[]
+}
+
+model exercise_companies {
+  exercise_id String    @db.Uuid
+  company_id  String    @db.Uuid
+  companies   companies @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  exercises   exercises @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([exercise_id, company_id])
+  @@index([company_id], map: "idx_exercise_companies_company")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model exercise_prerequisites {
+  set_id                                                                                  String             @db.Uuid
+  target_exercise_id                                                                      String             @db.Uuid
+  source_exercise_id                                                                      String             @db.Uuid
+  group_index                                                                             Int                @default(0) @db.SmallInt
+  created_at                                                                              DateTime           @default(now()) @db.Timestamptz(6)
+  exercise_set_items_exercise_prerequisites_set_id_source_exercise_idToexercise_set_items exercise_set_items @relation("exercise_prerequisites_set_id_source_exercise_idToexercise_set_items", fields: [set_id, source_exercise_id], references: [set_id, exercise_id], onDelete: Cascade, onUpdate: NoAction, map: "ep_source_in_set")
+  exercise_set_items_exercise_prerequisites_set_id_target_exercise_idToexercise_set_items exercise_set_items @relation("exercise_prerequisites_set_id_target_exercise_idToexercise_set_items", fields: [set_id, target_exercise_id], references: [set_id, exercise_id], onDelete: Cascade, onUpdate: NoAction, map: "ep_target_in_set")
+
+  @@id([set_id, target_exercise_id, source_exercise_id, group_index])
+  @@index([set_id, source_exercise_id], map: "idx_ep_source")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model exercise_progress {
+  user_id         String                   @db.Uuid
+  exercise_id     String                   @db.Uuid
+  status          exercise_progress_status @default(todo)
+  best_score      Int?
+  attempt_count   Int                      @default(0)
+  is_favorite     Boolean                  @default(false)
+  first_solved_at DateTime?                @db.Timestamptz(6)
+  last_attempt_at DateTime?                @db.Timestamptz(6)
+  updated_at      DateTime                 @default(now()) @db.Timestamptz(6)
+  exercises       exercises                @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users           users                    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, exercise_id])
+  @@index([exercise_id], map: "idx_exercise_progress_exercise")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model exercise_set_enrollments {
+  user_id                   String            @db.Uuid
+  set_id                    String            @db.Uuid
+  progression_mode_override progression_mode?
+  started_at                DateTime          @default(now()) @db.Timestamptz(6)
+  completed_at              DateTime?         @db.Timestamptz(6)
+  exercise_sets             exercise_sets     @relation(fields: [set_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                     users             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, set_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+model exercise_set_items {
+  set_id                                                                                      String                   @db.Uuid
+  exercise_id                                                                                 String                   @db.Uuid
+  position                                                                                    Int
+  exercise_prerequisites_exercise_prerequisites_set_id_source_exercise_idToexercise_set_items exercise_prerequisites[] @relation("exercise_prerequisites_set_id_source_exercise_idToexercise_set_items")
+  exercise_prerequisites_exercise_prerequisites_set_id_target_exercise_idToexercise_set_items exercise_prerequisites[] @relation("exercise_prerequisites_set_id_target_exercise_idToexercise_set_items")
+  exercises                                                                                   exercises                @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  exercise_sets                                                                               exercise_sets            @relation(fields: [set_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([set_id, exercise_id])
+  @@unique([set_id, position], map: "exercise_set_items_position_unique")
+}
+
+model exercise_sets {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                     String                     @unique @db.Citext
+  title                    String
+  description              String?
+  kind                     exercise_set_kind          @default(collection)
+  progression_mode         progression_mode           @default(free)
+  status                   content_status             @default(draft)
+  created_by               String?                    @db.Uuid
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  exercise_set_enrollments exercise_set_enrollments[]
+  exercise_set_items       exercise_set_items[]
+  users                    users?                     @relation(fields: [created_by], references: [id], onUpdate: NoAction)
+}
+
+model exercise_tags {
+  exercise_id String    @db.Uuid
+  tag_id      String    @db.Uuid
+  exercises   exercises @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tags        tags      @relation(fields: [tag_id], references: [id], onUpdate: NoAction)
+
+  @@id([exercise_id, tag_id])
+  @@index([tag_id], map: "idx_exercise_tags_tag")
+}
+
+model exercise_technologies {
+  exercise_id   String       @db.Uuid
+  technology_id String       @db.Uuid
+  exercises     exercises    @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  technologies  technologies @relation(fields: [technology_id], references: [id], onUpdate: NoAction)
+
+  @@id([exercise_id, technology_id])
+  @@index([technology_id], map: "idx_exercise_technologies_technology")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model exercises {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                  String                  @unique @db.Citext
+  title                 String
+  summary               String?
+  kind                  exercise_kind           @default(code)
+  difficulty            exercise_difficulty
+  status                exercise_status         @default(draft)
+  source                exercise_source         @default(manual)
+  xp_reward             Int                     @default(0)
+  estimated_minutes     Int?
+  time_limit_ms         Int                     @default(1000)
+  memory_limit_kb       Int                     @default(262144)
+  author_id             String?                 @db.Uuid
+  content_ref           String?
+  acceptance_rate       Decimal?                @db.Decimal(5, 2)
+  solver_count          Int                     @default(0)
+  attempt_count         Int                     @default(0)
+  published_at          DateTime?               @db.Timestamptz(6)
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  visibility            exercise_visibility     @default(public)
+  exercise_companies    exercise_companies[]
+  exercise_progress     exercise_progress[]
+  exercise_set_items    exercise_set_items[]
+  exercise_tags         exercise_tags[]
+  exercise_technologies exercise_technologies[]
+  users                 users?                  @relation(fields: [author_id], references: [id], onUpdate: NoAction)
+  group_exercises       group_exercises[]
+  lessons               lessons[]
+  submissions           submissions[]
+}
+
+model group_activities {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id     String       @db.Uuid
+  actor_id     String?      @db.Uuid
+  action       String
+  target_type  String?
+  target_id    String?      @db.Uuid
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+  users        users?       @relation(fields: [actor_id], references: [id], onUpdate: NoAction)
+  study_groups study_groups @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([group_id, created_at(sort: Desc)], map: "idx_group_activities_group")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model group_documents {
+  id                                       String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id                                 String            @db.Uuid
+  title                                    String
+  doc_type                                 String
+  topic                                    String?
+  uploader_id                              String?           @db.Uuid
+  size_bytes                               BigInt?
+  storage_key                              String?
+  url                                      String?
+  preview_text                             String?
+  status                                   document_status   @default(pending)
+  ai_verdict                               ai_verdict        @default(valid)
+  reviewed_by                              String?           @db.Uuid
+  reviewed_at                              DateTime?         @db.Timestamptz(6)
+  uploaded_at                              DateTime          @default(now()) @db.Timestamptz(6)
+  study_groups                             study_groups      @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_group_documents_reviewed_byTousers users?            @relation("group_documents_reviewed_byTousers", fields: [reviewed_by], references: [id], onUpdate: NoAction)
+  users_group_documents_uploader_idTousers users?            @relation("group_documents_uploader_idTousers", fields: [uploader_id], references: [id], onUpdate: NoAction)
+  group_exercises                          group_exercises[]
+
+  @@index([group_id, uploaded_at(sort: Desc)], map: "idx_group_documents_group")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model group_exercises {
+  id                    String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id              String           @db.Uuid
+  exercise_id           String           @db.Uuid
+  assigned_by           String?          @db.Uuid
+  due_at                DateTime?        @db.Timestamptz(6)
+  attempt_limit         Int?
+  allow_retry           Boolean          @default(true)
+  allow_late_submission Boolean          @default(false)
+  phase                 String?
+  reference_document_id String?          @db.Uuid
+  created_at            DateTime         @default(now()) @db.Timestamptz(6)
+  assignments           assignments[]
+  users                 users?           @relation(fields: [assigned_by], references: [id], onUpdate: NoAction)
+  exercises             exercises        @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  study_groups          study_groups     @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  group_documents       group_documents? @relation(fields: [reference_document_id], references: [id], onUpdate: NoAction)
+
+  @@unique([group_id, exercise_id])
+  @@unique([group_id, id], map: "group_exercises_id_group_unique")
+  @@index([group_id, due_at], map: "idx_group_exercises_group")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model group_member_permissions {
+  group_member_id String           @db.Uuid
+  permission      group_permission
+  allowed         Boolean
+  group_members   group_members    @relation(fields: [group_member_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([group_member_id, permission])
+}
+
+model group_members {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id                 String                     @db.Uuid
+  user_id                  String                     @db.Uuid
+  role                     group_role                 @default(member)
+  status                   member_status              @default(active)
+  joined_at                DateTime                   @default(now()) @db.Timestamptz(6)
+  assignments              assignments[]
+  group_member_permissions group_member_permissions[]
+  study_groups             study_groups               @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                    users                      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([group_id, user_id])
+  @@unique([group_id, id], map: "group_members_id_group_unique")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model group_role_permissions {
+  group_id     String           @db.Uuid
+  role         group_role
+  permission   group_permission
+  allowed      Boolean          @default(false)
+  study_groups study_groups     @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([group_id, role, permission])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model learning_preferences {
+  user_id                   String            @id @db.Uuid
+  learning_goal             String?
+  career_goal               String?
+  current_level             current_level?
+  content_priority          content_priority?
+  weekly_study_hours        Int?
+  interested_fields         roadmap_field[]   @default([])
+  preferred_learning_styles learning_style[]  @default([])
+  reminders_enabled         Boolean           @default(true)
+  reminder_time             DateTime?         @db.Time(6)
+  adaptive_recommendations  Boolean           @default(true)
+  completed_at              DateTime?         @db.Timestamptz(6)
+  created_at                DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime          @default(now()) @db.Timestamptz(6)
+  users                     users             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([interested_fields], map: "idx_learning_preferences_fields", type: Gin)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model lesson_prerequisites {
+  course_id                                                        String   @db.Uuid
+  target_lesson_id                                                 String   @db.Uuid
+  source_lesson_id                                                 String   @db.Uuid
+  group_index                                                      Int      @default(0) @db.SmallInt
+  created_at                                                       DateTime @default(now()) @db.Timestamptz(6)
+  lessons_lesson_prerequisites_course_id_source_lesson_idTolessons lessons  @relation("lesson_prerequisites_course_id_source_lesson_idTolessons", fields: [course_id, source_lesson_id], references: [course_id, id], onDelete: Cascade, onUpdate: NoAction, map: "lp_source_in_course")
+  lessons_lesson_prerequisites_course_id_target_lesson_idTolessons lessons  @relation("lesson_prerequisites_course_id_target_lesson_idTolessons", fields: [course_id, target_lesson_id], references: [course_id, id], onDelete: Cascade, onUpdate: NoAction, map: "lp_target_in_course")
+
+  @@id([target_lesson_id, source_lesson_id, group_index])
+  @@index([course_id], map: "idx_lp_course")
+  @@index([source_lesson_id], map: "idx_lp_source")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model lesson_progress {
+  user_id               String          @db.Uuid
+  lesson_id             String          @db.Uuid
+  status                progress_status @default(not_started)
+  time_spent_seconds    Int             @default(0)
+  last_position_seconds Int?
+  started_at            DateTime?       @db.Timestamptz(6)
+  completed_at          DateTime?       @db.Timestamptz(6)
+  updated_at            DateTime        @default(now()) @db.Timestamptz(6)
+  lessons               lessons         @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                 users           @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, lesson_id])
+  @@index([lesson_id], map: "idx_lesson_progress_lesson")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+model lessons {
+  id                                                                            String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chapter_id                                                                    String                 @db.Uuid
+  course_id                                                                     String                 @db.Uuid
+  title                                                                         String
+  type                                                                          lesson_type
+  duration_minutes                                                              Int?
+  is_preview                                                                    Boolean                @default(false)
+  is_optional                                                                   Boolean                @default(false)
+  position                                                                      Int
+  exercise_id                                                                   String?                @db.Uuid
+  content_ref                                                                   String?
+  created_at                                                                    DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at                                                                    DateTime               @default(now()) @db.Timestamptz(6)
+  lesson_prerequisites_lesson_prerequisites_course_id_source_lesson_idTolessons lesson_prerequisites[] @relation("lesson_prerequisites_course_id_source_lesson_idTolessons")
+  lesson_prerequisites_lesson_prerequisites_course_id_target_lesson_idTolessons lesson_prerequisites[] @relation("lesson_prerequisites_course_id_target_lesson_idTolessons")
+  lesson_progress                                                               lesson_progress[]
+  chapters_lessons_chapter_idTochapters                                         chapters               @relation("lessons_chapter_idTochapters", fields: [chapter_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  chapters_lessons_course_id_chapter_idTochapters                               chapters               @relation("lessons_course_id_chapter_idTochapters", fields: [course_id, chapter_id], references: [course_id, id], onDelete: Cascade, onUpdate: NoAction, map: "lessons_chapter_in_course_fkey")
+  exercises                                                                     exercises?             @relation(fields: [exercise_id], references: [id], onUpdate: NoAction)
+
+  @@unique([course_id, id], map: "lessons_id_course_unique")
+  @@unique([chapter_id, position], map: "lessons_position_unique")
+  @@index([chapter_id, position], map: "idx_lessons_chapter_position")
+  @@index([course_id], map: "idx_lessons_course")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model roadmap_audiences {
+  roadmap_id String   @db.Uuid
+  position   Int
+  text       String
+  roadmaps   roadmaps @relation(fields: [roadmap_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([roadmap_id, position])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model roadmap_course_prerequisites {
+  roadmap_id                                                                                        String          @db.Uuid
+  target_roadmap_course_id                                                                          String          @db.Uuid
+  source_roadmap_course_id                                                                          String          @db.Uuid
+  group_index                                                                                       Int             @default(0) @db.SmallInt
+  created_at                                                                                        DateTime        @default(now()) @db.Timestamptz(6)
+  roadmap_courses_roadmap_course_prerequisites_roadmap_id_source_roadmap_course_idToroadmap_courses roadmap_courses @relation("roadmap_course_prerequisites_roadmap_id_source_roadmap_course_idToroadmap_courses", fields: [roadmap_id, source_roadmap_course_id], references: [roadmap_id, id], onDelete: Cascade, onUpdate: NoAction, map: "rcp_source_in_roadmap")
+  roadmap_courses_roadmap_course_prerequisites_roadmap_id_target_roadmap_course_idToroadmap_courses roadmap_courses @relation("roadmap_course_prerequisites_roadmap_id_target_roadmap_course_idToroadmap_courses", fields: [roadmap_id, target_roadmap_course_id], references: [roadmap_id, id], onDelete: Cascade, onUpdate: NoAction, map: "rcp_target_in_roadmap")
+
+  @@id([target_roadmap_course_id, source_roadmap_course_id, group_index])
+  @@index([source_roadmap_course_id], map: "idx_rcp_source")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
+model roadmap_courses {
+  id                                                                                                             String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roadmap_id                                                                                                     String                         @db.Uuid
+  course_id                                                                                                      String                         @db.Uuid
+  position                                                                                                       Int
+  is_optional                                                                                                    Boolean                        @default(false)
+  created_at                                                                                                     DateTime                       @default(now()) @db.Timestamptz(6)
+  roadmap_course_prerequisites_roadmap_course_prerequisites_roadmap_id_source_roadmap_course_idToroadmap_courses roadmap_course_prerequisites[] @relation("roadmap_course_prerequisites_roadmap_id_source_roadmap_course_idToroadmap_courses")
+  roadmap_course_prerequisites_roadmap_course_prerequisites_roadmap_id_target_roadmap_course_idToroadmap_courses roadmap_course_prerequisites[] @relation("roadmap_course_prerequisites_roadmap_id_target_roadmap_course_idToroadmap_courses")
+  courses                                                                                                        courses                        @relation(fields: [course_id], references: [id], onUpdate: NoAction)
+  roadmaps                                                                                                       roadmaps                       @relation(fields: [roadmap_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([roadmap_id, id], map: "roadmap_courses_id_roadmap_unique")
+  @@unique([roadmap_id, position], map: "roadmap_courses_position_unique")
+  @@unique([roadmap_id, course_id])
+  @@index([course_id], map: "idx_roadmap_courses_course")
+  @@index([roadmap_id, position], map: "idx_roadmap_courses_roadmap")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an index with non-default null sort order and requires additional setup for migrations. Visit https://pris.ly/d/default-index-null-ordering for more info.
+model roadmap_enrollments {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String            @db.Uuid
+  roadmap_id        String            @db.Uuid
+  status            enrollment_status @default(active)
+  mode_override     progression_mode?
+  completed_courses Int               @default(0)
+  progress_percent  Decimal           @default(0) @db.Decimal(5, 2)
+  started_at        DateTime          @default(now()) @db.Timestamptz(6)
+  completed_at      DateTime?         @db.Timestamptz(6)
+  last_activity_at  DateTime?         @db.Timestamptz(6)
+  roadmaps          roadmaps          @relation(fields: [roadmap_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users             users             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, roadmap_id])
+  @@index([user_id, last_activity_at(sort: Desc)], map: "idx_roadmap_enrollments_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model roadmap_outcomes {
+  roadmap_id String   @db.Uuid
+  position   Int
+  text       String
+  roadmaps   roadmaps @relation(fields: [roadmap_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([roadmap_id, position])
+}
+
+model roadmap_technologies {
+  roadmap_id    String       @db.Uuid
+  technology_id String       @db.Uuid
+  roadmaps      roadmaps     @relation(fields: [roadmap_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  technologies  technologies @relation(fields: [technology_id], references: [id], onUpdate: NoAction)
+
+  @@id([roadmap_id, technology_id])
+  @@index([technology_id], map: "idx_roadmap_technologies_technology")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model roadmaps {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                 String                 @unique @db.Citext
+  title                String
+  short_description    String?
+  description          String?
+  field                roadmap_field
+  level                current_level
+  cover_image_url      String?
+  estimated_hours      Int?
+  progression_mode     progression_mode       @default(graph)
+  prerequisite_note    String?
+  status               content_status         @default(draft)
+  popularity_score     Int                    @default(0)
+  created_by           String?                @db.Uuid
+  published_at         DateTime?              @db.Timestamptz(6)
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
+  course_enrollments   course_enrollments[]
+  roadmap_audiences    roadmap_audiences[]
+  roadmap_courses      roadmap_courses[]
+  roadmap_enrollments  roadmap_enrollments[]
+  roadmap_outcomes     roadmap_outcomes[]
+  roadmap_technologies roadmap_technologies[]
+  users                users?                 @relation(fields: [created_by], references: [id], onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model study_groups {
+  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                   String                   @unique @db.Citext
+  name                   String
+  description            String?
+  invite_code            String                   @unique @db.Citext
+  topic                  String?
+  owner_id               String                   @db.Uuid
+  status                 group_status             @default(active)
+  member_count           Int                      @default(0)
+  last_activity_at       DateTime?                @db.Timestamptz(6)
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  group_activities       group_activities[]
+  group_documents        group_documents[]
+  group_exercises        group_exercises[]
+  group_members          group_members[]
+  group_role_permissions group_role_permissions[]
+  users                  users                    @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model study_schedule_slots {
+  user_id          String   @db.Uuid
+  weekday          weekday
+  enabled          Boolean  @default(false)
+  start_time       DateTime @db.Time(6)
+  duration_minutes Int
+  users            users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, weekday])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model submissions {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String             @db.Uuid
+  exercise_id    String             @db.Uuid
+  assignment_id  String?            @db.Uuid
+  language       String
+  source_code    String
+  verdict        submission_verdict @default(pending)
+  score          Int?
+  passed_tests   Int?
+  total_tests    Int?
+  runtime_ms     Int?
+  memory_kb      Int?
+  attempt_number Int
+  is_late        Boolean            @default(false)
+  note           String?
+  run_detail_ref String?
+  submitted_at   DateTime           @default(now()) @db.Timestamptz(6)
+  assignments    assignments?       @relation(fields: [assignment_id], references: [id], onUpdate: NoAction)
+  exercises      exercises          @relation(fields: [exercise_id], references: [id], onUpdate: NoAction)
+  users          users              @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, exercise_id, attempt_number])
+  @@index([exercise_id, submitted_at(sort: Desc)], map: "idx_submissions_exercise")
+  @@index([user_id, submitted_at(sort: Desc)], map: "idx_submissions_user_recent")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model tags {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug          String          @unique @db.Citext
+  name          String
+  created_at    DateTime        @default(now()) @db.Timestamptz(6)
+  articles      articles[]
+  exercise_tags exercise_tags[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model technologies {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                  String                  @unique @db.Citext
+  name                  String
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  course_technologies   course_technologies[]
+  exercise_technologies exercise_technologies[]
+  roadmap_technologies  roadmap_technologies[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model user_stats {
+  user_id             String    @id @db.Uuid
+  xp                  Int       @default(0)
+  solved_count        Int       @default(0)
+  current_streak_days Int       @default(0)
+  longest_streak_days Int       @default(0)
+  last_solved_on      DateTime? @db.Date
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  users               users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model users {
+  id                                                 String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                                              String                     @unique @db.Citext
+  handle                                             String?                    @unique @db.Citext
+  display_name                                       String
+  bio                                                String?
+  avatar_url                                         String?
+  website_url                                        String?
+  github_handle                                      String?
+  role                                               platform_role              @default(learner)
+  status                                             account_status             @default(active)
+  locale                                             String                     @default("vi")
+  timezone                                           String                     @default("Asia/Ho_Chi_Minh")
+  email_verified_at                                  DateTime?                  @db.Timestamptz(6)
+  last_active_at                                     DateTime?                  @db.Timestamptz(6)
+  created_at                                         DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at                                         DateTime                   @default(now()) @db.Timestamptz(6)
+  external_id                                        String?                    @unique @db.Citext
+  articles                                           articles[]
+  assignments                                        assignments[]
+  course_enrollments                                 course_enrollments[]
+  course_reviews                                     course_reviews[]
+  courses_courses_created_byTousers                  courses[]                  @relation("courses_created_byTousers")
+  courses_courses_instructor_idTousers               courses[]                  @relation("courses_instructor_idTousers")
+  exercise_progress                                  exercise_progress[]
+  exercise_set_enrollments                           exercise_set_enrollments[]
+  exercise_sets                                      exercise_sets[]
+  exercises                                          exercises[]
+  group_activities                                   group_activities[]
+  group_documents_group_documents_reviewed_byTousers group_documents[]          @relation("group_documents_reviewed_byTousers")
+  group_documents_group_documents_uploader_idTousers group_documents[]          @relation("group_documents_uploader_idTousers")
+  group_exercises                                    group_exercises[]
+  group_members                                      group_members[]
+  learning_preferences                               learning_preferences?
+  lesson_progress                                    lesson_progress[]
+  roadmap_enrollments                                roadmap_enrollments[]
+  roadmaps                                           roadmaps[]
+  study_groups                                       study_groups[]
+  study_schedule_slots                               study_schedule_slots[]
+  submissions                                        submissions[]
+  user_stats                                         user_stats?
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model outbox {
+  id            String    @id @db.Uuid
+  topic         String
+  partition_key String?
+  payload       Json
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  published_at  DateTime? @db.Timestamptz(6)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model processed_events {
+  consumer     String
+  event_id     String   @db.Uuid
+  topic        String
+  processed_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([consumer, event_id])
+  @@index([processed_at], map: "idx_processed_events_time")
+}
+
+enum account_status {
+  active
+  suspended
+  deleted
+}
+
+enum ai_verdict {
+  valid
+  warning
+  invalid
+}
+
+enum assignment_status {
+  notstarted
+  inprogress
+  done
+  late
+}
+
+enum content_priority {
+  theory
+  practice
+  project
+}
+
+enum content_status {
+  draft
+  published
+  archived
+}
+
+enum current_level {
+  none
+  basic
+  intermediate
+  experienced
+}
+
+enum document_status {
+  published
+  pending
+  changes
+  rejected
+  hidden
+}
+
+enum enrollment_status {
+  active
+  completed
+  paused
+  dropped
+}
+
+enum exercise_difficulty {
+  easy
+  medium
+  hard
+}
+
+enum exercise_kind {
+  code
+  theory
+  quiz
+}
+
+enum exercise_progress_status {
+  todo
+  attempted
+  solved
+}
+
+enum exercise_set_kind {
+  collection
+  track
+  daily
+}
+
+enum exercise_source {
+  ai
+  manual
+}
+
+enum exercise_status {
+  draft
+  pending_review
+  changes_requested
+  rejected
+  published
+  closed
+  hidden
+  archived
+}
+
+enum group_permission {
+  upload_doc
+  create_exercise
+  edit_exercise
+  delete_doc
+  review_submission
+  remove_member
+}
+
+enum group_role {
+  owner
+  deputy
+  member
+}
+
+enum group_status {
+  active
+  archived
+}
+
+enum learning_style {
+  video
+  reading
+  practice
+  project
+  mentoring
+}
+
+enum lesson_type {
+  video
+  article
+  exercise
+  quiz
+  challenge
+  project
+}
+
+enum member_status {
+  invited
+  active
+  removed
+}
+
+enum platform_role {
+  learner
+  mentor
+  admin
+}
+
+enum progress_status {
+  not_started
+  in_progress
+  completed
+}
+
+enum progression_mode {
+  linear
+  graph
+  free
+}
+
+enum review_status {
+  pending
+  approved
+  needsfix
+}
+
+enum roadmap_field {
+  frontend
+  backend
+  fullstack
+  mobile
+  data_ai
+  foundation
+}
+
+enum submission_verdict {
+  accepted
+  wrong_answer
+  compile_error
+  runtime_error
+  timeout
+  memory_exceeded
+  pending
+}
+
+enum weekday {
+  mon
+  tue
+  wed
+  thu
+  fri
+  sat
+  sun
+}
+
+enum exercise_visibility {
+  public
+  group
+}
