@@ -13,5 +13,8 @@ export * from './auth/jwt-payload';
 export * from './auth/public.decorator';
 export * from './auth/current-user.decorator';
 export * from './auth/identity-provisioning.port';
+export * from './auth/roles.decorator';
+export * from './auth/roles.guard';
+export * from './auth/user-role';
 export * from './health/health.module';
 export * from './bootstrap';

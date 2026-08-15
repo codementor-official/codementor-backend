@@ -4,6 +4,7 @@ import { ProvisionUserUseCase } from './application/provision-user.usecase';
 import { USER_REPOSITORY } from './domain/port/user.repository';
 import { IdentityQueryService } from './infrastructure/identity-query.service';
 import { PrismaUserRepository } from './infrastructure/prisma-user.repository';
+import { KeycloakAdminService } from './infrastructure/keycloak-admin.service';
 import { IDENTITY_QUERY } from './identity.public';
 import { IdentityController } from './presentation/identity.controller';
 
@@ -17,6 +18,7 @@ import { IdentityController } from './presentation/identity.controller';
   controllers: [IdentityController],
   providers: [
     ProvisionUserUseCase,
+    KeycloakAdminService,
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: IDENTITY_PROVISIONING, useExisting: ProvisionUserUseCase },
     { provide: IDENTITY_QUERY, useClass: IdentityQueryService },

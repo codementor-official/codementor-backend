@@ -4,7 +4,7 @@ import { UserRegistered } from '../event/user-registered.event';
 import type { Email } from './email';
 import type { Handle } from './handle';
 
-export type PlatformRole = 'learner' | 'admin';
+export type PlatformRole = 'learner' | 'mentor' | 'admin';
 export type AccountStatus = 'active' | 'suspended' | 'deleted';
 
 interface UserProps {

@@ -37,7 +37,7 @@ export class ProvisionUserUseCase implements IdentityProvisioning {
         email: email.value,
         displayName: input.displayName,
         emailVerified: input.emailVerified,
-        role: input.role,
+        role: input.platformRole,
       });
       await this.users.save(user);
 
@@ -56,7 +56,7 @@ export class ProvisionUserUseCase implements IdentityProvisioning {
         email: email.value,
         displayName: input.displayName,
         emailVerified: input.emailVerified,
-        role: input.role,
+        role: input.platformRole,
       });
       if (changed) await this.users.save(user);
     }
@@ -70,7 +70,9 @@ export class ProvisionUserUseCase implements IdentityProvisioning {
       externalId: user.externalId,
       email: user.email.value,
       displayName: user.displayName,
-      role: user.role,
+      roles: input.roles,
+      actorType: 'human',
+      platformRole: user.role,
     };
   }
 }
