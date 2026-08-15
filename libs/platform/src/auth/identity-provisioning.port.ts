@@ -1,11 +1,13 @@
 import type { AuthenticatedUser, PlatformRole } from './jwt-payload';
+import type { UserRole } from './user-role';
 
 export interface ProvisionUserInput {
   externalId: string;
   email: string;
   displayName: string;
   emailVerified: boolean;
-  role: PlatformRole;
+  platformRole: PlatformRole;
+  roles: UserRole[];
 }
 
 /**

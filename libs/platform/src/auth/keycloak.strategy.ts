@@ -6,6 +6,7 @@ import { passportJwtSecret } from 'jwks-rsa';
 import { IDENTITY_PROVISIONING, type IdentityProvisioning } from './identity-provisioning.port';
 import { Inject } from '@nestjs/common';
 import type { AuthenticatedUser, KeycloakToken, PlatformRole } from './jwt-payload';
+import { keycloakRoles, UserRole } from './user-role';
 
 /**
  * Xác minh token Keycloak bằng khoá công khai lấy từ JWKS endpoint (RS256).
@@ -43,18 +44,39 @@ export class KeycloakStrategy extends PassportStrategy(Strategy, 'keycloak') {
    * `users` tương ứng. Nhờ vậy đăng ký qua social không cần webhook từ Keycloak.
    */
   async validate(token: KeycloakToken): Promise<AuthenticatedUser> {
+    const roles = keycloakRoles(token.realm_access?.roles);
+
+    if (roles.includes(UserRole.AI_AGENT)) {
+      return {
+        id: null,
+        externalId: token.sub,
+        displayName: token.preferred_username ?? 'codementor-ai-agent',
+        roles,
+        actorType: 'service',
+      };
+    }
+
     if (!token.email) {
       throw new UnauthorizedException('Token thiếu claim email — kiểm tra client scope của Keycloak');
     }
 
-    const role: PlatformRole = token.realm_access?.roles?.includes('admin') ? 'admin' : 'learner';
+    const platformRole: PlatformRole = roles.includes(UserRole.ADMIN)
+      ? 'admin'
+      : roles.includes(UserRole.LECTURER)
+        ? 'mentor'
+        : 'learner';
+
+    if (!roles.some((role) => role !== UserRole.AI_AGENT)) {
+      throw new UnauthorizedException('Token không có vai trò CodeMentor hợp lệ');
+    }
 
     return this.provisioning.ensureLocalUser({
       externalId: token.sub,
       email: token.email,
       displayName: token.name ?? token.preferred_username ?? token.email,
       emailVerified: token.email_verified ?? false,
-      role,
+      platformRole,
+      roles,
     });
   }
 }
