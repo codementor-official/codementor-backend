@@ -1,6 +1,8 @@
 import { Global, Module } from '@nestjs/common';
 import { IDENTITY_PROVISIONING } from '@codementor/platform';
+import { GetProfileUseCase } from './application/get-profile.usecase';
 import { ProvisionUserUseCase } from './application/provision-user.usecase';
+import { UpdateProfileUseCase } from './application/update-profile.usecase';
 import { USER_REPOSITORY } from './domain/port/user.repository';
 import { IdentityQueryService } from './infrastructure/identity-query.service';
 import { PrismaUserRepository } from './infrastructure/prisma-user.repository';
@@ -16,7 +18,9 @@ import { IdentityController } from './presentation/identity.controller';
 @Module({
   controllers: [IdentityController],
   providers: [
+    GetProfileUseCase,
     ProvisionUserUseCase,
+    UpdateProfileUseCase,
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: IDENTITY_PROVISIONING, useExisting: ProvisionUserUseCase },
     { provide: IDENTITY_QUERY, useClass: IdentityQueryService },

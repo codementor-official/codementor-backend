@@ -1,4 +1,5 @@
 import { Global, Module, type DynamicModule } from '@nestjs/common';
+import { PrismaModule } from '@codementor/platform';
 import { EVENT_BUS, OUTBOX_EVENT_BUS } from './event-bus.port';
 import { EventConsumer } from './event-consumer';
 import { KafkaEventBus } from './kafka-event-bus';
@@ -18,6 +19,9 @@ export class MessagingModule {
   static forRoot(options: MessagingOptions): DynamicModule {
     return {
       module: MessagingModule,
+      // EventConsumer và OutboxPublisher ghi `processed_events`/`outbox` qua Prisma.
+      // Import ở đây thay vì trông chờ từng service nhớ thêm PrismaModule.
+      imports: [PrismaModule],
       providers: [
         { provide: MESSAGING_OPTIONS, useValue: options },
         KafkaClient,

@@ -42,6 +42,9 @@ export async function bootstrapService(
   app.enableCors({
     origin: config.get<string[]>('CORS_ORIGINS', ['http://localhost:3000']),
     credentials: true,
+    // Mặc định chỉ có GET,HEAD,POST — trình duyệt sẽ chặn preflight của PATCH/PUT/DELETE
+    // (vd `PATCH /api/v1/me`) khi frontend gọi chéo origin.
+    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   });
 
   app.setGlobalPrefix(config.get<string>('API_PREFIX', 'api'));

@@ -15,9 +15,16 @@ interface UserRow {
   role: string;
   status: string;
   email_verified_at: Date | null;
+  bio: string | null;
+  avatar_url: string | null;
+  website_url: string | null;
+  github_handle: string | null;
+  locale: string;
+  timezone: string;
 }
 
-const COLUMNS = `id, external_id, email, handle, display_name, role, status, email_verified_at`;
+const COLUMNS = `id, external_id, email, handle, display_name, role, status, email_verified_at,
+                 bio, avatar_url, website_url, github_handle, locale, timezone`;
 
 /** Chỉ context Identity được đọc/ghi bảng `users`. Context khác đi qua identity.public.ts. */
 @Injectable()
@@ -51,15 +58,24 @@ export class PrismaUserRepository implements UserRepository {
   async save(user: User): Promise<void> {
     try {
       await this.prisma.$executeRawUnsafe(
-        `INSERT INTO users (id, external_id, email, handle, display_name, role, status, email_verified_at)
-         VALUES ($1::uuid, $2, $3::citext, $4::citext, $5, $6::platform_role, $7::account_status, $8)
+        `INSERT INTO users (id, external_id, email, handle, display_name, role, status, email_verified_at,
+                            bio, avatar_url, website_url, github_handle, locale, timezone)
+         VALUES ($1::uuid, $2, $3::citext, $4::citext, $5, $6::platform_role, $7::account_status, $8,
+                 $9, $10, $11, $12, $13, $14)
          ON CONFLICT (external_id) DO UPDATE SET
            email             = EXCLUDED.email,
            handle            = EXCLUDED.handle,
            display_name      = EXCLUDED.display_name,
            role              = EXCLUDED.role,
            status            = EXCLUDED.status,
-           email_verified_at = EXCLUDED.email_verified_at`,
+           email_verified_at = EXCLUDED.email_verified_at,
+           bio               = EXCLUDED.bio,
+           avatar_url        = EXCLUDED.avatar_url,
+           website_url       = EXCLUDED.website_url,
+           github_handle     = EXCLUDED.github_handle,
+           locale            = EXCLUDED.locale,
+           timezone          = EXCLUDED.timezone,
+           updated_at        = now()`,
         user.id,
         user.externalId,
         user.email.value,
@@ -68,6 +84,12 @@ export class PrismaUserRepository implements UserRepository {
         user.role,
         user.status,
         user.isEmailVerified ? new Date() : null,
+        user.bio,
+        user.avatarUrl,
+        user.websiteUrl,
+        user.githubHandle,
+        user.locale,
+        user.timezone,
       );
     } catch (error) {
       throw mapDatabaseError(error) ?? error;
@@ -89,6 +111,12 @@ export class PrismaUserRepository implements UserRepository {
       role: row.role as PlatformRole,
       status: row.status as AccountStatus,
       emailVerifiedAt: row.email_verified_at,
+      bio: row.bio,
+      avatarUrl: row.avatar_url,
+      websiteUrl: row.website_url,
+      githubHandle: row.github_handle,
+      locale: row.locale,
+      timezone: row.timezone,
     });
   }
 }
