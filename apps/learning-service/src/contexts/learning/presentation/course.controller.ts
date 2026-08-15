@@ -23,6 +23,7 @@ import {
   SaveLessonContentDto,
   UpdateCourseDto,
 } from './dto/course.dto';
+import { ModerateDto } from './dto/moderate.dto';
 
 @ApiTags('courses')
 @ApiBearerAuth('access-token')
@@ -41,6 +42,13 @@ export class CourseController {
   @ApiOperation({ summary: 'Khóa học của tôi, mọi trạng thái' })
   mine(@CurrentUser() user: AuthenticatedUser, @Query() query: ListCoursesQueryDto) {
     return this.courses.list({ createdBy: user.id }, query);
+  }
+
+  @Get('moderation')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Hàng chờ duyệt, cũ trước' })
+  queue(@Query() query: ListCoursesQueryDto) {
+    return this.courses.list({ pendingOnly: true }, query);
   }
 
   @Get(':id')
@@ -124,6 +132,18 @@ export class CourseController {
   @ApiOperation({ summary: 'Gửi duyệt' })
   submit(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.courses.submit(user, id);
+  }
+
+  @Post(':id/moderate')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Duyệt, yêu cầu sửa, từ chối hoặc gỡ khóa học' })
+  @ApiResponse({ status: 400, description: 'Từ chối mà không nêu lý do' })
+  decide(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ModerateDto,
+  ) {
+    return this.courses.moderate(user, id, dto.decision, dto.reason ?? null);
   }
 
   @Post(':id/withdraw')

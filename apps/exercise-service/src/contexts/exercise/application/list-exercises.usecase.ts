@@ -25,13 +25,14 @@ export class ListExercisesUseCase {
    * mọi trạng thái" — tổ hợp đó không diễn đạt được.
    */
   async execute(
-    scope: { authorId: string } | { publishedOnly: true },
+    scope: { authorId: string } | { publishedOnly: true } | { pendingOnly: true },
     query: ListExercisesQuery,
   ): Promise<Page<ExerciseListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
     const rows = await this.exercises.list({
       authorId: 'authorId' in scope ? scope.authorId : null,
-      publishedOnly: !('authorId' in scope),
+      publishedOnly: 'publishedOnly' in scope,
+      pendingOnly: 'pendingOnly' in scope,
       kind: query.kind,
       difficulty: query.difficulty,
       status: 'authorId' in scope ? query.status : undefined,

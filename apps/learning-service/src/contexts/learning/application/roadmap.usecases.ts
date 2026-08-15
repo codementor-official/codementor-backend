@@ -53,13 +53,14 @@ export class RoadmapUseCases {
   constructor(@Inject(ROADMAP_REPOSITORY) private readonly roadmaps: RoadmapRepository) {}
 
   async list(
-    scope: { createdBy: string } | { publishedOnly: true },
+    scope: { createdBy: string } | { publishedOnly: true } | { pendingOnly: true },
     query: ListRoadmapsQuery,
   ): Promise<Page<RoadmapListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
     const rows = await this.roadmaps.list({
       createdBy: 'createdBy' in scope ? scope.createdBy : null,
-      publishedOnly: !('createdBy' in scope),
+      publishedOnly: 'publishedOnly' in scope,
+      pendingOnly: 'pendingOnly' in scope,
       field: query.field,
       level: query.level,
       status: 'createdBy' in scope ? query.status : undefined,
@@ -177,6 +178,26 @@ export class RoadmapUseCases {
       );
     }
     await this.roadmaps.delete(id);
+  }
+
+  /**
+   * Quyết định của admin. Kiểm vai trò lại ở đây dù controller đã có `@Roles('admin')`:
+   * guard bảo vệ đường HTTP, use case là thứ mọi lối gọi khác cũng đi qua.
+   */
+  async moderate(
+    user: AuthenticatedUser,
+    id: string,
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive',
+    reason: string | null,
+  ) {
+    if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');
+
+    const entity = await this.mustFind(id);
+    const moderated = entity.moderate(decision, reason);
+    if (moderated.isFail) throw moderated.error;
+
+    await this.roadmaps.save(entity);
+    return toRoadmapView(entity, await this.roadmaps.listCourses(id));
   }
 
   private async mustFind(id: string): Promise<Roadmap> {

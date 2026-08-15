@@ -22,6 +22,7 @@ import {
   ReplaceRoadmapCoursesDto,
   UpdateRoadmapDto,
 } from './dto/roadmap.dto';
+import { ModerateDto } from './dto/moderate.dto';
 
 @ApiTags('roadmaps')
 @ApiBearerAuth('access-token')
@@ -40,6 +41,13 @@ export class RoadmapController {
   @ApiOperation({ summary: 'Lộ trình của tôi, mọi trạng thái' })
   mine(@CurrentUser() user: AuthenticatedUser, @Query() query: ListRoadmapsQueryDto) {
     return this.roadmaps.list({ createdBy: user.id }, query);
+  }
+
+  @Get('moderation')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Hàng chờ duyệt, cũ trước' })
+  queue(@Query() query: ListRoadmapsQueryDto) {
+    return this.roadmaps.list({ pendingOnly: true }, query);
   }
 
   @Get(':id')
@@ -87,6 +95,18 @@ export class RoadmapController {
   @ApiOperation({ summary: 'Gửi duyệt' })
   submit(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.roadmaps.submit(user, id);
+  }
+
+  @Post(':id/moderate')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Duyệt, yêu cầu sửa, từ chối hoặc gỡ lộ trình' })
+  @ApiResponse({ status: 400, description: 'Từ chối mà không nêu lý do' })
+  decide(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ModerateDto,
+  ) {
+    return this.roadmaps.moderate(user, id, dto.decision, dto.reason ?? null);
   }
 
   @Post(':id/withdraw')

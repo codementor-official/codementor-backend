@@ -114,6 +114,50 @@ check "cùng một khóa học hai lần bị chặn" 409 \
 check "người lạ xem lộ trình nháp ra 404" 404 "$(code "${AS[@]}" "$API/roadmaps/$RM_ID")"
 check "xoá lộ trình nháp" 204 "$(code -X DELETE "${AL[@]}" "$API/roadmaps/$RM_ID")"
 
+echo "== kiểm duyệt =="
+ADMIN=$(token admin1)
+if [ -z "$ADMIN" ]; then
+  echo "  (bỏ qua: chưa có tài khoản admin1 trên realm)"
+else
+  AA=(-H "Authorization: Bearer $ADMIN")
+  check "giảng viên không xem được hàng chờ" 403 "$(code "${AL[@]}" "$API/exercises/moderation")"
+  check "admin xem được hàng chờ bài code" 200 "$(code "${AA[@]}" "$API/exercises/moderation")"
+  check "admin xem được hàng chờ khóa học" 200 "$(code "${AA[@]}" "$API/courses/moderation")"
+  check "admin xem được hàng chờ lộ trình" 200 "$(code "${AA[@]}" "$API/roadmaps/moderation")"
+
+  MOD=$(curl -s -X POST "${AL[@]}" "${J[@]}" \
+    -d '{"title":"Smoke test kiểm duyệt","kind":"code","difficulty":"easy"}' "$API/exercises")
+  MOD_ID=$(echo "$MOD" | field "['id']")
+  curl -s -o /dev/null -X PUT "${AL[@]}" "${J[@]}" -d '{
+    "statement":"đề",
+    "languages":[{"id":"python","label":"Python","referenceSolution":"x"}],
+    "testCases":[
+      {"order":1,"input":"a","expected":"b","visibility":"public"},
+      {"order":2,"input":"c","expected":"d","visibility":"hidden"},
+      {"order":3,"input":"e","expected":"f","visibility":"hidden"}]}' \
+    "$API/exercises/$MOD_ID/content"
+  curl -s -o /dev/null -X POST "${AL[@]}" "$API/exercises/$MOD_ID/submit"
+
+  check "giảng viên không tự duyệt được" 403 \
+    "$(code -X POST "${AL[@]}" "${J[@]}" -d '{"decision":"approve"}' "$API/exercises/$MOD_ID/moderate")"
+  check "từ chối mà không nêu lý do bị chặn" 400 \
+    "$(code -X POST "${AA[@]}" "${J[@]}" -d '{"decision":"reject"}' "$API/exercises/$MOD_ID/moderate")"
+  check "yêu cầu sửa ghi lại lý do" changes_requested \
+    "$(curl -s -X POST "${AA[@]}" "${J[@]}" -d '{"decision":"request_changes","reason":"Thiếu ví dụ"}' "$API/exercises/$MOD_ID/moderate" | field "['status']")"
+  check "quyết định lại khi không còn chờ duyệt bị chặn" 422 \
+    "$(code -X POST "${AA[@]}" "${J[@]}" -d '{"decision":"approve"}' "$API/exercises/$MOD_ID/moderate")"
+  check "gửi lại thì lý do cũ bị xoá" None \
+    "$(curl -s -X POST "${AL[@]}" "$API/exercises/$MOD_ID/submit" | field "['rejectionReason']")"
+  check "admin duyệt" published \
+    "$(curl -s -X POST "${AA[@]}" "${J[@]}" -d '{"decision":"approve"}' "$API/exercises/$MOD_ID/moderate" | field "['status']")"
+  check "admin gỡ" archived \
+    "$(curl -s -X POST "${AA[@]}" "${J[@]}" -d '{"decision":"archive"}' "$API/exercises/$MOD_ID/moderate" | field "['status']")"
+  check "gỡ thứ không còn công khai bị chặn" 422 \
+    "$(code -X POST "${AA[@]}" "${J[@]}" -d '{"decision":"archive"}' "$API/exercises/$MOD_ID/moderate")"
+
+  curl -s -o /dev/null -X DELETE "${AL[@]}" "$API/exercises/$MOD_ID"
+fi
+
 echo
 printf 'đạt %d, hỏng %d\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

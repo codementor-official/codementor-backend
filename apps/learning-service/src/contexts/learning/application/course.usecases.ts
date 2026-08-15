@@ -96,13 +96,14 @@ export class CourseUseCases {
   ) {}
 
   async list(
-    scope: { createdBy: string } | { publishedOnly: true },
+    scope: { createdBy: string } | { publishedOnly: true } | { pendingOnly: true },
     query: ListCoursesQuery,
   ): Promise<Page<CourseListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
     const rows = await this.courses.list({
       createdBy: 'createdBy' in scope ? scope.createdBy : null,
-      publishedOnly: !('createdBy' in scope),
+      publishedOnly: 'publishedOnly' in scope,
+      pendingOnly: 'pendingOnly' in scope,
       level: query.level,
       status: 'createdBy' in scope ? query.status : undefined,
       q: query.q,
@@ -269,6 +270,26 @@ export class CourseUseCases {
       );
     }
     await this.courses.delete(id);
+  }
+
+  /**
+   * Quyết định của admin. Kiểm vai trò lại ở đây dù controller đã có `@Roles('admin')`:
+   * guard bảo vệ đường HTTP, use case là thứ mọi lối gọi khác cũng đi qua.
+   */
+  async moderate(
+    user: AuthenticatedUser,
+    id: string,
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive',
+    reason: string | null,
+  ) {
+    if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');
+
+    const entity = await this.mustFind(id);
+    const moderated = entity.moderate(decision, reason);
+    if (moderated.isFail) throw moderated.error;
+
+    await this.courses.save(entity);
+    return toView(entity, await this.courses.findCurriculum(id));
   }
 
   private async mustFind(id: string): Promise<Course> {

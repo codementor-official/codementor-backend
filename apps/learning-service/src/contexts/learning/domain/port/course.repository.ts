@@ -4,6 +4,8 @@ import type { ChapterDraft, LessonType } from '../model/curriculum';
 export interface CourseListFilter {
   createdBy: string | null;
   publishedOnly: boolean;
+  /** Hàng chờ duyệt: mọi tác giả, chỉ `pending_review`, sắp cũ trước. */
+  pendingOnly?: boolean;
   level?: string;
   status?: string;
   q?: string;

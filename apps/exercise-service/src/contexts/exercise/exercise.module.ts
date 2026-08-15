@@ -4,6 +4,7 @@ import { DeleteExerciseUseCase } from './application/delete-exercise.usecase';
 import { ForkExerciseUseCase } from './application/fork-exercise.usecase';
 import { GetExerciseUseCase } from './application/get-exercise.usecase';
 import { ListExercisesUseCase } from './application/list-exercises.usecase';
+import { ModerateExerciseUseCase } from './application/moderate-exercise.usecase';
 import { ReviewTransitionUseCase } from './application/review-transition.usecase';
 import { SaveContentUseCase } from './application/save-content.usecase';
 import { UpdateExerciseUseCase } from './application/update-exercise.usecase';
@@ -26,6 +27,7 @@ import { ExerciseController } from './presentation/exercise.controller';
     DeleteExerciseUseCase,
     ForkExerciseUseCase,
     ReviewTransitionUseCase,
+    ModerateExerciseUseCase,
     { provide: EXERCISE_REPOSITORY, useClass: PrismaExerciseRepository },
     { provide: EXERCISE_CONTENT_REPOSITORY, useClass: MongoExerciseContentRepository },
   ],

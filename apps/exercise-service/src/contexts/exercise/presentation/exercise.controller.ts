@@ -20,10 +20,16 @@ import { DeleteExerciseUseCase } from '../application/delete-exercise.usecase';
 import { ForkExerciseUseCase } from '../application/fork-exercise.usecase';
 import { GetExerciseUseCase } from '../application/get-exercise.usecase';
 import { ListExercisesUseCase } from '../application/list-exercises.usecase';
+import { ModerateExerciseUseCase } from '../application/moderate-exercise.usecase';
 import { ReviewTransitionUseCase } from '../application/review-transition.usecase';
 import { SaveContentUseCase } from '../application/save-content.usecase';
 import { UpdateExerciseUseCase } from '../application/update-exercise.usecase';
-import { CreateExerciseDto, SaveContentDto, UpdateExerciseDto } from './dto/exercise.dto';
+import {
+  CreateExerciseDto,
+  ModerateDto,
+  SaveContentDto,
+  UpdateExerciseDto,
+} from './dto/exercise.dto';
 import { ListExercisesQueryDto } from './dto/list-exercises.query';
 
 /**
@@ -48,6 +54,7 @@ export class ExerciseController {
     private readonly deleteExercise: DeleteExerciseUseCase,
     private readonly forkExercise: ForkExerciseUseCase,
     private readonly review: ReviewTransitionUseCase,
+    private readonly moderate: ModerateExerciseUseCase,
   ) {}
 
   @Get()
@@ -61,6 +68,13 @@ export class ExerciseController {
   @ApiOperation({ summary: 'Bài của tôi, mọi trạng thái' })
   mine(@CurrentUser() user: AuthenticatedUser, @Query() query: ListExercisesQueryDto) {
     return this.listExercises.execute({ authorId: user.id }, query);
+  }
+
+  @Get('moderation')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Hàng chờ duyệt, cũ trước' })
+  queue(@Query() query: ListExercisesQueryDto) {
+    return this.listExercises.execute({ pendingOnly: true }, query);
   }
 
   @Get(':id')
@@ -123,6 +137,19 @@ export class ExerciseController {
   @ApiOperation({ summary: 'Gửi duyệt' })
   submit(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.review.submit(user, id);
+  }
+
+  @Post(':id/moderate')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Duyệt, yêu cầu sửa, từ chối hoặc gỡ' })
+  @ApiResponse({ status: 400, description: 'Từ chối mà không nêu lý do' })
+  @ApiResponse({ status: 422, description: 'Bài không ở trạng thái cho phép quyết định đó' })
+  decide(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ModerateDto,
+  ) {
+    return this.moderate.execute(user, id, dto.decision, dto.reason ?? null);
   }
 
   @Post(':id/withdraw')

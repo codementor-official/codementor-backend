@@ -69,6 +69,7 @@ export class PrismaCourseRepository implements CourseRepository {
     const where: Prisma.Sql[] = [];
     if (filter.createdBy !== null) where.push(Prisma.sql`c.created_by = ${filter.createdBy}::uuid`);
     if (filter.publishedOnly) where.push(Prisma.sql`c.status = 'published'`);
+    if (filter.pendingOnly) where.push(Prisma.sql`c.status = 'pending_review'`);
     if (filter.level) where.push(Prisma.sql`c.level = ${filter.level}::current_level`);
     if (filter.status) where.push(Prisma.sql`c.status = ${filter.status}::content_status`);
     if (filter.q) {
@@ -76,12 +77,19 @@ export class PrismaCourseRepository implements CourseRepository {
         Prisma.sql`(c.title ILIKE ${'%' + filter.q + '%'} OR c.slug::text ILIKE ${'%' + filter.q + '%'})`,
       );
     }
+    // Hàng chờ xếp cũ trước: ai gửi sớm được xem trước.
+    const oldestFirst = filter.pendingOnly === true;
     if (filter.cursor) {
       where.push(
-        Prisma.sql`(c.updated_at, c.id) < (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`,
+        oldestFirst
+          ? Prisma.sql`(c.updated_at, c.id) > (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`
+          : Prisma.sql`(c.updated_at, c.id) < (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`,
       );
     }
     const clause = where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
+    const order = oldestFirst
+      ? Prisma.sql`ORDER BY c.updated_at ASC, c.id ASC`
+      : Prisma.sql`ORDER BY c.updated_at DESC, c.id DESC`;
 
     return this.prisma.$queryRaw<CourseListItem[]>`
       SELECT c.id, c.slug::text AS slug, c.title, c.level::text AS level, c.status::text AS status,
@@ -91,7 +99,7 @@ export class PrismaCourseRepository implements CourseRepository {
       FROM courses c
       LEFT JOIN users u ON u.id = c.created_by
       ${clause}
-      ORDER BY c.updated_at DESC, c.id DESC
+      ${order}
       LIMIT ${filter.limit + 1}`;
   }
 

@@ -270,6 +270,60 @@ export class Exercise extends AggregateRoot<string> {
     return Result.ok(true);
   }
 
+  /**
+   * Quyết định của admin. Bốn kết quả, không phải "duyệt / không duyệt":
+   *
+   *   approve           → published, ghi mốc công khai lần đầu
+   *   request_changes   → changes_requested, tác giả sửa rồi gửi lại
+   *   reject            → rejected, dứt khoát hơn nhưng vẫn gửi lại được
+   *   archive           → archived, gỡ khỏi catalog
+   *
+   * `archive` đi được từ `published`; ba cái còn lại chỉ từ `pending_review` — duyệt
+   * một bài không ai gửi là duyệt thứ admin chưa từng xem.
+   */
+  moderate(
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive',
+    reason: string | null,
+  ): Result<true, BusinessRuleViolation | InvalidInput> {
+    if (decision === 'archive') {
+      if (this.props.status !== 'published') {
+        return Result.fail(new BusinessRuleViolation('Chỉ gỡ được bài đang công khai'));
+      }
+      this.props.status = 'archived';
+      this.props.updatedAt = new Date();
+      return Result.ok(true);
+    }
+
+    if (this.props.status !== 'pending_review') {
+      return Result.fail(
+        new BusinessRuleViolation(`Bài không ở trạng thái chờ duyệt (đang ${this.props.status})`),
+      );
+    }
+
+    if (decision === 'approve') {
+      // Ràng buộc `exercises_published_needs_content` ở CSDL cũng chặn, nhưng ở đây
+      // thông điệp nói được vì sao.
+      if (this.props.contentRef === null) {
+        return Result.fail(new BusinessRuleViolation('Bài chưa có nội dung, không công khai được'));
+      }
+      this.props.status = 'published';
+      // Chỉ ghi lần đầu: gỡ rồi duyệt lại không phải là ngày phát hành mới.
+      this.props.publishedAt ??= new Date();
+      this.props.rejectionReason = null;
+      this.props.updatedAt = new Date();
+      return Result.ok(true);
+    }
+
+    // Từ chối mà không nói lý do thì tác giả không biết sửa gì.
+    if (!reason?.trim()) {
+      return Result.fail(new InvalidInput('Phải nêu lý do khi từ chối hoặc yêu cầu sửa'));
+    }
+    this.props.status = decision === 'reject' ? 'rejected' : 'changes_requested';
+    this.props.rejectionReason = reason.trim();
+    this.props.updatedAt = new Date();
+    return Result.ok(true);
+  }
+
   /** Chỉ bài đã công khai mới fork được — xem `codementor-content-model.md` §7. */
   get isForkable(): boolean {
     return this.props.visibility === 'public' && this.props.status === 'published';

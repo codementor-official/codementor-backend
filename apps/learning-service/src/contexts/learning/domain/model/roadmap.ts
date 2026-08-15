@@ -280,6 +280,48 @@ export class Roadmap extends AggregateRoot<string> {
     return Result.ok(true);
   }
 
+  /**
+   * Quyết định của admin. Xem `Exercise.moderate` — cùng máy trạng thái, khác enum:
+   * `content_status` không có `hidden`, nên tác giả tự gỡ cũng đi qua `archived`.
+   */
+  moderate(
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive',
+    reason: string | null,
+  ): Result<true, BusinessRuleViolation | InvalidInput> {
+    if (decision === 'archive') {
+      if (this.props.status !== 'published') {
+        return Result.fail(new BusinessRuleViolation('Chỉ gỡ được nội dung đang công khai'));
+      }
+      this.props.status = 'archived';
+      this.props.updatedAt = new Date();
+      return Result.ok(true);
+    }
+
+    if (this.props.status !== 'pending_review') {
+      return Result.fail(
+        new BusinessRuleViolation(
+          `Lộ trình không ở trạng thái chờ duyệt (đang ${this.props.status})`,
+        ),
+      );
+    }
+
+    if (decision === 'approve') {
+      this.props.status = 'published';
+      this.props.publishedAt ??= new Date();
+      this.props.rejectionReason = null;
+      this.props.updatedAt = new Date();
+      return Result.ok(true);
+    }
+
+    if (!reason?.trim()) {
+      return Result.fail(new InvalidInput('Phải nêu lý do khi từ chối hoặc yêu cầu sửa'));
+    }
+    this.props.status = decision === 'reject' ? 'rejected' : 'changes_requested';
+    this.props.rejectionReason = reason.trim();
+    this.props.updatedAt = new Date();
+    return Result.ok(true);
+  }
+
   withdraw(): Result<true, BusinessRuleViolation> {
     if (this.props.status !== 'pending_review') {
       return Result.fail(new BusinessRuleViolation('Lộ trình không ở trạng thái chờ duyệt'));

@@ -69,6 +69,7 @@ export class PrismaExerciseRepository implements ExerciseRepository {
     if (filter.publishedOnly) {
       where.push(Prisma.sql`e.visibility = 'public' AND e.status = 'published'`);
     }
+    if (filter.pendingOnly) where.push(Prisma.sql`e.status = 'pending_review'`);
     if (filter.kind) where.push(Prisma.sql`e.kind = ${filter.kind}::exercise_kind`);
     if (filter.difficulty) {
       where.push(Prisma.sql`e.difficulty = ${filter.difficulty}::exercise_difficulty`);
@@ -78,13 +79,21 @@ export class PrismaExerciseRepository implements ExerciseRepository {
       // citext ở slug nhưng title là text, nên vẫn cần ILIKE.
       where.push(Prisma.sql`(e.title ILIKE ${'%' + filter.q + '%'} OR e.slug::text ILIKE ${'%' + filter.q + '%'})`);
     }
+    // Hàng chờ duyệt xếp CŨ TRƯỚC: ai gửi sớm được xem trước, và bài chờ lâu nhất
+    // không bị đẩy xuống cuối mỗi khi có người gửi bài mới.
+    const oldestFirst = filter.pendingOnly === true;
     if (filter.cursor) {
       where.push(
-        Prisma.sql`(e.updated_at, e.id) < (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`,
+        oldestFirst
+          ? Prisma.sql`(e.updated_at, e.id) > (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`
+          : Prisma.sql`(e.updated_at, e.id) < (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`,
       );
     }
 
     const clause = where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
+    const order = oldestFirst
+      ? Prisma.sql`ORDER BY e.updated_at ASC, e.id ASC`
+      : Prisma.sql`ORDER BY e.updated_at DESC, e.id DESC`;
 
     return this.prisma.$queryRaw<ExerciseListItem[]>`
       SELECT e.id, e.slug::text AS slug, e.title, e.kind::text AS kind,
@@ -95,7 +104,7 @@ export class PrismaExerciseRepository implements ExerciseRepository {
       FROM exercises e
       LEFT JOIN users u ON u.id = e.author_id
       ${clause}
-      ORDER BY e.updated_at DESC, e.id DESC
+      ${order}
       LIMIT ${filter.limit + 1}`;
   }
 

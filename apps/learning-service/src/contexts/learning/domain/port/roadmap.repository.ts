@@ -3,6 +3,8 @@ import type { ContentStatus, Roadmap } from '../model/roadmap';
 export interface RoadmapListFilter {
   createdBy: string | null;
   publishedOnly: boolean;
+  /** Hàng chờ duyệt: mọi tác giả, chỉ `pending_review`, sắp cũ trước. */
+  pendingOnly?: boolean;
   field?: string;
   level?: string;
   status?: string;

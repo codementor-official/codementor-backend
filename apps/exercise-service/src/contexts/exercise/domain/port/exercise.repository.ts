@@ -5,6 +5,8 @@ import type { Slug } from '../model/slug';
 export interface ExerciseListFilter {
   /** `null` = kho chung (mọi tác giả). Có giá trị = chỉ bài của người đó. */
   authorId: string | null;
+  /** Hàng chờ duyệt: mọi tác giả, chỉ `pending_review`. Sắp CŨ TRƯỚC. */
+  pendingOnly?: boolean;
   kind?: string;
   difficulty?: string;
   status?: string;

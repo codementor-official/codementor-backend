@@ -59,6 +59,7 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
     const where: Prisma.Sql[] = [];
     if (filter.createdBy !== null) where.push(Prisma.sql`r.created_by = ${filter.createdBy}::uuid`);
     if (filter.publishedOnly) where.push(Prisma.sql`r.status = 'published'`);
+    if (filter.pendingOnly) where.push(Prisma.sql`r.status = 'pending_review'`);
     if (filter.field) where.push(Prisma.sql`r.field = ${filter.field}::roadmap_field`);
     if (filter.level) where.push(Prisma.sql`r.level = ${filter.level}::current_level`);
     if (filter.status) where.push(Prisma.sql`r.status = ${filter.status}::content_status`);
@@ -67,12 +68,19 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
         Prisma.sql`(r.title ILIKE ${'%' + filter.q + '%'} OR r.slug::text ILIKE ${'%' + filter.q + '%'})`,
       );
     }
+    // Hàng chờ xếp cũ trước: ai gửi sớm được xem trước.
+    const oldestFirst = filter.pendingOnly === true;
     if (filter.cursor) {
       where.push(
-        Prisma.sql`(r.updated_at, r.id) < (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`,
+        oldestFirst
+          ? Prisma.sql`(r.updated_at, r.id) > (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`
+          : Prisma.sql`(r.updated_at, r.id) < (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`,
       );
     }
     const clause = where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
+    const order = oldestFirst
+      ? Prisma.sql`ORDER BY r.updated_at ASC, r.id ASC`
+      : Prisma.sql`ORDER BY r.updated_at DESC, r.id DESC`;
 
     return this.prisma.$queryRaw<RoadmapListItem[]>`
       SELECT r.id, r.slug::text AS slug, r.title, r.field::text AS field, r.level::text AS level,
@@ -82,7 +90,7 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
       FROM roadmaps r
       LEFT JOIN users u ON u.id = r.created_by
       ${clause}
-      ORDER BY r.updated_at DESC, r.id DESC
+      ${order}
       LIMIT ${filter.limit + 1}`;
   }
 
