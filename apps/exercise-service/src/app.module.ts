@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AuthModule, ConfigModule, HealthModule, HttpModule, LoggingModule, MongoModule, PrismaModule } from '@codementor/platform';
+import { AuthModule, RemoteIdentityModule, ConfigModule, HealthModule, HttpModule, LoggingModule, MongoModule, PrismaModule } from '@codementor/platform';
 import { MessagingModule } from '@codementor/messaging';
+import { ExerciseModule } from './contexts/exercise/exercise.module';
 
 /**
  * exercise-service
@@ -14,6 +15,9 @@ import { MessagingModule } from '@codementor/messaging';
 @Module({
   imports: [
     AuthModule,
+    // Service này không sở hữu bảng `users`; phân giải `sub` của Keycloak sang
+    // `users.id` bằng cách hỏi core-service qua HTTP.
+    RemoteIdentityModule,
     ConfigModule,
     HealthModule,
     HttpModule,
@@ -21,6 +25,7 @@ import { MessagingModule } from '@codementor/messaging';
     MongoModule,
     PrismaModule,
     MessagingModule.forRoot({ serviceName: 'exercise-service' }),
+    ExerciseModule,
   ],
 })
 export class AppModule {}

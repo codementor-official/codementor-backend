@@ -17,5 +17,7 @@ export * from './auth/roles.decorator';
 export * from './auth/roles.guard';
 export * from './auth/current-user.decorator';
 export * from './auth/identity-provisioning.port';
+export * from './auth/remote-identity.provisioning';
+export * from './auth/remote-identity.module';
 export * from './health/health.module';
 export * from './bootstrap';

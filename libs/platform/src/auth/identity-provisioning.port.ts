@@ -6,6 +6,11 @@ export interface ProvisionUserInput {
   displayName: string;
   emailVerified: boolean;
   role: PlatformRole;
+  /**
+   * Bản gốc của access token. core-service không cần — nó đọc thẳng bảng `users`.
+   * Service khác thì cần để hỏi core bằng chính danh tính của người gọi.
+   */
+  accessToken?: string;
 }
 
 /**
