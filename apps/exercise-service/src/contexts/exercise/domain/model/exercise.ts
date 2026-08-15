@@ -39,6 +39,7 @@ interface ExerciseProps {
 }
 
 export interface ExerciseMetadataEdit {
+  slug?: Slug;
   title?: string;
   summary?: string | null;
   difficulty?: ExerciseDifficulty;
@@ -181,6 +182,15 @@ export class Exercise extends AggregateRoot<string> {
       return Result.fail(
         new BusinessRuleViolation('Bài đang chờ duyệt. Hủy gửi duyệt trước khi sửa.'),
       );
+    }
+
+    // Cùng lý do như tiêu đề: bài được tạo bằng tên tạm, không cho sửa slug thì slug
+    // vô nghĩa nằm lại trong URL. Sau khi công khai thì đường dẫn đã phát ra ngoài.
+    if (edit.slug !== undefined) {
+      if (this.props.status === 'published') {
+        return Result.fail(new BusinessRuleViolation('Bài đã công khai thì không đổi được slug'));
+      }
+      this.props.slug = edit.slug;
     }
 
     if (edit.title !== undefined) {

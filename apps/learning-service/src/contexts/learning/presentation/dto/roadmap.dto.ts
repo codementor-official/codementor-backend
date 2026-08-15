@@ -51,6 +51,12 @@ export class CreateRoadmapDto {
 
 /** Không có `estimatedHours`: nó là tổng của khóa học con, app tự tính. */
 export class UpdateRoadmapDto {
+  @ApiPropertyOptional({ description: 'Chỉ đổi được khi chưa công khai' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  slug?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

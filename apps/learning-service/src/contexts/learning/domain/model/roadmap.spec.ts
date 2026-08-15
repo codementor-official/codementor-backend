@@ -110,3 +110,46 @@ describe('Roadmap', () => {
     });
   });
 });
+
+describe('đổi slug', () => {
+  it('sửa được khi còn nháp', () => {
+    const roadmap = make();
+    expect(roadmap.edit({ slug: 'Lo-Trinh-Fullstack' }).isOk).toBe(true);
+    expect(roadmap.slug).toBe('lo-trinh-fullstack');
+  });
+
+  it('từ chối slug sai định dạng', () => {
+    const roadmap = make();
+    for (const bad of ['-mo-dau', 'ket-thuc-', 'CO HOA', 'ab']) {
+      expect(roadmap.edit({ slug: bad }).isFail).toBe(true);
+    }
+    expect(roadmap.slug).toBe('lo-trinh-backend');
+  });
+
+  // Đường dẫn đã phát ra ngoài; đổi là làm hỏng mọi liên kết đang trỏ tới.
+  it('không đổi được sau khi công khai', () => {
+    const roadmap = make();
+    roadmap.edit({ description: 'Mô tả' });
+    roadmap.submit([course('published'), course('published')]);
+    roadmap.withdraw();
+    const published = Roadmap.rehydrate('id', {
+      slug: 'lo-trinh-backend',
+      title: 'Lộ trình Backend',
+      shortDescription: null,
+      description: 'Mô tả',
+      field: 'backend',
+      level: 'basic',
+      coverImageUrl: null,
+      estimatedHours: 20,
+      progressionMode: 'graph',
+      prerequisiteNote: null,
+      status: 'published',
+      createdBy: 'u1',
+      rejectionReason: null,
+      publishedAt: new Date(),
+      updatedAt: new Date(),
+    });
+    expect(published.edit({ slug: 'ten-khac' }).isFail).toBe(true);
+    expect(published.slug).toBe('lo-trinh-backend');
+  });
+});

@@ -60,6 +60,12 @@ export class CreateExerciseDto {
 
 /** Vắng mặt = giữ nguyên. Không có `status` ở đây: trạng thái đổi qua submit/withdraw. */
 export class UpdateExerciseDto {
+  @ApiPropertyOptional({ description: 'Chỉ đổi được khi chưa công khai' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  slug?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

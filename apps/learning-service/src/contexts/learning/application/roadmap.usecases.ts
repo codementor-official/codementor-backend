@@ -101,6 +101,14 @@ export class RoadmapUseCases {
 
   async update(user: AuthenticatedUser, id: string, edit: RoadmapEdit): Promise<RoadmapView> {
     const roadmap = await this.mustOwn(user, id);
+
+    // Kiểm trùng trước để ra 409 thay vì 23505 thô từ driver.
+    if (edit.slug !== undefined && edit.slug !== roadmap.slug) {
+      if (await this.roadmaps.existsBySlug(edit.slug)) {
+        throw new AlreadyExists('Slug', { slug: edit.slug });
+      }
+    }
+
     const updated = roadmap.edit(edit);
     if (updated.isFail) throw updated.error;
 

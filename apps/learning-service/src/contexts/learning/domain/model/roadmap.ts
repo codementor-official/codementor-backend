@@ -39,6 +39,7 @@ interface RoadmapProps {
 }
 
 export interface RoadmapEdit {
+  slug?: string;
   title?: string;
   shortDescription?: string | null;
   description?: string | null;
@@ -179,6 +180,27 @@ export class Roadmap extends AggregateRoot<string> {
       return Result.fail(
         new BusinessRuleViolation('Lộ trình đang chờ duyệt. Hủy gửi duyệt trước khi sửa.'),
       );
+    }
+
+    // Đổi slug sau khi công khai là làm hỏng mọi đường dẫn đã phát ra ngoài. Trước đó
+    // thì phải cho sửa: lộ trình được tạo bằng tiêu đề tạm, và nếu không sửa được thì
+    // slug vô nghĩa đó nằm lại trong URL vĩnh viễn.
+    if (edit.slug !== undefined) {
+      if (this.props.status === 'published') {
+        return Result.fail(
+          new BusinessRuleViolation('Lộ trình đã công khai thì không đổi được slug'),
+        );
+      }
+      const slug = edit.slug.trim().toLowerCase();
+      if (!/^[a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])$/.test(slug)) {
+        return Result.fail(
+          new InvalidInput(
+            'Slug phải dài 3–80 ký tự, chỉ gồm chữ thường, số và gạch ngang, không bắt đầu/kết thúc bằng gạch',
+            { slug: edit.slug },
+          ),
+        );
+      }
+      this.props.slug = slug;
     }
 
     if (edit.title !== undefined) {
