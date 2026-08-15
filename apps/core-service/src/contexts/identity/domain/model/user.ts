@@ -4,7 +4,12 @@ import { UserRegistered } from '../event/user-registered.event';
 import type { Email } from './email';
 import type { Handle } from './handle';
 
-export type PlatformRole = 'learner' | 'admin';
+/**
+ * Cố ý khai báo lại thay vì import từ `@codementor/platform`: tầng domain không được
+ * phụ thuộc hạ tầng. Đổi một bên thì phải đổi bên kia — và cả enum `platform_role`
+ * trong PostgreSQL lẫn realm role của Keycloak.
+ */
+export type PlatformRole = 'learner' | 'lecturer' | 'admin';
 export type AccountStatus = 'active' | 'suspended' | 'deleted';
 
 interface UserProps {

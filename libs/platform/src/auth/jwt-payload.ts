@@ -14,14 +14,31 @@ export interface KeycloakToken {
   preferred_username?: string;
   name?: string;
 
-  /** Vai trò cấp realm. Ta chỉ quan tâm 'admin'; không có thì mặc định là learner. */
+  /** Vai trò cấp realm. Xem `platformRoleOf` — quyền cao nhất thắng. */
   realm_access?: { roles: string[] };
 
   /** Nhà cung cấp social đã dùng để đăng nhập (google, github...), nếu có. */
   identity_provider?: string;
 }
 
-export type PlatformRole = 'learner' | 'admin';
+/**
+ * Khớp 1-1 với enum `platform_role` trong PostgreSQL và realm role của Keycloak.
+ * Ba tên phải giống hệt nhau, nếu không thì `role = $n::platform_role` sẽ nổ lúc INSERT.
+ */
+export type PlatformRole = 'learner' | 'lecturer' | 'admin';
+
+/** Xếp từ quyền cao xuống thấp. Ai có nhiều role thì lấy cái cao nhất. */
+const ROLE_PRECEDENCE: readonly PlatformRole[] = ['admin', 'lecturer', 'learner'];
+
+/**
+ * Keycloak là nguồn sự thật cho vai trò cấp nền tảng.
+ * Không có realm role nào khớp thì mặc định là learner — token hợp lệ luôn phải
+ * ra được một vai trò, còn quyền hạn chi tiết do từng endpoint tự kiểm.
+ */
+export function platformRoleOf(token: KeycloakToken): PlatformRole {
+  const roles = token.realm_access?.roles ?? [];
+  return ROLE_PRECEDENCE.find((role) => roles.includes(role)) ?? 'learner';
+}
 
 /**
  * Danh tính đã xác thực gắn vào request.

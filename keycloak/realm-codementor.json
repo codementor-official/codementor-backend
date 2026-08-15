@@ -11,6 +11,7 @@
   "roles": {
     "realm": [
       { "name": "learner", "description": "Học viên — vai trò mặc định" },
+      { "name": "lecturer", "description": "Giảng viên — soạn và quản lý nội dung giảng dạy" },
       { "name": "admin", "description": "Quản trị viên nền tảng" }
     ]
   },
@@ -25,6 +26,30 @@
       "redirectUris": ["http://localhost:3000/*"],
       "webOrigins": ["http://localhost:3000"],
       "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        {
+          "name": "audience-codementor-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "codementor-api",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "codementor-lecturer",
+      "name": "CodeMentor Lecturer",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:3010/*"],
+      "webOrigins": ["http://localhost:3010"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3010/*"
+      },
       "protocolMappers": [
         {
           "name": "audience-codementor-api",

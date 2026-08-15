@@ -5,7 +5,8 @@ import { ExtractJwt, Strategy, type SecretOrKeyProvider } from 'passport-jwt';
 import { passportJwtSecret } from 'jwks-rsa';
 import { IDENTITY_PROVISIONING, type IdentityProvisioning } from './identity-provisioning.port';
 import { Inject, Optional } from '@nestjs/common';
-import type { AuthenticatedUser, KeycloakToken, PlatformRole } from './jwt-payload';
+import { platformRoleOf } from './jwt-payload';
+import type { AuthenticatedUser, KeycloakToken } from './jwt-payload';
 
 /**
  * Xác minh token Keycloak bằng khoá công khai lấy từ JWKS endpoint (RS256).
@@ -61,14 +62,12 @@ export class KeycloakStrategy extends PassportStrategy(Strategy, 'keycloak') {
       throw new UnauthorizedException('Token thiếu claim email — kiểm tra client scope của Keycloak');
     }
 
-    const role: PlatformRole = token.realm_access?.roles?.includes('admin') ? 'admin' : 'learner';
-
     return this.provisioning.ensureLocalUser({
       externalId: token.sub,
       email: token.email,
       displayName: token.name ?? token.preferred_username ?? token.email,
       emailVerified: token.email_verified ?? false,
-      role,
+      role: platformRoleOf(token),
     });
   }
 }

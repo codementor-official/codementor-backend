@@ -803,6 +803,11 @@ model processed_events {
   @@index([processed_at], map: "idx_processed_events_time")
 }
 
+model infra_schema_migrations {
+  filename   String   @id
+  applied_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
 enum account_status {
   active
   suspended
@@ -941,7 +946,7 @@ enum member_status {
 
 enum platform_role {
   learner
-  mentor
+  lecturer
   admin
 }
 
