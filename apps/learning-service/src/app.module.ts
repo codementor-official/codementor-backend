@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule, RemoteIdentityModule, ConfigModule, HealthModule, HttpModule, LoggingModule, MongoModule, PrismaModule } from '@codementor/platform';
 import { MessagingModule } from '@codementor/messaging';
+import { LearningModule } from './contexts/learning/learning.module';
 
 /**
  * learning-service
@@ -24,6 +25,7 @@ import { MessagingModule } from '@codementor/messaging';
     MongoModule,
     PrismaModule,
     MessagingModule.forRoot({ serviceName: 'learning-service' }),
+    LearningModule,
   ],
 })
 export class AppModule {}
