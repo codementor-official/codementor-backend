@@ -178,6 +178,8 @@ ví dụ `23514` + thông điệp cycle → `CircularDependencyError` → HTTP 4
 | --- | --- |
 | `npm run start:<tên>` | chạy 1 service ở chế độ watch (`core`, `learning`, `exercise`, `workspace`, `document`, `submission`, `judge`, `ai`, `realtime`) |
 | `npm run build:all` | build cả 9 service |
+| `npm run services start\|stop\|restart\|status` | chạy/dừng 9 service đã build, theo PID đang giữ cổng |
+| `npm run smoke` | gọi HTTP qua gateway kiểm các luồng chính trên hạ tầng thật |
 | `npm run lint` | lint + **kiểm tra ranh giới kiến trúc** |
 | `npm test` | unit test |
 | `npm run test:cov` | coverage (ngưỡng chỉ áp ở `domain/model`) |

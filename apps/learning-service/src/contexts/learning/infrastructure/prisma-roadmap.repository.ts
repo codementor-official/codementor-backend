@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService, mapDatabaseError } from '@codementor/platform';
-import { InUse } from '@codementor/kernel';
 import { Roadmap } from '../domain/model/roadmap';
 import type {
   ContentStatus,
@@ -157,11 +156,9 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
     try {
       await this.prisma.$executeRaw`DELETE FROM roadmaps WHERE id = ${id}::uuid`;
     } catch (error) {
-      const mapped = mapDatabaseError(error);
-      if (mapped?.code === 'INVALID_INPUT') {
-        throw new InUse('Lộ trình đang được tham chiếu nên không xoá được');
-      }
-      throw mapped ?? error;
+      // `onDelete` là bắt buộc: 23503 ở chiều xoá nghĩa là "còn thứ khác đang dùng"
+      // (409), không phải "trỏ tới thứ không tồn tại" (400).
+      throw mapDatabaseError(error, { onDelete: true, resource: 'Lộ trình' }) ?? error;
     }
   }
 

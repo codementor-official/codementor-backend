@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService, mapDatabaseError } from '@codementor/platform';
-import { InUse } from '@codementor/kernel';
 import { Exercise } from '../domain/model/exercise';
 import type {
   ExerciseDifficulty,
@@ -137,14 +136,9 @@ export class PrismaExerciseRepository implements ExerciseRepository {
     try {
       await this.prisma.$executeRaw`DELETE FROM exercises WHERE id = ${id}::uuid`;
     } catch (error) {
-      const mapped = mapDatabaseError(error);
-      // Migration 0018 đặt lessons.exercise_id thành ON DELETE RESTRICT. Postgres dùng
-      // chung SQLSTATE 23503 cho cả hai chiều khoá ngoại, và mapper chung dịch nó thành
-      // "tham chiếu tới bản ghi không tồn tại" — đúng cho INSERT, sai hẳn cho DELETE.
-      if (mapped?.code === 'INVALID_INPUT') {
-        throw new InUse('Bài đang được ít nhất một chương sử dụng nên không xoá được');
-      }
-      throw mapped ?? error;
+      // `onDelete` là bắt buộc: 23503 ở chiều xoá nghĩa là "còn thứ khác đang dùng"
+      // (409), không phải "trỏ tới thứ không tồn tại" (400).
+      throw mapDatabaseError(error, { onDelete: true, resource: 'Bài tập' }) ?? error;
     }
   }
 

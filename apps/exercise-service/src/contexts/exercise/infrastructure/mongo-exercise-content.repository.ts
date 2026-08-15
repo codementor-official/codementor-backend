@@ -33,11 +33,8 @@ export class MongoExerciseContentRepository implements ExerciseContentRepository
   /**
    * Trả về `_id` để gọi bên ngoài gán vào `exercises.content_ref`.
    *
-   * `ignoreUndefined` là bắt buộc, không phải tối ưu. DTO đi qua class-transformer nên
-   * mọi trường tuỳ chọn không được truyền vẫn tồn tại với giá trị `undefined`; driver
-   * mặc định serialize `undefined` thành `null`, và validator từ chối vì `null` không
-   * khớp `bsonType` đã khai (`generated: null` không phải `bool`). Lọc tay ở tầng gốc
-   * không đủ — những trường đó nằm bên trong `testCases[]` và `languages[]`.
+   * Không phải lọc `undefined` ở đây: `MongoModule` đặt `ignoreUndefined` ở tầng kết
+   * nối, vì nếu để từng repository tự nhớ thì sớm muộn có chỗ quên.
    */
   async upsert(exerciseId: string, kind: string, content: ExerciseContent): Promise<string> {
     const now = new Date();
@@ -48,7 +45,7 @@ export class MongoExerciseContentRepository implements ExerciseContentRepository
         $set: { ...content, kind, updatedAt: now },
         $setOnInsert: { exerciseId, createdAt: now },
       },
-      { upsert: true, returnDocument: 'after', projection: { _id: 1 }, ignoreUndefined: true },
+      { upsert: true, returnDocument: 'after', projection: { _id: 1 } },
     );
 
     if (!result?._id) throw new Error(`Không ghi được nội dung cho exercise ${exerciseId}`);

@@ -1,7 +1,7 @@
 {
   "name": "codementor-backend",
   "version": "0.1.0",
-  "description": "CodeMentor backend — service-based architecture with DDD bounded contexts",
+  "description": "CodeMentor backend \u2014 service-based architecture with DDD bounded contexts",
   "license": "UNLICENSED",
   "private": true,
   "engines": {
@@ -15,6 +15,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config test/jest-e2e.json",
+    "smoke": "bash scripts/smoke.sh",
+    "services": "bash scripts/services.sh",
     "db:pull": "prisma db pull",
     "db:generate": "prisma generate",
     "db:sync": "npm run db:pull && npm run db:generate",
