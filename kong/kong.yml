@@ -1,0 +1,90 @@
+# Cấu hình declarative cho Kong DB-less. Không có database, không có Admin API ghi —
+# muốn đổi thì sửa file này rồi `docker compose restart kong`.
+#
+# Định tuyến theo TÀI NGUYÊN, không theo tên service. Frontend chỉ biết đúng một
+# origin `http://localhost:8000/api/v1` và không cần biết dữ liệu nằm ở service nào.
+# Cách này chỉ khả thi vì sở hữu bảng đã sạch: mỗi tài nguyên có đúng một service chủ
+# (xem docs/02-service-architecture.md §2). Thêm tài nguyên mới thì thêm path vào đây.
+#
+# KHÔNG có plugin jwt/oidc ở đây: mỗi service tự xác minh chữ ký token qua JWKS của
+# Keycloak. Xác thực hai tầng chỉ tạo thêm một chỗ để lệch cấu hình.
+_format_version: "3.0"
+
+services:
+  - name: core-service
+    url: http://127.0.0.1:3001
+    routes:
+      - name: core-routes
+        paths:
+          - /api/v1/me
+          - /api/v1/technologies
+          - /api/v1/tags
+          - /api/v1/companies
+        strip_path: false
+
+  - name: learning-service
+    url: http://127.0.0.1:3002
+    routes:
+      - name: learning-routes
+        paths:
+          - /api/v1/courses
+          - /api/v1/chapters
+          - /api/v1/lessons
+          - /api/v1/roadmaps
+          - /api/v1/articles
+        strip_path: false
+
+  - name: exercise-service
+    url: http://127.0.0.1:3003
+    routes:
+      - name: exercise-routes
+        paths:
+          - /api/v1/exercises
+          - /api/v1/exercise-sets
+        strip_path: false
+
+  - name: workspace-service
+    url: http://127.0.0.1:3004
+    routes:
+      - name: workspace-routes
+        paths:
+          - /api/v1/workspaces
+          - /api/v1/groups
+        strip_path: false
+
+  - name: submission-service
+    url: http://127.0.0.1:3006
+    routes:
+      - name: submission-routes
+        paths:
+          - /api/v1/submissions
+        strip_path: false
+
+  # Health của gateway: `/api/v1/health` đi về core. Muốn xem health của service
+  # khác thì gọi thẳng cổng của nó — gateway không nên che mất chẩn đoán per-service.
+  - name: gateway-health
+    url: http://127.0.0.1:3001
+    routes:
+      - name: gateway-health-route
+        paths:
+          - /api/v1/health
+        strip_path: false
+
+plugins:
+  - name: cors
+    config:
+      origins:
+        - http://localhost:3000
+        - http://localhost:3010
+        - http://localhost:3011
+      methods: [GET, HEAD, POST, PATCH, PUT, DELETE, OPTIONS]
+      headers: [Accept, Authorization, Content-Type, Origin]
+      credentials: true
+      max_age: 3600
+
+  # Nhìn thấy request đi qua đâu khi debug. Kong trả header này cho mọi response.
+  - name: correlation-id
+    config:
+      header_name: X-Request-Id
+      generator: uuid
+      echo_downstream: true

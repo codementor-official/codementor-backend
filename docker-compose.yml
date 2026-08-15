@@ -56,6 +56,37 @@ services:
       timeout: 10s
       retries: 15
 
+  kong:
+    # DB-less: cấu hình nằm ở kong/kong.yml, không cần Postgres riêng cho Kong.
+    # Một origin duy nhất cho frontend (:8000) thay vì phải biết 9 cổng service.
+    image: kong:3.9
+    container_name: codementor-kong
+    environment:
+      KONG_DATABASE: 'off'
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      KONG_PROXY_LISTEN: 127.0.0.1:8000
+      # DB-less thì Admin API chỉ đọc, không cấu hình được gì qua nó. Tắt hẳn cho gọn.
+      KONG_ADMIN_LISTEN: 'off'
+      KONG_LOG_LEVEL: notice
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+    # network_mode host, KHÔNG phải bridge + host.docker.internal: firewall của máy dev
+    # chặn traffic từ docker bridge (172.17.0.1 và 172.19.0.1 đều không tới được cổng
+    # 3001 dù service bind 0.0.0.0). Host networking đi vòng qua chuyện đó mà không
+    # phải sudo sửa firewall.
+    #
+    # Lên EC2 thì 9 service sẽ là container cùng compose network, lúc đó dùng bridge
+    # và upstream trỏ theo tên service — kong.yml của môi trường đó sẽ khác file này.
+    network_mode: host
+    volumes:
+      - ./kong/kong.yml:/etc/kong/kong.yml:ro
+    healthcheck:
+      test: ['CMD', 'kong', 'health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   kafka-ui:
     # Xem topic, message, consumer lag. Rất đáng có lúc debug luồng bất đồng bộ và lúc demo.
     image: provectuslabs/kafka-ui:latest
