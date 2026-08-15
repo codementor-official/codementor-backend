@@ -12,6 +12,7 @@ export * from './logging/logging.module';
 export * from './auth/auth.module';
 export * from './auth/jwt-payload';
 export * from './auth/public.decorator';
+export * from './auth/ownership';
 export * from './auth/roles.decorator';
 export * from './auth/roles.guard';
 export * from './auth/current-user.decorator';
