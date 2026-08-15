@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, HealthModule, HttpModule, LoggingModule } from '@codementor/platform';
+import { ConfigModule, HealthModule, HttpModule, LoggingModule, PrismaModule } from '@codementor/platform';
 import { MessagingModule } from '@codementor/messaging';
 
 /**
@@ -19,6 +19,9 @@ import { MessagingModule } from '@codementor/messaging';
     HealthModule,
     HttpModule,
     LoggingModule,
+    // Không sở hữu bảng nào, nhưng EventConsumer vẫn ghi `processed_events` qua Prisma
+    // để khử trùng lặp message Kafka.
+    PrismaModule,
     MessagingModule.forRoot({ serviceName: 'judge-service' }),
   ],
 })

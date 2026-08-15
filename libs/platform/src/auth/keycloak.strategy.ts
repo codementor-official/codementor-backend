@@ -4,7 +4,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy, type SecretOrKeyProvider } from 'passport-jwt';
 import { passportJwtSecret } from 'jwks-rsa';
 import { IDENTITY_PROVISIONING, type IdentityProvisioning } from './identity-provisioning.port';
-import { Inject } from '@nestjs/common';
+import { Inject, Optional } from '@nestjs/common';
 import type { AuthenticatedUser, KeycloakToken, PlatformRole } from './jwt-payload';
 
 /**
@@ -18,7 +18,12 @@ import type { AuthenticatedUser, KeycloakToken, PlatformRole } from './jwt-paylo
 export class KeycloakStrategy extends PassportStrategy(Strategy, 'keycloak') {
   constructor(
     config: ConfigService,
-    @Inject(IDENTITY_PROVISIONING) private readonly provisioning: IdentityProvisioning,
+    // Optional: chỉ core-service có IdentityModule để phân giải `users.id` từ token.
+    // Service khác vẫn cần AuthModule để có global guard, nên không được bắt buộc
+    // dependency này — thiếu nó thì boot chết cả 7 service chưa có endpoint nào.
+    @Optional()
+    @Inject(IDENTITY_PROVISIONING)
+    private readonly provisioning: IdentityProvisioning | undefined,
   ) {
     const issuer = config.getOrThrow<string>('KEYCLOAK_ISSUER');
     super({
@@ -43,6 +48,15 @@ export class KeycloakStrategy extends PassportStrategy(Strategy, 'keycloak') {
    * `users` tương ứng. Nhờ vậy đăng ký qua social không cần webhook từ Keycloak.
    */
   async validate(token: KeycloakToken): Promise<AuthenticatedUser> {
+    // Fail loud thay vì trả về danh tính nửa vời: `AuthenticatedUser.id` phải là
+    // `users.id` nội bộ, chỉ core-service phân giải được. Endpoint @Public() không
+    // đi qua đây nên health check của mọi service vẫn chạy.
+    if (!this.provisioning) {
+      throw new UnauthorizedException(
+        'Service này chưa nối IDENTITY_PROVISIONING — endpoint cần xác thực phải nằm ở core-service, hoặc phân giải user qua CORE_CLIENT',
+      );
+    }
+
     if (!token.email) {
       throw new UnauthorizedException('Token thiếu claim email — kiểm tra client scope của Keycloak');
     }
