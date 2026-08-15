@@ -119,3 +119,69 @@ describe('User — hồ sơ nội bộ chiếu từ Keycloak', () => {
     expect(provision().changeDisplayName('   ').isFail).toBe(true);
   });
 });
+
+describe('User.updateProfile', () => {
+  it('trường vắng mặt thì giữ nguyên — PATCH một trường không xoá phần còn lại', () => {
+    const user = provision();
+    expect(user.updateProfile({ bio: 'Dạy Node.js' }).isOk).toBe(true);
+    expect(user.updateProfile({ locale: 'en' }).isOk).toBe(true);
+
+    expect(user.bio).toBe('Dạy Node.js');
+    expect(user.locale).toBe('en');
+    expect(user.displayName).toBe('Gia Sĩ');
+  });
+
+  it('null thì xoá giá trị', () => {
+    const user = provision();
+    user.updateProfile({ bio: 'Dạy Node.js' });
+    user.updateProfile({ bio: null });
+    expect(user.bio).toBeNull();
+  });
+
+  it('chuỗi rỗng cũng thành null, không lưu chuỗi trắng', () => {
+    const user = provision();
+    user.updateProfile({ bio: '   ' });
+    expect(user.bio).toBeNull();
+  });
+
+  it('từ chối tên hiển thị rỗng hoặc quá dài', () => {
+    const user = provision();
+    expect(user.updateProfile({ displayName: '   ' }).isFail).toBe(true);
+    expect(user.updateProfile({ displayName: 'x'.repeat(121) }).isFail).toBe(true);
+    expect(user.displayName).toBe('Gia Sĩ');
+  });
+
+  // javascript: trong websiteUrl là XSS ở chỗ render hồ sơ công khai.
+  it('chỉ nhận http và https cho địa chỉ web', () => {
+    const user = provision();
+    expect(user.updateProfile({ websiteUrl: 'https://giasi.dev' }).isOk).toBe(true);
+    expect(user.updateProfile({ websiteUrl: 'javascript:alert(1)' }).isFail).toBe(true);
+    expect(user.updateProfile({ websiteUrl: 'data:text/html,<script>' }).isFail).toBe(true);
+    expect(user.updateProfile({ avatarUrl: 'không phải url' }).isFail).toBe(true);
+    expect(user.websiteUrl).toBe('https://giasi.dev');
+  });
+
+  it('kiểm định dạng tên GitHub', () => {
+    const user = provision();
+    expect(user.updateProfile({ githubHandle: 'gia-si' }).isOk).toBe(true);
+    expect(user.updateProfile({ githubHandle: '-mở-đầu-bằng-gạch' }).isFail).toBe(true);
+    expect(user.githubHandle).toBe('gia-si');
+  });
+
+  // Cho sửa vai trò ở đây là để người dùng tự cấp quyền cho mình.
+  it('không có đường sửa email, vai trò hay trạng thái', () => {
+    const user = provision();
+    const edit = { role: 'admin', email: 'khac@codementor.vn', status: 'suspended' };
+    user.updateProfile(edit as Parameters<typeof user.updateProfile>[0]);
+
+    expect(user.role).toBe('learner');
+    expect(user.email.value).toBe('giasi@codementor.vn');
+    expect(user.status).toBe('active');
+  });
+
+  it('mặc định locale và timezone khớp DEFAULT của cột trong PostgreSQL', () => {
+    const user = provision();
+    expect(user.locale).toBe('vi');
+    expect(user.timezone).toBe('Asia/Ho_Chi_Minh');
+  });
+});

@@ -1,5 +1,5 @@
 import { AggregateRoot } from '@codementor/kernel';
-import { BusinessRuleViolation, Result } from '@codementor/kernel';
+import { BusinessRuleViolation, InvalidInput, Result } from '@codementor/kernel';
 import { UserRegistered } from '../event/user-registered.event';
 import type { Email } from './email';
 import type { Handle } from './handle';
@@ -21,6 +21,43 @@ interface UserProps {
   role: PlatformRole;
   status: AccountStatus;
   emailVerifiedAt: Date | null;
+  bio: string | null;
+  avatarUrl: string | null;
+  websiteUrl: string | null;
+  githubHandle: string | null;
+  locale: string;
+  timezone: string;
+}
+
+/** Phần hồ sơ người dùng tự sửa được. Vắng mặt = giữ nguyên, `null` = xoá. */
+export interface ProfileEdit {
+  displayName?: string;
+  handle?: Handle | null;
+  bio?: string | null;
+  avatarUrl?: string | null;
+  websiteUrl?: string | null;
+  githubHandle?: string | null;
+  locale?: string;
+  timezone?: string;
+}
+
+const MAX_DISPLAY_NAME = 120;
+const MAX_BIO = 2000;
+
+/** Chỉ http/https. Cho phép `javascript:` vào `websiteUrl` là mở đường cho XSS ở nơi render. */
+function checkHttpUrl(field: string, raw: string): InvalidInput | null {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return new InvalidInput('Địa chỉ web không hợp lệ', { [field]: raw });
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return new InvalidInput('Địa chỉ web phải bắt đầu bằng http:// hoặc https://', {
+      [field]: raw,
+    });
+  }
+  return null;
 }
 
 /**
@@ -63,6 +100,13 @@ export class User extends AggregateRoot<string> {
       role: params.role,
       status: 'active',
       emailVerifiedAt: params.emailVerified ? new Date() : null,
+      bio: null,
+      avatarUrl: null,
+      websiteUrl: null,
+      githubHandle: null,
+      // Khớp DEFAULT của cột trong PostgreSQL, để hàng vừa tạo và hàng đọc lại giống nhau.
+      locale: 'vi',
+      timezone: 'Asia/Ho_Chi_Minh',
     });
     user.addEvent(new UserRegistered(params.id, params.email.value, user.displayName));
     return user;
@@ -127,6 +171,85 @@ export class User extends AggregateRoot<string> {
       changed = true;
     }
     return changed;
+  }
+
+  get bio(): string | null {
+    return this.props.bio;
+  }
+  get avatarUrl(): string | null {
+    return this.props.avatarUrl;
+  }
+  get websiteUrl(): string | null {
+    return this.props.websiteUrl;
+  }
+  get githubHandle(): string | null {
+    return this.props.githubHandle;
+  }
+  get locale(): string {
+    return this.props.locale;
+  }
+  get timezone(): string {
+    return this.props.timezone;
+  }
+
+  /**
+   * Sửa hồ sơ. Vắng mặt một trường = giữ nguyên, nên PATCH một trường không xoá phần còn lại.
+   *
+   * Email, vai trò và trạng thái KHÔNG sửa được ở đây: email thuộc Keycloak, vai trò do
+   * Keycloak cấp, trạng thái là việc của quản trị. Cho sửa ở đây là để người dùng tự
+   * nâng quyền cho mình.
+   */
+  updateProfile(edit: ProfileEdit): Result<true, InvalidInput> {
+    if (edit.displayName !== undefined) {
+      const trimmed = edit.displayName.trim();
+      if (trimmed.length === 0) {
+        return Result.fail(new InvalidInput('Tên hiển thị không được để trống'));
+      }
+      if (trimmed.length > MAX_DISPLAY_NAME) {
+        return Result.fail(
+          new InvalidInput(`Tên hiển thị tối đa ${MAX_DISPLAY_NAME} ký tự`, {
+            length: trimmed.length,
+          }),
+        );
+      }
+      this.props.displayName = trimmed;
+    }
+
+    if (edit.bio !== undefined) {
+      const trimmed = edit.bio?.trim() ?? null;
+      if (trimmed !== null && trimmed.length > MAX_BIO) {
+        return Result.fail(
+          new InvalidInput(`Giới thiệu tối đa ${MAX_BIO} ký tự`, { length: trimmed.length }),
+        );
+      }
+      this.props.bio = trimmed || null;
+    }
+
+    for (const field of ['avatarUrl', 'websiteUrl'] as const) {
+      if (edit[field] === undefined) continue;
+      const trimmed = edit[field]?.trim() ?? null;
+      if (trimmed) {
+        const invalid = checkHttpUrl(field, trimmed);
+        if (invalid) return Result.fail(invalid);
+      }
+      this.props[field] = trimmed || null;
+    }
+
+    if (edit.githubHandle !== undefined) {
+      const trimmed = edit.githubHandle?.trim() ?? null;
+      if (trimmed && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(trimmed)) {
+        return Result.fail(
+          new InvalidInput('Tên GitHub không hợp lệ', { githubHandle: trimmed }),
+        );
+      }
+      this.props.githubHandle = trimmed || null;
+    }
+
+    if (edit.handle !== undefined) this.props.handle = edit.handle;
+    if (edit.locale !== undefined) this.props.locale = edit.locale;
+    if (edit.timezone !== undefined) this.props.timezone = edit.timezone;
+
+    return Result.ok(true);
   }
 
   changeDisplayName(name: string): Result<true, BusinessRuleViolation> {

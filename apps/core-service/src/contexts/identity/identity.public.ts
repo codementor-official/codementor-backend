@@ -9,7 +9,7 @@ export interface UserSummary {
   id: string;
   email: string;
   displayName: string;
-  role: 'learner' | 'admin';
+  role: 'learner' | 'lecturer' | 'admin';
 }
 
 export interface IdentityQuery {
