@@ -208,4 +208,88 @@ describe('validateForSubmission', () => {
     expect(validateForSubmission('theory', {}).isFail).toBe(true);
     expect(validateForSubmission('theory', { theory: { contentHtml: '<p>x</p>' } }).isOk).toBe(true);
   });
+
+  describe('chế độ chữ ký hàm', () => {
+    const fn = {
+      statement: 'đề bài',
+      ioMode: 'function' as const,
+      signature: {
+        functionName: 'solve_quadratic',
+        parameters: [
+          { name: 'a', type: { kind: 'float' } },
+          { name: 'b', type: { kind: 'float' } },
+        ],
+        returnType: { kind: 'list', of: { kind: 'float' } },
+      },
+      languages: [{ id: 'py', label: 'Python', referenceSolution: 'x' }],
+      testCases: [
+        { order: 1, args: [1, -3], expected: [2.0], visibility: 'public' as const },
+        { order: 2, args: [1, 2], expected: [], visibility: 'hidden' as const },
+        { order: 3, args: [1, 5], expected: [1.0], visibility: 'hidden' as const },
+      ],
+    };
+
+    it('đủ điều kiện thì qua', () => {
+      expect(validateForSubmission('code', fn).isOk).toBe(true);
+    });
+
+    it('thiếu chữ ký thì chặn', () => {
+      const { signature: _drop, ...withoutSignature } = fn;
+      expect(validateForSubmission('code', withoutSignature).isFail).toBe(true);
+    });
+
+    // Tên hàm được sinh ra ở cả ba ngôn ngữ; trùng từ khoá là lỗi cú pháp trong code hệ
+    // thống sinh, không phải trong code học viên.
+    it('tên hàm trùng từ khoá Java thì chặn', () => {
+      const result = validateForSubmission('code', {
+        ...fn,
+        signature: { ...fn.signature, functionName: 'class' },
+      });
+      expect(result.isFail).toBe(true);
+      expect(result.error.message).toContain('từ khoá');
+    });
+
+    it('tên hàm không phải snake_case thì chặn', () => {
+      expect(
+        validateForSubmission('code', {
+          ...fn,
+          signature: { ...fn.signature, functionName: 'solveQuadratic' },
+        }).isFail,
+      ).toBe(true);
+    });
+
+    it('args lệch số tham số thì chặn, và nói rõ case nào', () => {
+      const result = validateForSubmission('code', {
+        ...fn,
+        testCases: [{ ...fn.testCases[0], args: [1] }, ...fn.testCases.slice(1)],
+      });
+      expect(result.isFail).toBe(true);
+      expect(result.error.message).toContain('test case 1');
+    });
+
+    // `expected: null` là một đáp án hợp lệ (hàm trả về null); chỉ vắng mặt mới là thiếu.
+    it('null vẫn tính là có đáp án', () => {
+      expect(
+        validateForSubmission('code', {
+          ...fn,
+          testCases: [{ ...fn.testCases[0], expected: null }, ...fn.testCases.slice(1)],
+        }).isOk,
+      ).toBe(true);
+    });
+
+    it('thiếu đáp án thì chặn', () => {
+      const { expected: _drop, ...noExpected } = fn.testCases[0];
+      const result = validateForSubmission('code', {
+        ...fn,
+        testCases: [noExpected, ...fn.testCases.slice(1)],
+      });
+      expect(result.isFail).toBe(true);
+      expect(result.error.message).toContain('đáp án');
+    });
+
+    // Bài stdin cũ không mang `ioMode`; các kiểm tra của chế độ hàm không được đụng tới nó.
+    it('không áp lên bài stdin cũ', () => {
+      expect(validateForSubmission('code', full).isOk).toBe(true);
+    });
+  });
 });

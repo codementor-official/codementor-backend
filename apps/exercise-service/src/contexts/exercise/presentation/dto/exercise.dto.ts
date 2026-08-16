@@ -6,6 +6,7 @@ import {
   IsIn,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Max,
@@ -17,6 +18,8 @@ import {
 } from 'class-validator';
 
 export const KINDS = ['code', 'theory', 'quiz'] as const;
+export const IO_MODES = ['stdin_stdout', 'function'] as const;
+export type IoMode = (typeof IO_MODES)[number];
 export const DIFFICULTIES = ['easy', 'medium', 'hard'] as const;
 export const STATUSES = [
   'draft',
@@ -121,13 +124,24 @@ class TestCaseDto {
   @Min(1)
   order!: number;
 
-  @ApiProperty()
+  @ApiPropertyOptional({ description: 'stdin/stdout: đầu vào nạp qua stdin' })
+  @IsOptional()
   @IsString()
-  input!: string;
+  input?: string;
 
-  @ApiProperty()
-  @IsString()
-  expected!: string;
+  @ApiPropertyOptional({
+    description: 'Chế độ hàm: tham số theo VỊ TRÍ, khớp thứ tự signature.parameters',
+    type: [Object],
+  })
+  @IsOptional()
+  @IsArray()
+  args?: unknown[];
+
+  // Không kiểm kiểu: chuỗi ở chế độ stdin, giá trị JSON bất kỳ ở chế độ hàm. Ràng buộc thật
+  // là "khớp với returnType", và nó cần Type IR nên nằm ở validateForSubmission.
+  @ApiPropertyOptional({ description: 'Chuỗi ở chế độ stdin; giá trị JSON ở chế độ hàm' })
+  @IsOptional()
+  expected?: unknown;
 
   @ApiProperty({ enum: ['public', 'hidden'] })
   @IsIn(['public', 'hidden'])
@@ -202,11 +216,47 @@ class HintDto {
   xpPenalty?: number;
 }
 
-class EvaluationDto {
-  @ApiPropertyOptional({ enum: ['exact', 'trimmed', 'float', 'custom'] })
+class ParameterDto {
+  @ApiProperty({ example: 'a' })
+  @IsString()
+  name!: string;
+
+  // Type IR: { kind: 'list', of: { kind: 'float' } }. Không dựng cây DTO lồng nhau cho nó —
+  // class-validator không diễn tả được kiểu đệ quy mà không tốn ba lớp phụ, và nguồn chân lý
+  // là validator Mongo cùng bộ sinh code.
+  @ApiProperty({ description: 'Type IR node', type: Object })
+  @IsObject()
+  type!: Record<string, unknown>;
+
+  @ApiPropertyOptional()
   @IsOptional()
-  @IsIn(['exact', 'trimmed', 'float', 'custom'])
-  checker?: 'exact' | 'trimmed' | 'float' | 'custom';
+  @IsString()
+  description?: string;
+}
+
+class SignatureDto {
+  @ApiProperty({ example: 'solve_quadratic', description: 'snake_case' })
+  @IsString()
+  functionName!: string;
+
+  @ApiProperty({ type: [ParameterDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ParameterDto)
+  parameters!: ParameterDto[];
+
+  @ApiProperty({ description: 'Type IR node', type: Object })
+  @IsObject()
+  returnType!: Record<string, unknown>;
+}
+
+class EvaluationDto {
+  // `unordered` chỉ có nghĩa khi kết quả là giá trị có kiểu, tức chế độ hàm. `trimmed` và
+  // `custom` là di sản stdin; judge coi chúng như `exact` khi chấm theo hàm.
+  @ApiPropertyOptional({ enum: ['exact', 'trimmed', 'float', 'custom', 'unordered'] })
+  @IsOptional()
+  @IsIn(['exact', 'trimmed', 'float', 'custom', 'unordered'])
+  checker?: 'exact' | 'trimmed' | 'float' | 'custom' | 'unordered';
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -247,6 +297,19 @@ export class SaveContentDto {
   @IsOptional()
   @IsString()
   statement?: string;
+
+  // Vắng mặt = `stdin_stdout`. Bài soạn trước khi có chế độ hàm không mang trường này và
+  // không bị migrate — judge rẽ nhánh theo nó, không viết lại nó.
+  @ApiPropertyOptional({ enum: IO_MODES })
+  @IsOptional()
+  @IsIn(IO_MODES)
+  ioMode?: IoMode;
+
+  @ApiPropertyOptional({ type: SignatureDto, description: 'Bắt buộc khi ioMode = function' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SignatureDto)
+  signature?: SignatureDto;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
