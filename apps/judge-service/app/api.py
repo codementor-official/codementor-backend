@@ -45,7 +45,7 @@ class CaseOut(BaseModel):
     memoryKb: int
 
 
-class RunResponse(BaseModel):
+class RunResult(BaseModel):
     verdict: str
     score: int
     passedTests: int
@@ -54,6 +54,16 @@ class RunResponse(BaseModel):
     memoryKb: int
     compileOutput: str | None
     cases: list[CaseOut]
+
+
+class RunResponse(BaseModel):
+    """Bọc `{ data }` giống ResponseInterceptor của các service Nest.
+
+    Client dùng chung một hàm `unwrap` đọc `response.data`; trả JSON trần ở đây thì mọi lời
+    gọi tới judge nhận về undefined trong khi HTTP vẫn 200.
+    """
+
+    data: RunResult
 
 
 def _reject_oversized(payload: RunRequest) -> None:
@@ -106,23 +116,25 @@ async def run(payload: RunRequest, _user: dict = Depends(require_user)) -> RunRe
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
     return RunResponse(
-        verdict=result.verdict,
-        score=result.score,
-        passedTests=result.passed_tests,
-        totalTests=result.total_tests,
-        runtimeMs=result.runtime_ms,
-        memoryKb=result.memory_kb,
-        compileOutput=result.compile_output,
-        cases=[
-            CaseOut(
-                order=case.order,
-                verdict=case.verdict,
-                expected=case.expected,
-                actual=case.actual,
-                stderr=case.stderr,
-                runtimeMs=case.runtime_ms,
-                memoryKb=case.memory_kb,
-            )
-            for case in result.cases
-        ],
+        data=RunResult(
+            verdict=result.verdict,
+            score=result.score,
+            passedTests=result.passed_tests,
+            totalTests=result.total_tests,
+            runtimeMs=result.runtime_ms,
+            memoryKb=result.memory_kb,
+            compileOutput=result.compile_output,
+            cases=[
+                CaseOut(
+                    order=case.order,
+                    verdict=case.verdict,
+                    expected=case.expected,
+                    actual=case.actual,
+                    stderr=case.stderr,
+                    runtimeMs=case.runtime_ms,
+                    memoryKb=case.memory_kb,
+                )
+                for case in result.cases
+            ],
+        )
     )
