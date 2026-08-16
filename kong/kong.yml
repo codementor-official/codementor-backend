@@ -12,7 +12,7 @@ _format_version: "3.0"
 
 services:
   - name: core-service
-    url: http://127.0.0.1:3001
+    url: http://host.docker.internal:3001
     routes:
       - name: core-routes
         paths:
@@ -24,7 +24,7 @@ services:
         strip_path: false
 
   - name: learning-service
-    url: http://127.0.0.1:3002
+    url: http://host.docker.internal:3002
     routes:
       - name: learning-routes
         paths:
@@ -36,7 +36,7 @@ services:
         strip_path: false
 
   - name: exercise-service
-    url: http://127.0.0.1:3003
+    url: http://host.docker.internal:3003
     routes:
       - name: exercise-routes
         paths:
@@ -45,7 +45,7 @@ services:
         strip_path: false
 
   - name: workspace-service
-    url: http://127.0.0.1:3004
+    url: http://host.docker.internal:3004
     routes:
       - name: workspace-routes
         paths:
@@ -54,7 +54,7 @@ services:
         strip_path: false
 
   - name: submission-service
-    url: http://127.0.0.1:3006
+    url: http://host.docker.internal:3006
     routes:
       - name: submission-routes
         paths:
@@ -65,7 +65,7 @@ services:
   # KHÔNG được để công khai. Judge tự kiểm JWT Keycloak trên mọi request (app/auth.py),
   # vì Kong ở đây không có plugin JWT.
   - name: judge-service
-    url: http://127.0.0.1:3007
+    url: http://host.docker.internal:3007
     routes:
       - name: judge-routes
         paths:
@@ -75,7 +75,7 @@ services:
   # Health của gateway: `/api/v1/health` đi về core. Muốn xem health của service
   # khác thì gọi thẳng cổng của nó — gateway không nên che mất chẩn đoán per-service.
   - name: gateway-health
-    url: http://127.0.0.1:3001
+    url: http://host.docker.internal:3001
     routes:
       - name: gateway-health-route
         paths:

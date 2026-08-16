@@ -66,20 +66,25 @@ services:
     environment:
       KONG_DATABASE: 'off'
       KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
-      KONG_PROXY_LISTEN: 127.0.0.1:8000
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
       # DB-less thì Admin API chỉ đọc, không cấu hình được gì qua nó. Tắt hẳn cho gọn.
       KONG_ADMIN_LISTEN: 'off'
       KONG_LOG_LEVEL: notice
       KONG_PROXY_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
-    # network_mode host, KHÔNG phải bridge + host.docker.internal: firewall của máy dev
-    # chặn traffic từ docker bridge (172.17.0.1 và 172.19.0.1 đều không tới được cổng
-    # 3001 dù service bind 0.0.0.0). Host networking đi vòng qua chuyện đó mà không
-    # phải sudo sửa firewall.
+    # `network_mode: host` only works on native Linux Docker — Docker Desktop
+    # (Windows/Mac) runs the daemon inside a VM, so there is no real host network to
+    # join and container creation fails outright. `host.docker.internal` is the
+    # portable way to reach the 9 services running on the dev machine; the
+    # `host-gateway` extra_hosts entry makes that name resolve on Linux too, where
+    # it isn't provided automatically the way it is on Desktop.
     #
     # Lên EC2 thì 9 service sẽ là container cùng compose network, lúc đó dùng bridge
     # và upstream trỏ theo tên service — kong.yml của môi trường đó sẽ khác file này.
-    network_mode: host
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    ports:
+      - '8000:8000'
     volumes:
       - ./kong/kong.yml:/etc/kong/kong.yml:ro
     healthcheck:
