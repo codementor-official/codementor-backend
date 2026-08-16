@@ -181,10 +181,23 @@ services:
 
   # -------------------------------------------------------------- service nội bộ
   # Không map cổng ra ngoài: chỉ nhận việc qua Kafka, frontend không gọi trực tiếp.
+  # Python/FastAPI, không dùng image Node chung. Chấm bài bằng cách nói chuyện với Docker
+  # daemon của host (Docker-out-of-Docker), nên phải mount socket vào — đó là quyền tương
+  # đương root trên host, xem apps/judge-service/README.md §Bảo mật.
   judge-service:
-    <<: *service-base
+    build:
+      context: ./apps/judge-service
     container_name: codementor-judge
-    command: ['node', 'dist/apps/judge-service/main.js']
+    env_file: .env
+    environment:
+      KAFKA_BROKERS: kafka:29092
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports: ['3007:3007']
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
 
   ai-service:
     <<: *service-base

@@ -54,8 +54,8 @@ npm run start:core            # hoặc start:learning, start:exercise...
 | `exercise-service` | 3003 | `exercises`, `exercise_sets`, `exercise_prerequisites`, `exercise_progress`… — **9** | `exercise_contents` | công khai |
 | `workspace-service` | 3004 | `study_groups`, `group_members`, quyền nhóm, `assignments` — **7** | — | công khai |
 | `document-service` | 3005 | `group_documents` — **1** | — | công khai |
-| `submission-service` | 3006 | `submissions` — **1** | `submission_run_details` | công khai |
-| `judge-service` | 3007 | **0** — stateless | — | nội bộ |
+| `submission-service` | 3006 | `submissions` — **1** | — | công khai |
+| `judge-service` | 3007 | **0** | `submission_run_details` | nội bộ + `/api/v1/judge/run` |
 | `ai-service` | 3008 | **0** — stateless | `ai_conversations`, `ai_analyses` | nội bộ |
 | `realtime-service` | 3009 | **0** — chỉ cầu nối Kafka → WS/SSE | — | công khai |
 

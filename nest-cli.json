@@ -64,15 +64,6 @@
         "tsConfigPath": "apps/submission-service/tsconfig.app.json"
       }
     },
-    "judge-service": {
-      "type": "application",
-      "root": "apps/judge-service",
-      "entryFile": "main",
-      "sourceRoot": "apps/judge-service/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/judge-service/tsconfig.app.json"
-      }
-    },
     "ai-service": {
       "type": "application",
       "root": "apps/ai-service",
