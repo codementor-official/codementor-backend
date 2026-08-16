@@ -122,6 +122,9 @@ services:
       interval: 5s
       retries: 20
 
+  # LƯU Ý: `identityProviders` phải là mảng thật, và file realm KHÔNG được chứa khoá lạ
+  # (kiểu `_comment_...`) — Keycloak 26.4 từ chối import cả file vì một khoá không nhận ra,
+  # và container chết ngay lúc khởi động chứ không bỏ qua.
   keycloak:
     image: quay.io/keycloak/keycloak:26.4
     container_name: codementor-keycloak
