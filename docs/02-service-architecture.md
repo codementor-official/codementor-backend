@@ -96,10 +96,16 @@ libs/contracts/src/
 | **exercise-service** | Exercise | `exercises`, `exercise_tags/technologies/companies`, `exercise_sets`, `exercise_set_items`, `exercise_set_enrollments`, `exercise_prerequisites`, `exercise_progress` — **9** | `exercise_contents` | ✅ |
 | **workspace-service** | Group | `study_groups`, `group_members`, `group_role_permissions`, `group_member_permissions`, `group_exercises`, `assignments`, `group_activities` — **7** | — | ✅ |
 | **document-service** | Document | `group_documents` — **1** | — | ✅ |
-| **submission-service** | Submission | `submissions` — **1** | `submission_run_details` | ✅ |
-| **judge-service** | — | **0** — không sở hữu bảng nào | — | ❌ nội bộ |
+| **submission-service** | Submission | `submissions` — **1** | — | ✅ |
+| **judge-service** | — | **0** bảng quan hệ | `submission_run_details` | ❌ nội bộ¹ |
 | **ai-service** | — | **0** | `ai_conversations`, `ai_analyses` | ❌ nội bộ |
 | **realtime-service** | — | **0** | — | ✅ WS/SSE |
+
+¹ judge-service là **Python/FastAPI**, không phải NestJS — xem `apps/judge-service/README.md`.
+Nó ghi `submission_run_details` (stdout/stderr từng test case) và trả `_id` qua
+`evt.judge.completed.v1.runDetailRef`: đẩy nguyên chi tiết qua Kafka thì payload phình theo
+số test case. Verdict trong postgres vẫn **chỉ** submission-service ghi. Judge cũng expose
+`POST /api/v1/judge/run` để chạy thử đồng bộ, có kiểm JWT — dùng cho nút "Chạy thử" ở studio.
 
 **Tổng: 44 bảng, không bảng nào có hai chủ, không bảng nào vô chủ.**
 

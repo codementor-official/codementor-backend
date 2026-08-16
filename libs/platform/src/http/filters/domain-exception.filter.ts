@@ -11,6 +11,7 @@ import {
   AlreadyExists,
   BusinessRuleViolation,
   DomainError,
+  InUse,
   InvalidInput,
   NotAuthorized,
   NotFound,
@@ -21,6 +22,7 @@ const DOMAIN_STATUS: Record<string, HttpStatus> = {
   [new InvalidInput('').code]: HttpStatus.BAD_REQUEST,
   [new NotFound('').code]: HttpStatus.NOT_FOUND,
   [new AlreadyExists('').code]: HttpStatus.CONFLICT,
+  [new InUse('').code]: HttpStatus.CONFLICT,
   [new NotAuthorized('').code]: HttpStatus.FORBIDDEN,
   [new BusinessRuleViolation('').code]: HttpStatus.UNPROCESSABLE_ENTITY,
 };

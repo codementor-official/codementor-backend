@@ -46,6 +46,20 @@ export class AlreadyExists extends DomainError {
   }
 }
 
+/**
+ * Không xoá/đổi được vì thứ khác đang tham chiếu tới. → HTTP 409
+ *
+ * Khác `AlreadyExists`: đó là "trùng khoá khi ghi", còn đây là "còn người dùng khi xoá".
+ * Postgres trả cùng một SQLSTATE 23503 cho cả hai chiều của khoá ngoại, nên chỉ nơi gọi
+ * mới biết đang ở chiều nào.
+ */
+export class InUse extends DomainError {
+  readonly code = 'IN_USE';
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, details);
+  }
+}
+
 /** Đủ xác thực nhưng không đủ quyền cho hành động này. → HTTP 403 */
 export class NotAuthorized extends DomainError {
   readonly code = 'NOT_AUTHORIZED';

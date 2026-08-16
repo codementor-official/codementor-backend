@@ -31,13 +31,35 @@ export type PlatformRole = 'learner' | 'lecturer' | 'admin';
 const ROLE_PRECEDENCE: readonly PlatformRole[] = ['admin', 'lecturer', 'learner'];
 
 /**
+ * Tên realm role → vai trò nền tảng.
+ *
+ * Realm dùng hai cách đặt tên song song: `learner`/`lecturer`/`admin` từ bản import
+ * đầu tiên, và `STUDENT`/`LECTURER`/`ADMIN` do đợt cấu hình sau. Không chọn được một
+ * bên rồi ép bên kia đổi theo: chữ thường phải giữ vì nó là giá trị của enum
+ * `platform_role` trong PostgreSQL, còn chữ hoa đang được các tài khoản thật dùng.
+ *
+ * So khớp không phân biệt hoa thường và có bí danh, nên thêm một cách gọi nữa sau này
+ * chỉ là thêm một dòng ở đây.
+ */
+const ROLE_ALIASES: Record<string, PlatformRole> = {
+  admin: 'admin',
+  lecturer: 'lecturer',
+  learner: 'learner',
+  student: 'learner',
+};
+
+/**
  * Keycloak là nguồn sự thật cho vai trò cấp nền tảng.
  * Không có realm role nào khớp thì mặc định là learner — token hợp lệ luôn phải
  * ra được một vai trò, còn quyền hạn chi tiết do từng endpoint tự kiểm.
  */
 export function platformRoleOf(token: KeycloakToken): PlatformRole {
-  const roles = token.realm_access?.roles ?? [];
-  return ROLE_PRECEDENCE.find((role) => roles.includes(role)) ?? 'learner';
+  const granted = new Set<PlatformRole>();
+  for (const name of token.realm_access?.roles ?? []) {
+    const mapped = ROLE_ALIASES[name.toLowerCase()];
+    if (mapped) granted.add(mapped);
+  }
+  return ROLE_PRECEDENCE.find((role) => granted.has(role)) ?? 'learner';
 }
 
 /**

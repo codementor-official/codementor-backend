@@ -69,6 +69,5 @@
       "publicClient": false
     }
   ],
-  "_comment_identity_providers": "Điền clientId/secret thật rồi bỏ tiền tố _disabled_ để bật. Không commit secret thật.",
   "identityProviders": []
 }

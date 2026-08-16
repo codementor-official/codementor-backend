@@ -35,6 +35,12 @@ export const envSchema = z.object({
   KEYCLOAK_ADMIN_CLIENT_ID: z.string().optional(),
   KEYCLOAK_ADMIN_CLIENT_SECRET: z.string().optional(),
 
+  /**
+   * Service khác hỏi core-service để đổi `sub` của Keycloak lấy `users.id` nội bộ —
+   * chỉ core được đọc bảng `users`. Xem `RemoteIdentityProvisioning`.
+   */
+  CORE_SERVICE_URL: z.string().url().default('http://localhost:3001'),
+
   KAFKA_BROKERS: z.string().default('localhost:9092'),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),

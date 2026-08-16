@@ -29,6 +29,9 @@ export class KeycloakStrategy extends PassportStrategy(Strategy, 'keycloak') {
     const issuer = config.getOrThrow<string>('KEYCLOAK_ISSUER');
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // Cần chính chuỗi token, không chỉ payload đã giải mã: service không sở hữu bảng
+      // `users` phải chuyển tiếp token đó sang core để đổi lấy `users.id`.
+      passReqToCallback: true,
       ignoreExpiration: false,
       algorithms: ['RS256'],
       issuer,
@@ -48,13 +51,12 @@ export class KeycloakStrategy extends PassportStrategy(Strategy, 'keycloak') {
    * Just-in-time provisioning: lần đầu một tài khoản Keycloak gọi API, ta tạo bản ghi
    * `users` tương ứng. Nhờ vậy đăng ký qua social không cần webhook từ Keycloak.
    */
-  async validate(token: KeycloakToken): Promise<AuthenticatedUser> {
-    // Fail loud thay vì trả về danh tính nửa vời: `AuthenticatedUser.id` phải là
-    // `users.id` nội bộ, chỉ core-service phân giải được. Endpoint @Public() không
-    // đi qua đây nên health check của mọi service vẫn chạy.
+  async validate(request: { headers: Record<string, unknown> }, token: KeycloakToken): Promise<AuthenticatedUser> {
+    // core-service dùng IdentityModule, 8 service còn lại dùng RemoteIdentityModule.
+    // Thiếu cả hai là lỗi lắp ráp module, không phải lỗi của người gọi.
     if (!this.provisioning) {
       throw new UnauthorizedException(
-        'Service này chưa nối IDENTITY_PROVISIONING — endpoint cần xác thực phải nằm ở core-service, hoặc phân giải user qua CORE_CLIENT',
+        'Service này chưa nối IDENTITY_PROVISIONING — thêm RemoteIdentityModule vào AppModule',
       );
     }
 
@@ -62,12 +64,14 @@ export class KeycloakStrategy extends PassportStrategy(Strategy, 'keycloak') {
       throw new UnauthorizedException('Token thiếu claim email — kiểm tra client scope của Keycloak');
     }
 
+    const authorization = String(request.headers.authorization ?? '');
     return this.provisioning.ensureLocalUser({
       externalId: token.sub,
       email: token.email,
       displayName: token.name ?? token.preferred_username ?? token.email,
       emailVerified: token.email_verified ?? false,
       role: platformRoleOf(token),
+      accessToken: authorization.startsWith('Bearer ') ? authorization.slice(7) : undefined,
     });
   }
 }

@@ -2,6 +2,7 @@ import {
   AlreadyExists,
   BusinessRuleViolation,
   DomainError,
+  InUse,
   InvalidInput,
 } from '@codementor/kernel';
 
@@ -36,7 +37,24 @@ interface PgError {
   message?: string;
 }
 
-export function mapDatabaseError(error: unknown): DomainError | undefined {
+export interface MapOptions {
+  /**
+   * Đang thực hiện DELETE.
+   *
+   * Postgres dùng CHUNG một SQLSTATE 23503 cho cả hai chiều của khoá ngoại:
+   *   INSERT/UPDATE → "hàng con trỏ tới cha không tồn tại"  → dữ liệu vào sai → 400
+   *   DELETE        → "còn hàng con đang trỏ tới cha này"   → đang được dùng  → 409
+   *
+   * Chỉ nơi gọi mới biết đang ở chiều nào. Không truyền cờ này thì một lệnh xoá bị
+   * ON DELETE RESTRICT chặn sẽ báo "tham chiếu tới bản ghi không tồn tại" — đúng
+   * ngược với sự thật.
+   */
+  onDelete?: boolean;
+  /** Tên nghiệp vụ của bản ghi, dùng trong thông điệp 409. */
+  resource?: string;
+}
+
+export function mapDatabaseError(error: unknown, options: MapOptions = {}): DomainError | undefined {
   const e = error as PgError;
   // Prisma bọc lỗi Postgres: P2010/P2002/... với sqlstate gốc trong meta.
   const sqlstate = e?.meta?.code ?? e?.code;
@@ -55,6 +73,12 @@ export function mapDatabaseError(error: unknown): DomainError | undefined {
       return new AlreadyExists(e?.meta?.modelName ?? 'Bản ghi', { constraint });
 
     case SQLSTATE.FOREIGN_KEY_VIOLATION:
+      if (options.onDelete) {
+        return new InUse(
+          `${options.resource ?? 'Bản ghi'} đang được bản ghi khác sử dụng nên không xoá được`,
+          { constraint },
+        );
+      }
       return new InvalidInput('Tham chiếu tới bản ghi không tồn tại', { constraint });
 
     case SQLSTATE.RESTRICT_VIOLATION:

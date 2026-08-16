@@ -82,6 +82,37 @@ export interface SubmissionCreatedV1 {
 }
 
 /**
+ * Cách chấm một bài ở chế độ chữ ký hàm: học viên chỉ viết thân hàm, judge sinh driver bao
+ * quanh và so sánh **giá trị trả về**.
+ *
+ * Đây là ảnh chụp, không phải tham chiếu: judge không đọc DB, nên đổi đề sau khi phát lệnh
+ * không làm đổi cách bài nộp này được chấm.
+ */
+/** Nút Type IR — độc lập ngôn ngữ. `{ kind: "list", of: { kind: "float" } }`. */
+export interface TypeIRV1 {
+  kind: string;
+  of?: TypeIRV1;
+  key?: TypeIRV1;
+  value?: TypeIRV1;
+}
+
+export interface JudgeSpecV1 {
+  /** snake_case; judge tự đổi sang camelCase cho JS/Java/Go/PHP. */
+  functionName: string;
+  /**
+   * Bắt buộc với ngôn ngữ kiểu tĩnh (Java, Go, C, C++): driver khai báo biến và gọi hàm theo
+   * đúng kiểu này. Python và JavaScript bỏ qua.
+   */
+  parameters?: { name: string; type: TypeIRV1 }[];
+  returnType?: TypeIRV1;
+  /** `exact` mặc định. `float` so sánh có sai số, `unordered` so như đa tập. */
+  judgeMode?: 'exact' | 'float' | 'unordered';
+  judgeConfig?: { absEps?: number; relEps?: number };
+  /** Tăng mỗi khi đổi chữ ký / test case; ghi lại để biết bài nộp cũ chấm theo bộ nào. */
+  judgeVersion?: number;
+}
+
+/**
  * Judge nhận ĐỦ dữ liệu trong payload và không gọi HTTP sang service nào —
  * nhờ vậy nó chạy được kể cả khi các service khác đang sập.
  */
@@ -91,7 +122,21 @@ export interface JudgeRunV1 {
   sourceCode: string;
   timeLimitMs: number;
   memoryLimitKb: number;
-  testCases: { order: number; input: string; expected: string; weight: number }[];
+  /**
+   * Vắng mặt = chế độ stdin/stdout cũ. Judge rẽ nhánh theo trường này chứ không theo một cột
+   * `ioMode` riêng, để bài cũ chạy nguyên vẹn mà không phải migrate gì.
+   */
+  spec?: JudgeSpecV1;
+  testCases: {
+    order: number;
+    /** stdin/stdout mode. */
+    input?: string;
+    /** function mode: tham số theo VỊ TRÍ, khớp thứ tự `signature.parameters`. */
+    args?: unknown[];
+    /** Chuỗi ở mode cũ; giá trị JSON bất kỳ ở function mode. */
+    expected?: unknown;
+    weight: number;
+  }[];
 }
 
 export interface JudgeStartedV1 {

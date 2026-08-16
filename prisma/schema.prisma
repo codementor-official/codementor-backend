@@ -188,6 +188,7 @@ model courses {
   published_at                                                        DateTime?              @db.Timestamptz(6)
   created_at                                                          DateTime               @default(now()) @db.Timestamptz(6)
   updated_at                                                          DateTime               @default(now()) @db.Timestamptz(6)
+  rejection_reason                                                    String?
   chapters                                                            chapters[]
   course_enrollments                                                  course_enrollments[]
   course_outcomes                                                     course_outcomes[]
@@ -329,12 +330,16 @@ model exercises {
   created_at            DateTime                @default(now()) @db.Timestamptz(6)
   updated_at            DateTime                @default(now()) @db.Timestamptz(6)
   visibility            exercise_visibility     @default(public)
+  rejection_reason      String?
+  forked_from_id        String?                 @db.Uuid
   exercise_companies    exercise_companies[]
   exercise_progress     exercise_progress[]
   exercise_set_items    exercise_set_items[]
   exercise_tags         exercise_tags[]
   exercise_technologies exercise_technologies[]
   users                 users?                  @relation(fields: [author_id], references: [id], onUpdate: NoAction)
+  exercises             exercises?              @relation("exercisesToexercises", fields: [forked_from_id], references: [id], onUpdate: NoAction)
+  other_exercises       exercises[]             @relation("exercisesToexercises")
   group_exercises       group_exercises[]
   lessons               lessons[]
   submissions           submissions[]
@@ -517,7 +522,7 @@ model lessons {
   lesson_progress                                                               lesson_progress[]
   chapters_lessons_chapter_idTochapters                                         chapters               @relation("lessons_chapter_idTochapters", fields: [chapter_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   chapters_lessons_course_id_chapter_idTochapters                               chapters               @relation("lessons_course_id_chapter_idTochapters", fields: [course_id, chapter_id], references: [course_id, id], onDelete: Cascade, onUpdate: NoAction, map: "lessons_chapter_in_course_fkey")
-  exercises                                                                     exercises?             @relation(fields: [exercise_id], references: [id], onUpdate: NoAction)
+  exercises                                                                     exercises?             @relation(fields: [exercise_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@unique([course_id, id], map: "lessons_id_course_unique")
   @@unique([chapter_id, position], map: "lessons_position_unique")
@@ -629,6 +634,7 @@ model roadmaps {
   published_at         DateTime?              @db.Timestamptz(6)
   created_at           DateTime               @default(now()) @db.Timestamptz(6)
   updated_at           DateTime               @default(now()) @db.Timestamptz(6)
+  rejection_reason     String?
   course_enrollments   course_enrollments[]
   roadmap_audiences    roadmap_audiences[]
   roadmap_courses      roadmap_courses[]
@@ -835,6 +841,9 @@ enum content_priority {
 
 enum content_status {
   draft
+  pending_review
+  changes_requested
+  rejected
   published
   archived
 }

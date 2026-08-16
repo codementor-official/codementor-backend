@@ -13,35 +13,48 @@ Thiết kế đầy đủ: [`docs/02-service-architecture.md`](docs/02-service-a
 | | Phiên bản | Ghi chú |
 | --- | --- | --- |
 | Node.js | ≥ 22 (khuyến nghị 24) | |
-| Docker | có | cho Kafka + Keycloak |
-| `codementor-infra` | đã chạy | **PostgreSQL và MongoDB do repo đó quản lý** |
+| Docker | có | cho Kafka + Kong (chạy local) |
+| Hạ tầng dùng chung | đã chạy trên EC2 | PostgreSQL, MongoDB, Keycloak — xem `../codementor-connect.txt` |
 
 > Schema database **không** thuộc repo này. Xem [§Database](#database) trước khi chạy migration.
+
+### Cái gì chạy ở đâu
+
+| Chạy trên EC2 `13.214.122.227` | Chạy local bằng `docker compose` ở repo này |
+| --- | --- |
+| PostgreSQL `:5432`, MongoDB `:27017`, Keycloak `:8080` | Kafka `:9092`, Kong `:8000`, Kafka UI `:8081` |
+
+EC2 là máy 1.9 GB RAM nên chỉ giữ ba thứ có state. Kafka và Kong là hạ tầng không state —
+để local thì nhẹ máy, và không phải phơi broker PLAINTEXT hay gateway ra internet.
+
+`docker-compose.yml` vẫn còn `keycloak` + `keycloak-db` làm **phương án dự phòng** khi cần
+một stack hoàn toàn offline; ngày thường không bật, vì realm thật nằm trên EC2.
 
 ## Chạy lần đầu
 
 ```bash
-# 1. Database (ở repo codementor-infra)
-cd ../codementor-infra/database && docker compose up -d && make -f Makefile init && make -f Makefile seed
+# 1. Hạ tầng local: Kafka + Kong. PostgreSQL/MongoDB/Keycloak đã chạy sẵn trên EC2.
+cp .env.example .env          # rồi điền endpoint EC2 từ ../codementor-connect.txt
+docker compose up -d kafka kafka-ui kong
 
-# 2. Kafka + Keycloak
-cd ../../codementor-backend
-cp .env.example .env          # sinh JWT/secret nếu cần
-docker compose up -d kafka kafka-ui keycloak
-
-# 3. Sinh Prisma client từ schema thật (introspect, KHÔNG migrate)
+# 2. Sinh Prisma client từ schema thật (introspect, KHÔNG migrate)
 npm install
 npm run db:sync
 
-# 4. Chạy service muốn phát triển
-npm run start:core            # hoặc start:learning, start:exercise...
+# 3. Chạy service
+npm run build:all
+npm run services start        # cả 9, hoặc: npm run start:core để chạy 1 service ở chế độ watch
+
+# 4. Kiểm tra
+npm run smoke                 # gọi HTTP qua gateway, kiểm các luồng chính
 ```
 
 | Giao diện | URL |
 | --- | --- |
+| Gateway (frontend chỉ gọi origin này) | http://localhost:8000/api/v1 |
 | Swagger từng service | `http://localhost:<port>/api/docs` |
 | Kafka UI | http://localhost:8081 |
-| Keycloak Admin | http://localhost:8080 — `admin` / `admin` |
+| Keycloak Admin | http://13.214.122.227:8080/admin/ |
 
 ---
 
@@ -54,8 +67,8 @@ npm run start:core            # hoặc start:learning, start:exercise...
 | `exercise-service` | 3003 | `exercises`, `exercise_sets`, `exercise_prerequisites`, `exercise_progress`… — **9** | `exercise_contents` | công khai |
 | `workspace-service` | 3004 | `study_groups`, `group_members`, quyền nhóm, `assignments` — **7** | — | công khai |
 | `document-service` | 3005 | `group_documents` — **1** | — | công khai |
-| `submission-service` | 3006 | `submissions` — **1** | `submission_run_details` | công khai |
-| `judge-service` | 3007 | **0** — stateless | — | nội bộ |
+| `submission-service` | 3006 | `submissions` — **1** | — | công khai |
+| `judge-service` | 3007 | **0** | `submission_run_details` | nội bộ + `/api/v1/judge/run` |
 | `ai-service` | 3008 | **0** — stateless | `ai_conversations`, `ai_analyses` | nội bộ |
 | `realtime-service` | 3009 | **0** — chỉ cầu nối Kafka → WS/SSE | — | công khai |
 
@@ -178,6 +191,8 @@ ví dụ `23514` + thông điệp cycle → `CircularDependencyError` → HTTP 4
 | --- | --- |
 | `npm run start:<tên>` | chạy 1 service ở chế độ watch (`core`, `learning`, `exercise`, `workspace`, `document`, `submission`, `judge`, `ai`, `realtime`) |
 | `npm run build:all` | build cả 9 service |
+| `npm run services start\|stop\|restart\|status` | chạy/dừng 9 service đã build, theo PID đang giữ cổng |
+| `npm run smoke` | gọi HTTP qua gateway kiểm các luồng chính trên hạ tầng thật |
 | `npm run lint` | lint + **kiểm tra ranh giới kiến trúc** |
 | `npm test` | unit test |
 | `npm run test:cov` | coverage (ngưỡng chỉ áp ở `domain/model`) |
@@ -190,12 +205,12 @@ coverage cao ở đó chỉ đẻ ra test vô nghĩa.
 
 ## Docker
 
-`docker-compose.yml` chứa Kafka (KRaft, **không ZooKeeper**), Kafka UI, Keycloak + DB riêng, và
+`docker-compose.yml` chứa Kafka (KRaft, **không ZooKeeper**), Kafka UI, Kong, Keycloak dự phòng + DB riêng, và
 9 service. Một `Dockerfile` build tất cả app; compose chọn app bằng `command` — build một lần
 thay vì chín lần.
 
 ```bash
-docker compose up -d kafka kafka-ui keycloak   # chỉ hạ tầng
+docker compose up -d kafka kafka-ui kong       # hạ tầng local
 docker compose up -d                           # thêm cả 9 service
 ```
 

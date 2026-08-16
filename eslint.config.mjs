@@ -3,7 +3,7 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import importPlugin from 'eslint-plugin-import';
 
-const APPS = ['core-service','learning-service','exercise-service','workspace-service','document-service','submission-service','judge-service','ai-service','realtime-service'];
+const APPS = ['core-service','learning-service','exercise-service','workspace-service','document-service','submission-service','ai-service','realtime-service'];
 
 // Service KHÔNG được import code của service khác. Muốn dùng thì qua libs/contracts.
 const crossServiceZones = APPS.flatMap((from) =>
