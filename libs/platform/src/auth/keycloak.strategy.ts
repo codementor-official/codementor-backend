@@ -51,7 +51,25 @@ export class KeycloakStrategy extends PassportStrategy(Strategy, 'keycloak') {
    * Just-in-time provisioning: lần đầu một tài khoản Keycloak gọi API, ta tạo bản ghi
    * `users` tương ứng. Nhờ vậy đăng ký qua social không cần webhook từ Keycloak.
    */
-  async validate(request: { headers: Record<string, unknown> }, token: KeycloakToken): Promise<AuthenticatedUser> {
+  async validate(
+    request: { headers: Record<string, unknown> },
+    token: KeycloakToken,
+  ): Promise<AuthenticatedUser> {
+    const role = platformRoleOf(token);
+
+    // Tài khoản dịch vụ đăng nhập bằng client credentials: không có email, không có hàng
+    // trong `users`, và không được provisioning. Phải trả về TRƯỚC lúc đòi email, nếu
+    // không mọi lời gọi máy-tới-máy đều bị 401.
+    if (role === 'ai_agent') {
+      return {
+        id: null,
+        externalId: token.sub,
+        displayName: token.preferred_username ?? 'codementor-ai-agent',
+        role,
+        actorType: 'service',
+      };
+    }
+
     // core-service dùng IdentityModule, 8 service còn lại dùng RemoteIdentityModule.
     // Thiếu cả hai là lỗi lắp ráp module, không phải lỗi của người gọi.
     if (!this.provisioning) {
@@ -70,7 +88,7 @@ export class KeycloakStrategy extends PassportStrategy(Strategy, 'keycloak') {
       email: token.email,
       displayName: token.name ?? token.preferred_username ?? token.email,
       emailVerified: token.email_verified ?? false,
-      role: platformRoleOf(token),
+      role,
       accessToken: authorization.startsWith('Bearer ') ? authorization.slice(7) : undefined,
     });
   }

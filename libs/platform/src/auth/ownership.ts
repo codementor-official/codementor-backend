@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import type { AuthenticatedUser } from './jwt-payload';
 
 /**
@@ -10,6 +11,23 @@ import type { AuthenticatedUser } from './jwt-payload';
  * Khi thêm cộng tác viên sau này (bảng `collaborators` — chưa làm), chỉ sửa các hàm trong
  * file này, không phải đi rà lại toàn hệ thống.
  */
+
+/**
+ * Id của con người đứng sau request, khi bản ghi sắp tạo phải có chủ.
+ *
+ * `AuthenticatedUser.id` là `string | null` vì tài khoản dịch vụ (AI agent) không có hàng
+ * nào trong `users`. Ghi thẳng giá trị đó vào `author_id`/`created_by` sẽ tạo ra bản ghi vô
+ * chủ — mà theo `owns()` bên dưới thì bản ghi vô chủ chỉ admin đụng được, nên tác giả thật
+ * mất luôn quyền sửa bài của mình.
+ *
+ * Một chỗ duy nhất ném lỗi, thay vì mỗi use case tự nhớ kiểm — quên một chỗ là đủ.
+ */
+export function requireHumanId(user: AuthenticatedUser): string {
+  if (user.actorType !== 'human' || !user.id) {
+    throw new ForbiddenException('Tài khoản dịch vụ không tạo hay sở hữu nội dung được');
+  }
+  return user.id;
+}
 
 /** Chỉ cần đúng những trường dùng để quyết định — không nhận cả aggregate. */
 export interface OwnedByAuthor {

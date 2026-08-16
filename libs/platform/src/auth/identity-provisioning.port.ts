@@ -1,11 +1,11 @@
-import type { AuthenticatedUser, PlatformRole } from './jwt-payload';
+import type { AuthenticatedUser, HumanRole } from './jwt-payload';
 
 export interface ProvisionUserInput {
   externalId: string;
   email: string;
   displayName: string;
   emailVerified: boolean;
-  role: PlatformRole;
+  role: HumanRole;
   /**
    * Bản gốc của access token. core-service không cần — nó đọc thẳng bảng `users`.
    * Service khác thì cần để hỏi core bằng chính danh tính của người gọi.

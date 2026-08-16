@@ -53,6 +53,8 @@ export class RemoteIdentityProvisioning implements IdentityProvisioning {
       email: response.email,
       displayName: response.displayName,
       role: response.role,
+      // Đường này chỉ chạy sau provisioning, mà tài khoản dịch vụ thì được trả về trước đó.
+      actorType: 'human',
     };
 
     this.cache.set(input.accessToken, { user, expiresAt: this.expiryOf(input.accessToken) });

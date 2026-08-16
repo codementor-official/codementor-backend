@@ -71,6 +71,7 @@ export class ProvisionUserUseCase implements IdentityProvisioning {
       email: user.email.value,
       displayName: user.displayName,
       role: user.role,
+      actorType: 'human',
     };
   }
 }

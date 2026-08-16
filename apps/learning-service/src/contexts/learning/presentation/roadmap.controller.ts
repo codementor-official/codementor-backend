@@ -13,7 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { CurrentUser, Roles } from '@codementor/platform';
+import { CurrentUser, Roles, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { RoadmapUseCases } from '../application/roadmap.usecases';
 import {
@@ -40,7 +40,7 @@ export class RoadmapController {
   @Roles('lecturer')
   @ApiOperation({ summary: 'Lộ trình của tôi, mọi trạng thái' })
   mine(@CurrentUser() user: AuthenticatedUser, @Query() query: ListRoadmapsQueryDto) {
-    return this.roadmaps.list({ createdBy: user.id }, query);
+    return this.roadmaps.list({ createdBy: requireHumanId(user) }, query);
   }
 
   @Get('moderation')

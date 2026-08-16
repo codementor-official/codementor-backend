@@ -13,7 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { CurrentUser, Roles } from '@codementor/platform';
+import { CurrentUser, Roles, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { CourseUseCases } from '../application/course.usecases';
 import {
@@ -41,7 +41,7 @@ export class CourseController {
   @Roles('lecturer')
   @ApiOperation({ summary: 'Khóa học của tôi, mọi trạng thái' })
   mine(@CurrentUser() user: AuthenticatedUser, @Query() query: ListCoursesQueryDto) {
-    return this.courses.list({ createdBy: user.id }, query);
+    return this.courses.list({ createdBy: requireHumanId(user) }, query);
   }
 
   @Get('moderation')

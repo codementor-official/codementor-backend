@@ -55,8 +55,19 @@ describe('platformRoleOf — hai cách đặt tên role cùng tồn tại trên 
     expect(platformRoleOf(token(['STUDENT', 'LECTURER']))).toBe('lecturer');
   });
 
-  // AI_AGENT là danh tính máy, không phải vai trò của người dùng nền tảng.
   it('role không thuộc nền tảng thì bỏ qua', () => {
-    expect(platformRoleOf(token(['AI_AGENT', 'default-roles-codementor']))).toBe('learner');
+    expect(platformRoleOf(token(['default-roles-codementor', 'offline_access']))).toBe('learner');
+  });
+
+  // AI_AGENT là danh tính máy. Nó từng bị bỏ qua và rơi về `learner`; từ khi có tài khoản
+  // dịch vụ thì nó là một vai trò thật, và KeycloakStrategy trả về trước bước provisioning.
+  it('AI_AGENT là vai trò của tài khoản dịch vụ', () => {
+    expect(platformRoleOf(token(['AI_AGENT']))).toBe('ai_agent');
+  });
+
+  // Xếp dưới lecturer nhưng trên learner: một tài khoản vừa là agent vừa là admin (kịch bản
+  // vận hành) phải vào được cửa admin.
+  it('quyền của người thắng quyền của máy', () => {
+    expect(platformRoleOf(token(['AI_AGENT', 'ADMIN']))).toBe('admin');
   });
 });

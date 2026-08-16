@@ -1,3 +1,4 @@
+import { requireHumanId } from '@codementor/platform';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { NotAuthorized, NotFound } from '@codementor/kernel';
@@ -40,7 +41,7 @@ export class ForkExerciseUseCase {
       kind: source.kind,
       difficulty: source.difficulty,
       summary: source.summary,
-      authorId: user.id,
+      authorId: requireHumanId(user),
       forkedFromId: source.id,
     });
     if (fork.isFail) throw fork.error;

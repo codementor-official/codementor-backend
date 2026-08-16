@@ -1,3 +1,4 @@
+import { requireHumanId } from '@codementor/platform';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AlreadyExists } from '@codementor/kernel';
@@ -29,7 +30,7 @@ export class CreateExerciseUseCase {
       kind: input.kind,
       difficulty: input.difficulty,
       summary: input.summary,
-      authorId: user.id,
+      authorId: requireHumanId(user),
     });
     if (exercise.isFail) throw exercise.error;
 

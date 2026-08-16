@@ -47,7 +47,12 @@ _client = docker.from_env(max_pool_size=128)
 execution_semaphore = threading.Semaphore(settings.docker_execution_concurrency)
 
 MAX_OUTPUT_BYTES = 64_000
-COMPILE_TIMEOUT_SEC = 10
+# 30s, không phải 10s: driver C++ include nlohmann/json.hpp — một header đơn ~25 nghìn dòng
+# — và `g++ -O2 -std=c++17` mất 8–15s cho nó, vượt trần cũ ngay khi máy có tải. Đây là trần,
+# không phải độ trễ: javac/tsc/go vẫn xong trong 1–3s.
+# ponytail: cách sửa đúng gốc là precompiled header cho nlohmann trong image, làm khi thời
+# gian biên dịch C++ thành thứ ai đó thật sự phàn nàn.
+COMPILE_TIMEOUT_SEC = 30
 
 _COMMON_RUN_KWARGS = {
     "network_disabled": True,

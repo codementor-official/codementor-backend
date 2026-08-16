@@ -12,6 +12,7 @@ const user = (id: string, role: PlatformRole = 'lecturer'): AuthenticatedUser =>
   email: `${id}@test.local`,
   displayName: id,
   role,
+  actorType: 'human',
 });
 
 const me = user('u1');

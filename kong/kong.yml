@@ -17,6 +17,7 @@ services:
       - name: core-routes
         paths:
           - /api/v1/me
+          - /api/v1/users
           - /api/v1/technologies
           - /api/v1/tags
           - /api/v1/companies

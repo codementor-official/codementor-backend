@@ -150,7 +150,18 @@ def files(spec: DriverSpec) -> dict[str, str]:
 
 RUNNER = LanguageRunner(
     solution_file="solution.cpp",
-    compile_cmd=["g++", "-O2", "-std=c++17", "driver.cpp", "-o", "main"],
+    # `-include` kéo theo precompiled header dựng sẵn trong image (xem docker/cpp.Dockerfile).
+    # Cờ phải khớp chính xác cờ dùng lúc dựng .gch, nếu không gcc bỏ qua nó trong im lặng.
+    compile_cmd=[
+        "g++",
+        "-O2",
+        "-std=c++17",
+        "-include",
+        "/usr/local/include/codementor_pch.hpp",
+        "driver.cpp",
+        "-o",
+        "main",
+    ],
     run_cmd=["./main"],
     starter=starter,
     files=files,

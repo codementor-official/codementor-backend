@@ -13,7 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { CurrentUser, Roles } from '@codementor/platform';
+import { CurrentUser, Roles, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { CreateExerciseUseCase } from '../application/create-exercise.usecase';
 import { DeleteExerciseUseCase } from '../application/delete-exercise.usecase';
@@ -67,7 +67,7 @@ export class ExerciseController {
   @Roles('lecturer')
   @ApiOperation({ summary: 'Bài của tôi, mọi trạng thái' })
   mine(@CurrentUser() user: AuthenticatedUser, @Query() query: ListExercisesQueryDto) {
-    return this.listExercises.execute({ authorId: user.id }, query);
+    return this.listExercises.execute({ authorId: requireHumanId(user) }, query);
   }
 
   @Get('moderation')

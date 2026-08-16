@@ -234,7 +234,7 @@ describe('validateForSubmission', () => {
     });
 
     it('thiếu chữ ký thì chặn', () => {
-      const { signature: _drop, ...withoutSignature } = fn;
+      const withoutSignature = { ...fn, signature: undefined };
       expect(validateForSubmission('code', withoutSignature).isFail).toBe(true);
     });
 
@@ -278,7 +278,7 @@ describe('validateForSubmission', () => {
     });
 
     it('thiếu đáp án thì chặn', () => {
-      const { expected: _drop, ...noExpected } = fn.testCases[0];
+      const noExpected = { ...fn.testCases[0], expected: undefined };
       const result = validateForSubmission('code', {
         ...fn,
         testCases: [noExpected, ...fn.testCases.slice(1)],

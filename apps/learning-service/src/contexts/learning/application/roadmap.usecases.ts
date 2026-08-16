@@ -1,14 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
-import {
-  DEFAULT_PAGE_LIMIT,
-  canEditRoadmap,
-  decodeCursor,
-  toPage,
-  type AuthenticatedUser,
-  type Page,
-} from '@codementor/platform';
+import { DEFAULT_PAGE_LIMIT, canEditRoadmap, decodeCursor, requireHumanId, toPage, type AuthenticatedUser, type Page } from '@codementor/platform';
 import { Roadmap } from '../domain/model/roadmap';
 import type { CurrentLevel, RoadmapEdit, RoadmapField } from '../domain/model/roadmap';
 import {
@@ -92,7 +85,7 @@ export class RoadmapUseCases {
       title: input.title,
       field: input.field,
       level: input.level,
-      createdBy: user.id,
+      createdBy: requireHumanId(user),
     });
     if (roadmap.isFail) throw roadmap.error;
 

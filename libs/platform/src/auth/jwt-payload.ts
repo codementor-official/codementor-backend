@@ -2,6 +2,7 @@
  * Access token do **Keycloak** phát (RS256), backend chỉ xác minh chữ ký — không tự ký.
  * Đây là các claim chuẩn OIDC + phần mở rộng của Keycloak mà ta thực sự dùng.
  */
+
 export interface KeycloakToken {
   sub: string; // định danh người dùng ở Keycloak — ổn định, không đổi
   iss: string;
@@ -14,7 +15,7 @@ export interface KeycloakToken {
   preferred_username?: string;
   name?: string;
 
-  /** Vai trò cấp realm. Xem `platformRoleOf` — quyền cao nhất thắng. */
+  /** Vai trò cấp realm — nguồn sự thật cho phân quyền. Xem `platformRoleOf`. */
   realm_access?: { roles: string[] };
 
   /** Nhà cung cấp social đã dùng để đăng nhập (google, github...), nếu có. */
@@ -25,10 +26,19 @@ export interface KeycloakToken {
  * Khớp 1-1 với enum `platform_role` trong PostgreSQL và realm role của Keycloak.
  * Ba tên phải giống hệt nhau, nếu không thì `role = $n::platform_role` sẽ nổ lúc INSERT.
  */
-export type PlatformRole = 'learner' | 'lecturer' | 'admin';
+export type PlatformRole = 'learner' | 'lecturer' | 'admin' | 'ai_agent';
+
+/**
+ * Vai trò gắn được với một hàng trong `users`.
+ *
+ * Enum `platform_role` ở PostgreSQL không có `ai_agent`, và đúng như vậy: tài khoản dịch vụ
+ * đăng nhập bằng client credentials và được trả về trước bước provisioning. Kiểu này khiến
+ * điều đó là lỗi biên dịch chứ không phải lỗi lúc INSERT.
+ */
+export type HumanRole = Exclude<PlatformRole, 'ai_agent'>;
 
 /** Xếp từ quyền cao xuống thấp. Ai có nhiều role thì lấy cái cao nhất. */
-const ROLE_PRECEDENCE: readonly PlatformRole[] = ['admin', 'lecturer', 'learner'];
+const ROLE_PRECEDENCE: readonly PlatformRole[] = ['admin', 'lecturer', 'ai_agent', 'learner'];
 
 /**
  * Tên realm role → vai trò nền tảng.
@@ -46,6 +56,8 @@ const ROLE_ALIASES: Record<string, PlatformRole> = {
   lecturer: 'lecturer',
   learner: 'learner',
   student: 'learner',
+  // Tài khoản dịch vụ (AI agent) đăng nhập bằng client credentials, không phải người.
+  ai_agent: 'ai_agent',
 };
 
 /**
@@ -70,9 +82,20 @@ export function platformRoleOf(token: KeycloakToken): PlatformRole {
  * cung cấp danh tính thì chỉ một cột phải đổi.
  */
 export interface AuthenticatedUser {
-  id: string;
+  /**
+   * `null` với tài khoản dịch vụ (AI agent): chúng đăng nhập bằng client credentials và
+   * không có hàng nào trong `users`. Mọi kiểm quyền sở hữu phải xử lý được `null` —
+   * không có chủ sở hữu thì không sở hữu gì.
+   */
+  id: string | null;
   externalId: string;
-  email: string;
+  email?: string;
   displayName: string;
+  /**
+   * MỘT vai trò đã phân giải, không phải danh sách. `platformRoleOf` chọn quyền cao nhất,
+   * nên phân quyền chỉ phải so sánh một giá trị. Tên vai trò thô của Keycloak vẫn dùng
+   * được ở tầng quản trị Keycloak (`UserRole` trong `user-role.ts`).
+   */
   role: PlatformRole;
+  actorType: 'human' | 'service';
 }

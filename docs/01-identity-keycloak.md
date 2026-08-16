@@ -1,95 +1,84 @@
-# Identity với Keycloak
+# Identity and authorization with Keycloak
 
-Quyết định: **Keycloak là nhà cung cấp danh tính**, backend là **resource server**.
-Lý do: yêu cầu đăng nhập bằng nhiều mạng xã hội.
+Keycloak owns login, credentials, tokens, and realm roles. `core-service` is the existing
+user-profile owner, so its Identity context provides the user-service capability instead of
+introducing another deployment unit with overlapping database ownership.
 
-## 1. Ai sở hữu cái gì
-
-| Thuộc về | Keycloak | CodeMentor (bảng `users`) |
-| --- | --- | --- |
-| Mật khẩu, MFA, khôi phục mật khẩu | ✅ | ❌ (cột `password_hash` đã bị bỏ) |
-| Liên kết Google / GitHub / Facebook | ✅ | ❌ |
-| Phát & ký access token | ✅ (RS256) | ❌ chỉ xác minh |
-| Vai trò nền tảng (`learner` / `admin`) | ✅ realm role | mirror để join/truy vấn |
-| Tên hiển thị, handle, bio | ❌ | ✅ |
-| Trạng thái tài khoản trong sản phẩm | ❌ | ✅ (`status`) |
-| Vai trò trong **nhóm học tập** | ❌ | ✅ `group_members` + ma trận quyền |
-
-Vai trò nhóm **không** đưa vào Keycloak: nó theo ngữ cảnh từng nhóm và có ma trận quyền
-ghi đè theo từng người — Keycloak group không diễn đạt được, và nó cũng thuộc nghiệp vụ
-của ta chứ không phải của nhà cung cấp danh tính.
-
-## 2. Luồng xác thực
+## Request flow
 
 ```text
-Frontend ──(1) redirect──▶ Keycloak  (đăng nhập / social / đăng ký)
-Frontend ◀─(2) access token (RS256)──┘
-Frontend ──(3) Authorization: Bearer ──▶ Backend
-                                          │ (4) xác minh chữ ký qua JWKS
-                                          │ (5) tra users theo external_id
-                                          │ (6) chưa có → tạo hồ sơ nội bộ (JIT)
-                                          ▼
-                                     AuthenticatedUser
+Admin Next.js -> Keycloak Authorization Code + PKCE -> access token
+Admin Next.js -> core-service Authorization: Bearer -> JWKS verification
+core-service  -> users.external_id = token.sub -> application profile
 ```
 
-Backend **không có** endpoint `/login`, `/register`, `/refresh`. Nếu thấy ai đó thêm vào
-thì đó là dấu hiệu ranh giới đã bị phá.
+The backend does not expose login, refresh, or password endpoints and never stores passwords.
+JWT verification validates the RS256 signature, issuer, expiry, and `codementor-api` audience.
+Signing keys come from the realm JWKS endpoint and are cached by `jwks-rsa`.
 
-## 3. Just-in-time provisioning
+## Actors and roles
 
-Lần đầu một tài khoản Keycloak gọi API, `ProvisionUserUseCase` tạo bản ghi `users`
-tương ứng. Không cần webhook từ Keycloak, không cần đồng bộ nền.
+Guest means no access token. Public endpoints must use `@Public()` explicitly.
 
-Các lần sau chỉ ghi khi claim thay đổi (`syncFromProvider` trả `true`) — nếu ghi mỗi
-request thì mỗi lần gọi API sẽ kèm một lượt UPDATE vô ích.
+Keycloak realm roles are uppercase and are the authorization source of truth:
 
-## 4. Vì sao `external_id` chứ không dùng thẳng `sub` làm khoá chính
-
-`users.id` vẫn là UUID do ta sinh; `sub` của Keycloak nằm ở `users.external_id` (unique).
-
-- Mọi khoá ngoại trong 44 bảng đang trỏ tới `users.id`. Đổi khoá chính đồng nghĩa sửa 20 FK.
-- Nếu sau này đổi nhà cung cấp danh tính (hoặc tự làm), chỉ một cột phải xử lý.
-- Dữ liệu seed/demo không có tài khoản Keycloak vẫn tồn tại được với `external_id = NULL`
-  — những hàng đó đơn giản là không đăng nhập được.
-
-Migration: `codementor-infra/database/postgres/migrations/0014_external_identity.sql`.
-
-## 5. Chạy thử
-
-```bash
-docker compose up -d keycloak-db keycloak     # realm được import tự động
-# Console: http://localhost:8080  (admin/admin)
+```text
+STUDENT
+LECTURER
+ADMIN
+AI_AGENT
 ```
 
-Realm `codementor` khai báo sẵn hai client:
+The existing PostgreSQL `platform_role` enum is only a profile/query projection:
 
-| Client | Kiểu | Dùng cho |
-| --- | --- | --- |
-| `codementor-web` | public + PKCE | frontend Next.js |
-| `codementor-api` | bearer-only | backend xác minh token |
-
-### Bật đăng nhập social
-
-`identityProviders` trong `keycloak/realm-codementor.json` đang để rỗng — **cố ý**, vì
-client secret không được commit. Thêm provider qua Admin Console
-(*Identity Providers → Google/GitHub/Facebook*), hoặc điền vào file rồi giữ secret trong
-biến môi trường khi import.
-
-Backend **không cần sửa gì** khi thêm provider mới: token vẫn cùng issuer, cùng shape.
-Claim `identity_provider` cho biết người dùng đăng nhập bằng đâu nếu cần thống kê.
-
-## 6. Điều đã thay đổi so với thiết kế ban đầu
-
-| Trước | Sau |
+| Keycloak | Database projection |
 | --- | --- |
-| Argon2 băm mật khẩu trong backend | Đã gỡ — Keycloak giữ credential |
-| `JWT_SECRET` đối xứng, backend tự ký | JWKS RS256, chỉ xác minh |
-| `RegisterUserUseCase` + `POST /auth/register` | `ProvisionUserUseCase` chạy ngầm lúc xác thực |
-| `users.password_hash` | Đã bỏ ở migration 0014 |
+| `STUDENT` | `learner` |
+| `LECTURER` | `mentor` |
+| `ADMIN` | `admin` |
 
-## 7. Việc còn lại
+Controllers authorize with `@Roles(UserRole.ADMIN)` and the global `RolesGuard`. Missing or
+invalid authentication returns 401 through Passport; a valid token without a required role
+returns 403. `AI_AGENT` is accepted as a service identity only and is never provisioned into
+the human `users` table.
 
-- [ ] Frontend tích hợp OIDC (`next-auth` hoặc `keycloak-js`) với client `codementor-web`
-- [ ] Thêm identity provider thật (Google/GitHub) kèm secret qua biến môi trường
-- [ ] `RolesGuard` cho các endpoint chỉ dành cho admin
-- [ ] Cân nhắc cache kết quả provisioning để bớt một truy vấn mỗi request
+## Profile provisioning and API
+
+Human identities are provisioned just in time. `users.external_id` stores the Keycloak `sub`
+and remains unique; `users.id` stays the application UUID referenced by domain tables.
+
+```text
+GET   /api/v1/users/me
+GET   /api/v1/users                 ADMIN
+POST  /api/v1/users                 ADMIN
+PATCH /api/v1/users/:id/role        ADMIN
+PATCH /api/v1/users/:id/status      ADMIN
+GET   /api/v1/users/ai-agent/ping   AI_AGENT
+```
+
+Admin operations go through `KeycloakAdminService`. It obtains a service-account token for
+`codementor-user-service`; human admin credentials never appear in backend configuration.
+Normal authenticated requests use JWT claims and do not call the Keycloak Admin API.
+
+## Environment
+
+```env
+KEYCLOAK_URL=http://keycloak-host:8080
+KEYCLOAK_REALM=codementor
+KEYCLOAK_ISSUER=http://keycloak-host:8080/realms/codementor
+KEYCLOAK_AUDIENCE=codementor-api
+KEYCLOAK_USER_SERVICE_CLIENT_ID=codementor-user-service
+KEYCLOAK_USER_SERVICE_CLIENT_SECRET=
+```
+
+The browser receives only the Keycloak URL, realm, public client ID, and API URL. Service
+account secrets are backend-only.
+
+## AI Agent
+
+`codementor-ai-agent` uses `grant_type=client_credentials`. Its service account owns only the
+`AI_AGENT` realm role. An endpoint must opt in explicitly with `@Roles(UserRole.AI_AGENT)`;
+authentication alone never grants access to ADMIN endpoints.
+
+Infrastructure configuration and DEV identity creation live in
+`codementor-infra/docker/scripts/configure-codementor-realm.sh`.

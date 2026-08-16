@@ -31,9 +31,10 @@ export const envSchema = z.object({
     .url()
     .describe('vd: http://localhost:8080/realms/codementor'),
   KEYCLOAK_AUDIENCE: z.string().default('codementor-api'),
-  /** Chỉ cần khi backend gọi Admin API của Keycloak (đọc danh sách nhà cung cấp social...). */
-  KEYCLOAK_ADMIN_CLIENT_ID: z.string().optional(),
-  KEYCLOAK_ADMIN_CLIENT_SECRET: z.string().optional(),
+  KEYCLOAK_URL: z.string().url(),
+  KEYCLOAK_REALM: z.string().default('codementor'),
+  KEYCLOAK_USER_SERVICE_CLIENT_ID: z.string().default('codementor-user-service'),
+  KEYCLOAK_USER_SERVICE_CLIENT_SECRET: z.string().min(1),
 
   /**
    * Service khác hỏi core-service để đổi `sub` của Keycloak lấy `users.id` nội bộ —

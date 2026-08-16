@@ -8,7 +8,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { CurrentUser } from '@codementor/platform';
+import { CurrentUser, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { GetProfileUseCase } from '../application/get-profile.usecase';
 import { UpdateProfileUseCase } from '../application/update-profile.usecase';
@@ -100,7 +100,7 @@ export class IdentityController {
   @ApiOperation({ summary: 'Hồ sơ của tài khoản đang đăng nhập' })
   @ApiResponse({ status: 200, type: UserResponse })
   me(@CurrentUser() user: AuthenticatedUser): Promise<UserResponse> {
-    return this.getProfile.execute(user.id);
+    return this.getProfile.execute(requireHumanId(user));
   }
 
   @Patch()
@@ -111,6 +111,6 @@ export class IdentityController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateProfileDto,
   ): Promise<UserResponse> {
-    return this.updateProfile.execute(user.id, dto);
+    return this.updateProfile.execute(requireHumanId(user), dto);
   }
 }

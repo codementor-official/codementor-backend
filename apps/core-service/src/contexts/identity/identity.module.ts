@@ -6,7 +6,9 @@ import { UpdateProfileUseCase } from './application/update-profile.usecase';
 import { USER_REPOSITORY } from './domain/port/user.repository';
 import { IdentityQueryService } from './infrastructure/identity-query.service';
 import { PrismaUserRepository } from './infrastructure/prisma-user.repository';
+import { KeycloakAdminService } from './infrastructure/keycloak-admin.service';
 import { IDENTITY_QUERY } from './identity.public';
+import { AdminUsersController } from './presentation/admin-users.controller';
 import { IdentityController } from './presentation/identity.controller';
 
 /**
@@ -16,11 +18,14 @@ import { IdentityController } from './presentation/identity.controller';
  */
 @Global()
 @Module({
-  controllers: [IdentityController],
+  // Hai controller, hai đường dẫn: hồ sơ ở `/me` (Kong định tuyến đường đó), quản trị
+  // tài khoản Keycloak ở `/users`.
+  controllers: [IdentityController, AdminUsersController],
   providers: [
     GetProfileUseCase,
     ProvisionUserUseCase,
     UpdateProfileUseCase,
+    KeycloakAdminService,
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: IDENTITY_PROVISIONING, useExisting: ProvisionUserUseCase },
     { provide: IDENTITY_QUERY, useClass: IdentityQueryService },

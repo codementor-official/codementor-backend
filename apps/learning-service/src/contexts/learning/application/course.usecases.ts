@@ -1,14 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
-import {
-  DEFAULT_PAGE_LIMIT,
-  canEditCourse,
-  decodeCursor,
-  toPage,
-  type AuthenticatedUser,
-  type Page,
-} from '@codementor/platform';
+import { DEFAULT_PAGE_LIMIT, canEditCourse, decodeCursor, requireHumanId, toPage, type AuthenticatedUser, type Page } from '@codementor/platform';
 import { Course } from '../domain/model/course';
 import type { CourseEdit } from '../domain/model/course';
 import { validateCurriculum, type ChapterDraft } from '../domain/model/curriculum';
@@ -131,7 +124,7 @@ export class CourseUseCases {
       slug,
       title: input.title,
       level: input.level,
-      createdBy: user.id,
+      createdBy: requireHumanId(user),
     });
     if (course.isFail) throw course.error;
 

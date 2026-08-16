@@ -13,6 +13,14 @@ RUN apt-get update \
        "https://raw.githubusercontent.com/nlohmann/json/${NLOHMANN_VERSION}/single_include/nlohmann/json.hpp" \
     && rm -rf /var/lib/apt/lists/*
 
+# Precompiled header cho nlohmann. Không có nó, mỗi bài C++ phải dịch lại ~25 nghìn dòng
+# header: 8–15s một lần khi máy rảnh, và vượt cả trần 30s khi nhiều container chạy song song.
+# Cờ phải TRÙNG với cờ lúc chấm (`g++ -O2 -std=c++17`), nếu không gcc lặng lẽ bỏ qua .gch và
+# ta mất tác dụng mà không có cảnh báo nào.
+RUN printf '#include <nlohmann/json.hpp>\n' > /usr/local/include/codementor_pch.hpp \
+    && g++ -O2 -std=c++17 -x c++-header /usr/local/include/codementor_pch.hpp \
+       -o /usr/local/include/codementor_pch.hpp.gch
+
 RUN useradd -m -u 1000 runner
 USER runner
 WORKDIR /home/runner

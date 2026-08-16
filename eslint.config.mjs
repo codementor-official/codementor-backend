@@ -22,7 +22,9 @@ const kernelZones = [
 ];
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'generated/**'] },
+  // judge-service là Python và đứng ngoài eslint (xem apps/judge-service/README.md);
+  // `.venv` của nó có JS đi kèm thư viện, quét vào là lỗi parse.
+  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'generated/**', 'apps/judge-service/**'] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
