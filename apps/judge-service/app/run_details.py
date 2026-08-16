@@ -63,6 +63,9 @@ async def save(
                 }
                 for case in result.cases
             ],
+            # Rỗng ở chế độ stdin (ở đó stdout CHÍNH LÀ đáp án nộp lên, đã nằm trong `actual`).
+            # `_prune` bỏ luôn khoá này khi rỗng, nên document không phình vì một chuỗi trắng.
+            "consoleOutput": result.console_output or None,
             "judge": {"worker": worker, "languageVersion": language},
             "createdAt": datetime.now(UTC),
         }

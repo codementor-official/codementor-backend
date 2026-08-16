@@ -8,11 +8,12 @@ pids/memory/cpu limits, read-only root fs) — good enough for a classroom
 judge, not for hostile multi-tenant production use.
 """
 
+import json
 import shutil
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from docker.models.containers import Container
@@ -21,6 +22,7 @@ import docker
 from app.config import settings
 from app.services.execution_config import LANGUAGE_CONFIG
 from app.services.judgement import JudgeCase, determine_verdict
+from app.services.langs import RUNNERS, STARTUP_BUDGET_SEC, DriverSpec
 
 # docker-py's default max_pool_size=10 -- verified empirically that it's an
 # actual ceiling, not just a perf knob: at concurrency=20 the shared client
@@ -82,6 +84,29 @@ class RunOutcome:
     # other SIGKILL, so the exit code alone cannot tell "used too much memory" apart from
     # "was killed". The daemon records the real answer on the container.
     oom_killed: bool = False
+
+
+@dataclass
+class FunctionRunOutcome:
+    """Kết quả thô của một lượt chạy ở chế độ hàm — chưa chấm.
+
+    `records` khoá theo `order` của test case chứ không phải danh sách: driver có thể ghi
+    thiếu (container chết giữa chừng), và người gọi cần biết case NÀO thiếu chứ không chỉ
+    thiếu bao nhiêu.
+    """
+
+    records: dict[int, dict] = field(default_factory=dict)
+    # Không nạp được module của học viên: lỗi cú pháp, thiếu tên hàm. Cả bài hỏng, không phải
+    # một case hỏng.
+    fatal: str | None = None
+    # Biên dịch hỏng: driver chưa từng chạy, `records` rỗng và không case nào có nghĩa.
+    compile_output: str | None = None
+    console_output: str = ""
+    stderr: str = ""
+    timed_out: bool = False
+    oom_killed: bool = False
+    total_time_ms: float = 0.0
+    peak_memory_mb: float | None = None
 
 
 @dataclass
@@ -201,12 +226,20 @@ def compile_step(language: str, workdir: str) -> str | None:
     config = LANGUAGE_CONFIG[language]
     if not config["compile_cmd"]:
         return None
+    return compile_with(config["image"], config["compile_cmd"], workdir)
 
+
+def compile_with(image: str, command: list[str], workdir: str) -> str | None:
+    """Biên dịch bằng một lệnh cho sẵn.
+
+    Tách khỏi `compile_step` vì chế độ hàm biên dịch driver cùng bài của học viên, tức là một
+    lệnh khác với lệnh của chế độ stdin — nhưng vẫn là cùng một container, cùng cách đọc lỗi.
+    """
     container: Container | None = None
     try:
         container = _client.containers.run(
-            image=config["image"],
-            command=config["compile_cmd"],
+            image=image,
+            command=command,
             volumes={workdir: {"bind": "/home/runner", "mode": "rw"}},
             working_dir="/home/runner",
             mem_limit="256m",
@@ -253,26 +286,25 @@ def _was_oom_killed(container: Container) -> bool:
         return False
 
 
-def _run_once(
-    language: str,
+def _run_container(
+    image: str,
+    command: list[str],
     workdir: str,
-    stdin: str,
-    time_limit_sec: int,
+    timeout_sec: int,
     memory_limit_mb: int,
 ) -> RunOutcome:
-    config = LANGUAGE_CONFIG[language]
-    stdin_path = Path(workdir) / "stdin.txt"
-    stdin_path.write_text(stdin or "")
+    """Một lần chạy trong container ephemeral, có lấy mẫu tài nguyên và phát hiện OOM.
 
-    run_cmd = " ".join(config["run_cmd"])
-    shell_cmd = f"{run_cmd} < stdin.txt"
-
+    Dùng chung cho hai chế độ: stdin/stdout chạy một container cho MỖI test case, chế độ hàm
+    chạy một container cho CẢ bài nộp. Khác nhau chỉ ở `command` và ở nghĩa của
+    `timeout_sec` — mọi phần cách ly, dọn dẹp, đo đạc là một.
+    """
     container: Container | None = None
     start = time.monotonic()
     try:
         container = _client.containers.run(
-            image=config["image"],
-            command=["sh", "-c", shell_cmd],
+            image=image,
+            command=command,
             volumes={workdir: {"bind": "/home/runner", "mode": "rw"}},
             working_dir="/home/runner",
             mem_limit=f"{memory_limit_mb}m",
@@ -290,7 +322,7 @@ def _run_once(
         sampler.start()
 
         try:
-            result = container.wait(timeout=time_limit_sec)
+            result = container.wait(timeout=timeout_sec)
             elapsed_ms = (time.monotonic() - start) * 1000
             stdout = _truncate(container.logs(stdout=True, stderr=False))
             stderr = _truncate(container.logs(stdout=False, stderr=True))
@@ -311,10 +343,18 @@ def _run_once(
             elapsed_ms = (time.monotonic() - start) * 1000
             stop_sampling.set()
             sampler.join(timeout=1)
+            # Vẫn cố lấy log: một bài lặp vô hạn là đúng lúc học viên cần nhất những dòng
+            # `print` của mình. Container đã bị giết nên lời gọi này có thể hỏng — hỏng thì
+            # thôi, đây không phải lý do để mất luôn verdict.
+            try:
+                stdout = _truncate(container.logs(stdout=True, stderr=False))
+                stderr = _truncate(container.logs(stdout=False, stderr=True))
+            except Exception:
+                stdout = stderr = ""
             return RunOutcome(
                 exit_code=None,
-                stdout="",
-                stderr="",
+                stdout=stdout,
+                stderr=stderr,
                 timed_out=True,
                 time_ms=elapsed_ms,
                 peak_memory_mb=sample_result.get("peak_memory_mb"),
@@ -324,6 +364,115 @@ def _run_once(
         raise ExecutionError(f"docker error during run: {exc}") from exc
     finally:
         _remove_container(container)
+
+
+def _run_once(
+    language: str,
+    workdir: str,
+    stdin: str,
+    time_limit_sec: int,
+    memory_limit_mb: int,
+) -> RunOutcome:
+    """Một test case ở chế độ stdin/stdout: nạp đầu vào qua stdin, đọc đáp án ở stdout."""
+    config = LANGUAGE_CONFIG[language]
+    (Path(workdir) / "stdin.txt").write_text(stdin or "")
+    shell_cmd = f"{' '.join(config['run_cmd'])} < stdin.txt"
+    return _run_container(
+        config["image"], ["sh", "-c", shell_cmd], workdir, time_limit_sec, memory_limit_mb
+    )
+
+
+def run_function_mode(
+    test_cases: list[JudgeCase],
+    language: str,
+    source_code: str,
+    spec: DriverSpec,
+    memory_limit_mb: int = 256,
+) -> FunctionRunOutcome:
+    """Chạy cả bài nộp trong MỘT container, gọi hàm của học viên cho từng test case.
+
+    Một container cho tất cả, không phải một container mỗi case: chi phí khởi động trả một lần
+    thay vì N lần — 30ms với Python, nhưng ~300ms với JVM và còn hơn thế nếu phải biên dịch
+    lại. Đổi lại phải có trần cứng riêng ở tầng container, vì đồng hồ trong driver chỉ cắt
+    được vòng lặp ở chính ngôn ngữ đó, và ba ngôn ngữ ở đây còn không có đồng hồ nào.
+    """
+    runner = RUNNERS.get(language)
+    if runner is None:
+        raise ExecutionError(f"chế độ hàm chưa hỗ trợ ngôn ngữ {language!r}")
+    image = LANGUAGE_CONFIG[language]["image"]
+
+    with execution_semaphore:
+        workdir = tempfile.mkdtemp(prefix="codementor_judge_")
+        try:
+            # Container chạy dưới uid 1000, còn thư mục này do tiến trình judge tạo. Ở chế độ
+            # stdin container chỉ đọc nên không sao; ở đây nó phải ghi `results.ndjson`, ghi
+            # sản phẩm biên dịch, và xoá `tests.json` — tức là cần quyền ghi trên chính thư mục.
+            # ponytail: nới quyền cả thư mục vì nó dùng một lần rồi xoá; nếu sau này workdir
+            # được tái sử dụng giữa các bài nộp thì phải chuyển sang chown.
+            Path(workdir).chmod(0o777)
+
+            (Path(workdir) / runner.solution_file).write_text(source_code)
+            for name, content in runner.files(spec).items():
+                (Path(workdir) / name).write_text(content)
+
+            # Chỉ `args`, không có `expected`: đáp án không vào sandbox.
+            tests_path = Path(workdir) / "tests.json"
+            tests_path.write_text(
+                json.dumps([{"id": case.order, "args": case.args or []} for case in test_cases])
+            )
+            tests_path.chmod(0o666)
+
+            if runner.compile_cmd:
+                compile_output = compile_with(image, runner.compile_cmd, workdir)
+                if compile_output is not None:
+                    return FunctionRunOutcome(compile_output=compile_output)
+
+            hard_limit = (
+                round(spec.time_limit_sec * max(1, len(test_cases))) + STARTUP_BUDGET_SEC
+            )
+            outcome = _run_container(
+                image, runner.run_cmd, workdir, hard_limit, memory_limit_mb
+            )
+
+            records, fatal = _read_records(Path(workdir) / "results.ndjson")
+            return FunctionRunOutcome(
+                records=records,
+                fatal=fatal,
+                console_output=outcome.stdout,
+                stderr=outcome.stderr,
+                timed_out=outcome.timed_out,
+                oom_killed=outcome.oom_killed,
+                total_time_ms=outcome.time_ms,
+                peak_memory_mb=outcome.peak_memory_mb,
+            )
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _read_records(path: Path) -> tuple[dict[int, dict], str | None]:
+    """Đọc NDJSON driver ghi ra. Trả `(theo id, thông báo lỗi nạp)`.
+
+    Dòng hỏng thì bỏ dòng đó chứ không bỏ cả file: container bị giết giữa lúc đang ghi để lại
+    một dòng cụt, và các dòng trước nó vẫn là kết quả thật.
+    """
+    if not path.exists():
+        return {}, None
+
+    records: dict[int, dict] = {}
+    fatal: str | None = None
+    for line in path.read_text(errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if record.get("fatal"):
+            fatal = record.get("message") or record["fatal"]
+            continue
+        if "id" in record:
+            records[record["id"]] = record
+    return records, fatal
 
 
 def run_against_testcases(

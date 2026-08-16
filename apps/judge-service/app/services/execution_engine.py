@@ -13,8 +13,18 @@ from app.config import settings
 
 if settings.execution_engine == "docker":
     from app.services.docker_executor import ExecutionError as ExecutionError
+    from app.services.docker_executor import FunctionRunOutcome as FunctionRunOutcome
     from app.services.docker_executor import run_against_testcases as run_against_testcases
+    from app.services.docker_executor import run_function_mode as run_function_mode
 else:  # "judge0" — Settings.execution_engine là Literal nên pydantic đã chặn giá trị lạ
     # ngay lúc khởi động, trước khi module này chạy.
     from app.services.judge0_client import Judge0Error as ExecutionError  # noqa: F401
     from app.services.judge0_client import run_against_testcases as run_against_testcases
+
+    def run_function_mode(*_args, **_kwargs):  # type: ignore[misc]
+        """Judge0 chấm bằng stdin/stdout, không nạp được driver quanh thân hàm.
+
+        Ném ExecutionError chứ không NotImplementedError: phía trên đã coi ExecutionError là
+        "lỗi hạ tầng của chúng ta" và trả 502 kèm thông báo, thay vì 500 kèm stack trace.
+        """
+        raise ExecutionError("engine judge0 chưa hỗ trợ chế độ chữ ký hàm")

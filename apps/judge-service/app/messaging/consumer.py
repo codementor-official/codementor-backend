@@ -14,7 +14,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from app import run_details
 from app.config import settings
-from app.grading import WORKER, ExecutionError, grade
+from app.grading import WORKER, ExecutionError, JudgeSpec, grade
 from app.messaging.dedupe import CONSUMER, Dedupe
 from app.messaging.envelope import build_envelope
 from app.services.judgement import JudgeCase
@@ -123,11 +123,25 @@ class JudgeConsumer:
             JudgeCase(
                 order=case["order"],
                 input=case.get("input", ""),
+                args=case.get("args"),
                 expected=case.get("expected", ""),
                 weight=case.get("weight", 1) or 1,
             )
             for case in payload.get("testCases", [])
         ]
+
+        # `spec` vắng mặt = bài chấm theo stdin/stdout. Rẽ nhánh ở đây chứ không ở một cột
+        # riêng, để bài cũ chạy nguyên vẹn mà không phải migrate.
+        raw_spec = payload.get("spec")
+        spec = (
+            JudgeSpec(
+                function_name=raw_spec["functionName"],
+                checker=raw_spec.get("judgeMode") or "exact",
+                config=raw_spec.get("judgeConfig") or {},
+            )
+            if raw_spec
+            else None
+        )
 
         try:
             result = await grade(
@@ -136,6 +150,7 @@ class JudgeConsumer:
                 time_limit_ms=payload.get("timeLimitMs", 1000),
                 memory_limit_kb=payload.get("memoryLimitKb", 262_144),
                 cases=cases,
+                spec=spec,
             )
         except ExecutionError:
             # Lỗi hạ tầng, không phải lỗi bài nộp: để dedupe nhả dấu và Kafka giao lại, thay
