@@ -1,9 +1,11 @@
-# Hạ tầng backend + 9 service.
-# PostgreSQL/MongoDB của ứng dụng do codementor-infra quản lý — chạy `docker compose up -d`
-# bên repo đó trước.
+# Hạ tầng local + 9 service.
 #
-#   docker compose up -d kafka kafka-ui keycloak     # hạ tầng
-#   docker compose up -d                             # thêm cả 9 service
+# PostgreSQL, MongoDB và Keycloak KHÔNG nằm ở đây — chúng chạy trên EC2
+# (13.214.122.227), xem ../codementor-connect.txt. File này chỉ dựng phần hạ tầng
+# không có state: Kafka và Kong.
+#
+#   docker compose up -d kafka kafka-ui kong     # hạ tầng local
+#   docker compose up -d                         # thêm cả 9 service
 
 x-service-base: &service-base
   build:
@@ -101,6 +103,10 @@ services:
       kafka:
         condition: service_healthy
 
+  # --------------------------------------------------------- dự phòng offline
+  # Keycloak thật chạy trên EC2 (13.214.122.227:8080) và giữ realm `codementor` cùng
+  # toàn bộ tài khoản. Hai service dưới đây CHỈ để dựng một stack hoàn toàn offline khi
+  # mất mạng; bật chúng lên thì phải đổi KEYCLOAK_ISSUER trong .env, và realm sẽ trống.
   keycloak-db:
     image: postgres:18-alpine
     container_name: codementor-keycloak-db
