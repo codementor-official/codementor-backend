@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { IDENTITY_PROVISIONING } from '@codementor/platform';
+import { GetAdminUserUseCase } from './application/get-admin-user.usecase';
 import { GetProfileUseCase } from './application/get-profile.usecase';
 import { ListUsersUseCase } from './application/list-users.usecase';
 import { ProvisionUserUseCase } from './application/provision-user.usecase';
@@ -23,6 +24,7 @@ import { IdentityController } from './presentation/identity.controller';
   // tài khoản Keycloak ở `/users`.
   controllers: [IdentityController, AdminUsersController],
   providers: [
+    GetAdminUserUseCase,
     GetProfileUseCase,
     ListUsersUseCase,
     ProvisionUserUseCase,

@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Roles } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { KeycloakAdminService } from '../infrastructure/keycloak-admin.service';
+import { GetAdminUserUseCase } from '../application/get-admin-user.usecase';
 import { ListUsersUseCase } from '../application/list-users.usecase';
 import {
   CreateUserDto,
@@ -29,6 +30,7 @@ export class AdminUsersController {
   constructor(
     private readonly keycloak: KeycloakAdminService,
     private readonly directory: ListUsersUseCase,
+    private readonly profile: GetAdminUserUseCase,
   ) {}
 
   @Get()
@@ -43,6 +45,15 @@ export class AdminUsersController {
   @ApiOperation({ summary: 'Tổng số tài khoản và phân bố theo vai trò' })
   summary() {
     return this.directory.summary();
+  }
+
+  // Sau `summary` và trước mọi route `:id/...`: Nest khớp theo thứ tự khai báo, đặt trên
+  // `summary` thì "summary" bị đọc thành một id và `ParseUUIDPipe` trả 400.
+  @Get(':id')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Hồ sơ đầy đủ một tài khoản, kèm thống kê và khảo sát' })
+  getUser(@Param('id', ParseUUIDPipe) id: string) {
+    return this.profile.execute(id);
   }
 
   @Post()
