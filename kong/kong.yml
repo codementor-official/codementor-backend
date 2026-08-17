@@ -22,6 +22,7 @@ services:
           - /api/v1/tags
           - /api/v1/companies
           - /api/v1/announcements
+          - /api/v1/audit-logs
         strip_path: false
 
   - name: learning-service

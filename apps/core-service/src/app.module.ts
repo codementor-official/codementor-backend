@@ -11,6 +11,7 @@ import {
 import { MessagingModule } from '@codementor/messaging';
 import { IdentityModule } from './contexts/identity/identity.module';
 import { AnnouncementModule } from './contexts/announcement/announcement.module';
+import { AuditModule } from './contexts/audit/audit.module';
 import { CatalogModule } from './contexts/catalog/catalog.module';
 
 /**
@@ -32,6 +33,8 @@ import { CatalogModule } from './contexts/catalog/catalog.module';
     HttpModule,
     HealthModule,
 
+    // AuditModule trước IdentityModule: controller quản trị tài khoản tiêm AuditLogService.
+    AuditModule,
     // IdentityModule trước AuthModule: strategy Keycloak cần IDENTITY_PROVISIONING.
     IdentityModule,
     AnnouncementModule,
