@@ -38,19 +38,28 @@ export class UserActivityUseCases {
     const rows = await this.prisma.$queryRaw<
       { kind: ActivityEntry['kind']; title: string; detail: string | null; occurredAt: Date }[]
     >`
+      -- Cột detail phải THÊM thông tin, không nhắc lại cột kind. Tên loại hoạt động do
+      -- giao diện tự đặt từ kind; trả thêm ở đây thì màn hình hiện "Ghi danh khoá học ·
+      -- Ghi danh khoá học". Chỗ nào không có gì thêm để nói thì để NULL.
+      --
+      -- Không dùng dấu huyền trong chú thích SQL nằm trong template literal: nó đóng chuỗi
+      -- ngay tại đó. TypeScript vẫn biên dịch, và lỗi chỉ lộ ra lúc Node nạp tệp đã build.
       SELECT * FROM (
         SELECT 'roadmap_enrolled' AS kind, r.title AS title,
-               'Bắt đầu lộ trình' AS detail, re.started_at AS "occurredAt"
+               NULL::text AS detail, re.started_at AS "occurredAt"
         FROM roadmap_enrollments re JOIN roadmaps r ON r.id = re.roadmap_id
         WHERE re.user_id = ${userId}::uuid
 
         UNION ALL
-        SELECT 'course_enrolled', c.title, 'Ghi danh khoá học', ce.started_at
-        FROM course_enrollments ce JOIN courses c ON c.id = ce.course_id
+        -- Ghi danh qua lộ trình thì tên lộ trình là thông tin thật sự thêm vào.
+        SELECT 'course_enrolled', c.title, r.title, ce.started_at
+        FROM course_enrollments ce
+        JOIN courses c ON c.id = ce.course_id
+        LEFT JOIN roadmaps r ON r.id = ce.via_roadmap_id
         WHERE ce.user_id = ${userId}::uuid
 
         UNION ALL
-        SELECT 'course_completed', c.title, 'Hoàn thành khoá học', ce.completed_at
+        SELECT 'course_completed', c.title, NULL::text, ce.completed_at
         FROM course_enrollments ce JOIN courses c ON c.id = ce.course_id
         WHERE ce.user_id = ${userId}::uuid AND ce.completed_at IS NOT NULL
 
