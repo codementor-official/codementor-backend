@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -34,8 +35,28 @@ export interface ManagedUser {
   roles: UserRole[];
 }
 
+/** Đúng hình dạng Keycloak trả về ở `/events`, chưa dịch sang ngôn ngữ của ta. */
+interface KeycloakEventRepresentation {
+  time: number;
+  type: string;
+  ipAddress?: string;
+  clientId?: string;
+  details?: Record<string, string>;
+}
+
+/** Một lần đăng nhập, đăng xuất hoặc đăng nhập hỏng. */
+export interface LoginEvent {
+  type: string;
+  occurredAt: string;
+  ipAddress: string | null;
+  clientId: string | null;
+  /** Chỉ có ở sự kiện lỗi: `invalid_user_credentials`, `user_disabled`… */
+  error: string | null;
+}
+
 @Injectable()
 export class KeycloakAdminService {
+  private readonly logger = new Logger(KeycloakAdminService.name);
   private readonly baseUrl: string;
   private readonly realm: string;
   private readonly clientId: string;
@@ -119,6 +140,42 @@ export class KeycloakAdminService {
       body: JSON.stringify({ enabled }),
     });
     return this.getUser(userId);
+  }
+
+  /**
+   * Lịch sử đăng nhập của một tài khoản, mới nhất trước.
+   *
+   * Keycloak là nơi DUY NHẤT biết chuyện này: mọi đường đăng nhập — form trong Next.js
+   * qua Direct Access Grant, popup Google/Facebook — đều kết thúc ở đó, còn backend chỉ
+   * nhìn thấy token đã phát. Chép lại sang bảng của ta sẽ là bản sao luôn thiếu những lần
+   * đăng nhập HỎNG, mà đó lại là thứ cần nhất khi tra một tài khoản khả nghi.
+   *
+   * Trả mảng rỗng khi Keycloak từ chối, thay vì ném lỗi: sự kiện có thể chưa được bật
+   * trong realm, hoặc service account chưa có `view-events`, và cả hai đều không phải lý
+   * do để cả trang chi tiết tài khoản không mở được. Lỗi cấu hình đi vào log ứng dụng.
+   */
+  async listLoginEvents(keycloakUserId: string, max = 30): Promise<LoginEvent[]> {
+    const query = new URLSearchParams({ user: keycloakUserId, max: String(Math.min(max, 100)) });
+    // Lọc loại ngay ở Keycloak: `max` áp trước khi lọc, nên xin về 30 sự kiện bất kỳ rồi
+    // tự lọc có thể ra 0 dòng đăng nhập dù tài khoản đăng nhập suốt.
+    for (const type of ['LOGIN', 'LOGIN_ERROR', 'LOGOUT']) query.append('type', type);
+
+    const response = await this.rawRequest(`/events?${query.toString()}`);
+    if (!response.ok) {
+      this.logger.warn(
+        `không đọc được lịch sử đăng nhập (HTTP ${response.status}). Kiểm tra realm đã bật events và service account có view-events chưa.`,
+      );
+      return [];
+    }
+
+    const events = (await response.json()) as KeycloakEventRepresentation[];
+    return events.map((event) => ({
+      type: event.type,
+      occurredAt: new Date(event.time).toISOString(),
+      ipAddress: event.ipAddress ?? null,
+      clientId: event.clientId ?? null,
+      error: event.details?.['error'] ?? null,
+    }));
   }
 
   private async getUser(id: string): Promise<ManagedUser> {

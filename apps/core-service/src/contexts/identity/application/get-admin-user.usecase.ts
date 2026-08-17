@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { NotFound } from '@codementor/kernel';
 import { PrismaService } from '@codementor/platform';
+import { KeycloakAdminService, type LoginEvent } from '../infrastructure/keycloak-admin.service';
 
 /** Bộ đếm dẫn xuất từ bài nộp. Vắng mặt khi người này chưa giải bài nào. */
 export interface AdminUserStats {
@@ -62,7 +63,42 @@ function iso(value: Date | null): string | null {
  */
 @Injectable()
 export class GetAdminUserUseCase {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly keycloak: KeycloakAdminService,
+  ) {}
+
+  /**
+   * `users.id` tương ứng với một `sub` của Keycloak, hoặc null nếu tài khoản đó chưa từng
+   * đăng nhập (hàng trong `users` chỉ sinh ra ở lần token đầu tiên đi qua).
+   *
+   * Cần khi ghi nhật ký kiểm toán: các endpoint quản trị nhận id Keycloak trên URL vì
+   * chúng gọi thẳng Keycloak, nhưng nhật ký phải ghi theo id CodeMentor — đó là id mà màn
+   * chi tiết tài khoản dùng để tra ngược lại.
+   */
+  async resolveUserId(externalId: string): Promise<string | null> {
+    const [row] = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM users WHERE external_id = ${externalId} LIMIT 1`;
+    return row?.id ?? null;
+  }
+
+  /**
+   * Lịch sử đăng nhập, tra bằng id CodeMentor chứ không phải id Keycloak.
+   *
+   * Mặt API chỉ nên có MỘT hệ định danh. Bắt màn quản trị tự biết khi nào gửi `users.id`
+   * và khi nào gửi `external_id` là mời một lỗi im lặng: hai bên đều là uuid, gửi nhầm
+   * không có gì báo, chỉ là lịch sử luôn rỗng.
+   */
+  async loginHistory(userId: string): Promise<LoginEvent[]> {
+    const [row] = await this.prisma.$queryRaw<{ externalId: string | null }[]>`
+      SELECT external_id AS "externalId" FROM users WHERE id = ${userId}::uuid`;
+
+    if (row === undefined) throw new NotFound('Tài khoản', userId);
+    // Chưa gắn Keycloak thì chưa từng đăng nhập — rỗng là câu trả lời đúng, không phải lỗi.
+    if (row.externalId === null) return [];
+
+    return this.keycloak.listLoginEvents(row.externalId);
+  }
 
   async execute(userId: string): Promise<AdminUserDetail> {
     const [user] = await this.prisma.$queryRaw<

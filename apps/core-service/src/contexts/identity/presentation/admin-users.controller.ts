@@ -58,6 +58,13 @@ export class AdminUsersController {
     return this.profile.execute(id);
   }
 
+  @Get(':id/login-history')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Lịch sử đăng nhập từ Keycloak, mới nhất trước' })
+  loginHistory(@Param('id', ParseUUIDPipe) id: string) {
+    return this.profile.loginHistory(id);
+  }
+
   // Ghi nhật ký SAU khi Keycloak trả về, không phải trước: ghi trước là ghi lại một việc
   // có thể đã không xảy ra, và một nhật ký kiểm toán nói sai còn tệ hơn không có.
   @Post()
@@ -86,10 +93,8 @@ export class AdminUsersController {
     const result = await this.keycloak.assignHumanRole(id, dto.role);
     await this.audit.record(actor, {
       action: 'user.role_changed',
-      // `id` ở đây là `sub` của Keycloak, khác với `users.id`. Ghi cả hai để drawer chi
-      // tiết tra được theo id nào cũng ra — xem `externalId` trong hồ sơ.
       targetType: 'user',
-      targetId: id,
+      targetId: await this.auditTargetId(id),
       summary: `Đổi vai trò tài khoản thành ${dto.role}`,
       metadata: { role: dto.role, keycloakId: id },
     });
@@ -109,11 +114,26 @@ export class AdminUsersController {
     await this.audit.record(actor, {
       action: active ? 'user.activated' : 'user.suspended',
       targetType: 'user',
-      targetId: id,
+      targetId: await this.auditTargetId(id),
       summary: active ? 'Mở khoá tài khoản' : 'Tạm khoá tài khoản',
       metadata: { status: dto.status, keycloakId: id },
     });
     return result;
+  }
+
+  /**
+   * Khoá của dòng nhật ký cho một tài khoản.
+   *
+   * Các endpoint quản trị ở đây nhận `sub` của Keycloak trên URL vì chúng gọi thẳng
+   * Keycloak, nhưng màn chi tiết tài khoản tra nhật ký bằng `users.id` — cùng id mà
+   * `GET /users/:id` dùng. Ghi theo id Keycloak nghĩa là bộ lọc ấy luôn trả về rỗng, và
+   * rỗng ở đây trông y hệt "chưa có ai làm gì".
+   *
+   * Chưa có hàng trong `users` thì lùi về id Keycloak: một dòng nhật ký khoá bằng id lạ
+   * vẫn hơn là mất hẳn dòng đó.
+   */
+  private async auditTargetId(keycloakUserId: string): Promise<string> {
+    return (await this.profile.resolveUserId(keycloakUserId)) ?? keycloakUserId;
   }
 
   @Get('ai-agent/ping')
