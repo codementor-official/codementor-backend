@@ -1,5 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { EVENT_BUS, type EventBus } from '@codementor/messaging';
+import { TOPICS } from '@codementor/contracts';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
 import { DEFAULT_PAGE_LIMIT, canEditCourse, decodeCursor, requireHumanId, toPage, type AuthenticatedUser, type Page } from '@codementor/platform';
 import { Course } from '../domain/model/course';
@@ -83,9 +85,12 @@ function slugify(title: string, suffix?: string): string {
 
 @Injectable()
 export class CourseUseCases {
+  private readonly logger = new Logger(CourseUseCases.name);
+
   constructor(
     @Inject(COURSE_REPOSITORY) private readonly courses: CourseRepository,
     @Inject(LESSON_CONTENT_REPOSITORY) private readonly contents: LessonContentRepository,
+    @Inject(EVENT_BUS) private readonly eventBus: EventBus,
   ) {}
 
   async list(
@@ -282,7 +287,35 @@ export class CourseUseCases {
     if (moderated.isFail) throw moderated.error;
 
     await this.courses.save(entity);
+
+    // Phát SAU khi ghi thành công, và chỉ khi khoá học thực sự vừa mở cho người học.
+    // `request_changes`/`reject`/`archive` không sinh thông báo: người học không cần
+    // biết về bản nháp bị trả lại, và `archive` là gỡ xuống chứ không phải ra mắt.
+    if (decision === 'approve') {
+      await this.announcePublished(entity);
+    }
     return toView(entity, await this.courses.findCurriculum(id));
+  }
+
+  /**
+   * Thông báo "có khoá học mới" là việc phụ: nó KHÔNG được làm hỏng thao tác duyệt.
+   *
+   * Kafka chết mà ném lỗi lên đây thì admin thấy duyệt thất bại trong khi khoá học đã
+   * published trong DB — trạng thái sai lệch giữa hai lần bấm. Nuốt lỗi và ghi log là
+   * đánh đổi đúng ở đây; muốn đảm bảo không mất message thì đổi sang `OUTBOX_EVENT_BUS`,
+   * vốn ghi cùng transaction với dữ liệu nghiệp vụ.
+   */
+  private async announcePublished(course: Course): Promise<void> {
+    try {
+      await this.eventBus.publish(TOPICS.COURSE_PUBLISHED, {
+        courseId: course.id,
+        slug: course.slug,
+        title: course.title,
+        lecturerName: course.createdBy ? await this.courses.authorNameOf(course.createdBy) : null,
+      });
+    } catch (error) {
+      this.logger.error(`không phát được ${TOPICS.COURSE_PUBLISHED} cho ${course.id}`, error as Error);
+    }
   }
 
   private async mustFind(id: string): Promise<Course> {

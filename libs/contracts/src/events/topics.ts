@@ -31,6 +31,27 @@ export const TOPICS = {
   // ---- Learning ----
   LESSON_COMPLETED: 'evt.lesson.completed.v1',
   COURSE_COMPLETED: 'evt.course.completed.v1',
+  /**
+   * Khoá học/lộ trình đã CÔNG KHAI, không phải vừa được tạo.
+   *
+   * Cả hai đều là bản nháp cho tới khi admin duyệt (`moderate('approve')`). Báo lúc tạo
+   * nghĩa là gửi thông báo về thứ người học mở ra sẽ nhận 404.
+   */
+  COURSE_PUBLISHED: 'evt.course.published.v1',
+  ROADMAP_PUBLISHED: 'evt.roadmap.published.v1',
+
+  // ---- Notification ----
+  /** Admin gửi thông báo toàn hệ thống. Không gắn với tài nguyên nghiệp vụ nào. */
+  ADMIN_ANNOUNCEMENT_CREATED: 'evt.admin.announcement.created.v1',
+  /**
+   * notification-service đã lưu xong một thông báo.
+   *
+   * realtime-service nghe topic này để đẩy xuống client. Tách làm hai chặng vì
+   * realtime-service không sở hữu bảng nào và không chứa business logic — nó chỉ là cầu
+   * nối Kafka → WebSocket (docs/02-service-architecture.md §7). Nhờ vậy sau này thêm
+   * kênh đẩy khác chỉ là thêm consumer, không đụng notification-service.
+   */
+  NOTIFICATION_CREATED: 'evt.notification.created.v1',
 
   // ---- Workspace ----
   ASSIGNMENT_CREATED: 'evt.assignment.created.v1',
@@ -68,6 +89,13 @@ export const PARTITION_KEY: Record<TopicName, string> = {
   [TOPICS.SUBMISSION_EVALUATED]: 'userId',
   [TOPICS.LESSON_COMPLETED]: 'userId',
   [TOPICS.COURSE_COMPLETED]: 'userId',
+
+  // Không phải userId: đây là sự kiện về NỘI DUNG, phát cho mọi người học. Khoá theo
+  // chính tài nguyên để hai lần duyệt cùng một khoá học giữ đúng thứ tự.
+  [TOPICS.COURSE_PUBLISHED]: 'courseId',
+  [TOPICS.ROADMAP_PUBLISHED]: 'roadmapId',
+  [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: 'announcementId',
+  [TOPICS.NOTIFICATION_CREATED]: 'notificationId',
 
   [TOPICS.ASSIGNMENT_CREATED]: 'groupId',
   [TOPICS.ASSIGNMENT_REVIEWED]: 'groupId',

@@ -1,7 +1,7 @@
 {
   "name": "codementor-backend",
   "version": "0.1.0",
-  "description": "CodeMentor backend \u2014 service-based architecture with DDD bounded contexts",
+  "description": "CodeMentor backend — service-based architecture with DDD bounded contexts",
   "license": "UNLICENSED",
   "private": true,
   "engines": {
@@ -20,7 +20,7 @@
     "db:pull": "prisma db pull",
     "db:generate": "prisma generate",
     "db:sync": "npm run db:pull && npm run db:generate",
-    "build:all": "nest build core-service && nest build learning-service && nest build exercise-service && nest build workspace-service && nest build document-service && nest build submission-service && nest build ai-service && nest build realtime-service",
+    "build:all": "nest build core-service && nest build learning-service && nest build exercise-service && nest build workspace-service && nest build document-service && nest build submission-service && nest build ai-service && nest build realtime-service && nest build notification-service",
     "start:core": "nest start core-service --watch",
     "start:learning": "nest start learning-service --watch",
     "start:exercise": "nest start exercise-service --watch",
@@ -34,7 +34,8 @@
     "judge:start": "cd apps/judge-service && uv run uvicorn app.main:app --host 0.0.0.0 --port 3007",
     "judge:test": "cd apps/judge-service && uv run pytest",
     "judge:lint": "cd apps/judge-service && uv run ruff check .",
-    "start:realtime": "nest start realtime-service --watch"
+    "start:realtime": "nest start realtime-service --watch",
+    "start:notification": "nest start notification-service --watch"
   },
   "dependencies": {
     "@fastify/helmet": "^13.0.2",
@@ -47,7 +48,9 @@
     "@nestjs/mongoose": "^11.0.3",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-fastify": "^11.1.6",
+    "@nestjs/platform-socket.io": "^11.2.1",
     "@nestjs/swagger": "^11.2.0",
+    "@nestjs/websockets": "^11.2.1",
     "@prisma/client": "^6.19.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
@@ -60,6 +63,7 @@
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
+    "socket.io": "^4.8.3",
     "zod": "^4.1.13"
   },
   "devDependencies": {

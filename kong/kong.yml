@@ -21,6 +21,7 @@ services:
           - /api/v1/technologies
           - /api/v1/tags
           - /api/v1/companies
+          - /api/v1/announcements
         strip_path: false
 
   - name: learning-service
@@ -59,6 +60,14 @@ services:
       - name: submission-routes
         paths:
           - /api/v1/submissions
+        strip_path: false
+
+  - name: notification-service
+    url: http://host.docker.internal:3012
+    routes:
+      - name: notification-routes
+        paths:
+          - /api/v1/notifications
         strip_path: false
 
   # Judge chạy mã tuỳ ý, và tiến trình của nó giữ socket Docker của host — endpoint này

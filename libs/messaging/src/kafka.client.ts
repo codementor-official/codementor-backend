@@ -46,6 +46,38 @@ export class KafkaClient implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Tạo trước những topic sắp subscribe.
+   *
+   * `auto.create.topics.enable` của broker chỉ tạo topic khi CÓ AI ĐÓ chạm vào nó, và
+   * lần metadata đầu tiên vẫn trả `UNKNOWN_TOPIC_OR_PARTITION`. Với consumer đăng ký một
+   * topic mà chưa producer nào phát lần nào — đúng tình huống của một service mới — lỗi
+   * đó thoát ra khỏi `onModuleInit` và giết luôn tiến trình.
+   *
+   * Hỏi danh sách topic hiện có rồi chỉ tạo phần còn thiếu. Gọi thẳng `createTopics` với
+   * topic đã tồn tại sẽ khiến kafkajs log một dòng ERROR ở MỌI lần khởi động — nhiễu tới
+   * mức người đọc log quen mắt bỏ qua, và rồi bỏ qua luôn lỗi thật.
+   */
+  async ensureTopics(topics: readonly string[]): Promise<void> {
+    if (topics.length === 0) return;
+    const admin = this.kafka.admin();
+    try {
+      await admin.connect();
+      const existing = new Set(await admin.listTopics());
+      const missing = [...new Set(topics)].filter((topic) => !existing.has(topic));
+      if (missing.length === 0) return;
+
+      await admin.createTopics({
+        topics: missing.map((topic) => ({ topic })),
+        // Không có leader thì lệnh subscribe ngay sau đây lại thấy topic "chưa tồn tại".
+        waitForLeaders: true,
+      });
+      this.logger.log(`đã tạo topic: ${missing.join(', ')}`);
+    } finally {
+      await admin.disconnect();
+    }
+  }
+
+  /**
    * Tạo consumer. Mỗi service dùng consumer group riêng theo tên service, nên nhiều
    * service cùng nghe một topic sẽ đều nhận được message (fan-out), còn nhiều instance
    * của CÙNG một service thì chia nhau (load balancing).

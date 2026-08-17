@@ -42,6 +42,10 @@ export class EventConsumer implements OnModuleDestroy {
     if (this.started || this.registrations.length === 0) return;
     this.started = true;
 
+    // Trước khi subscribe: topic chưa từng được phát lần nào vẫn phải tồn tại, nếu không
+    // kafkajs ném UNKNOWN_TOPIC_OR_PARTITION ngay trong onModuleInit và service chết.
+    await this.kafka.ensureTopics(this.registrations.map((r) => r.topic));
+
     const consumer = this.kafka.createConsumer();
     await consumer.connect();
 

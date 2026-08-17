@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AuthModule, RemoteIdentityModule, ConfigModule, HealthModule, HttpModule, LoggingModule } from '@codementor/platform';
+import { AuthModule, RemoteIdentityModule, ConfigModule, HealthModule, HttpModule, LoggingModule, PrismaModule } from '@codementor/platform';
 import { MessagingModule } from '@codementor/messaging';
+import { RealtimeModule } from './contexts/realtime/realtime.module';
 
 /**
  * realtime-service
@@ -21,7 +22,10 @@ import { MessagingModule } from '@codementor/messaging';
     HealthModule,
     HttpModule,
     LoggingModule,
+    // EventConsumer ghi `processed_events` để khử trùng lặp message.
+    PrismaModule,
     MessagingModule.forRoot({ serviceName: 'realtime-service' }),
+    RealtimeModule,
   ],
 })
 export class AppModule {}

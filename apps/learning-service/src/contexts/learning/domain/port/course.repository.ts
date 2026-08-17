@@ -27,6 +27,17 @@ export interface CourseListItem {
   updatedAt: Date;
 }
 
+/**
+ * Tên hiển thị của tác giả, để gắn vào sự kiện `evt.course.published.v1`.
+ *
+ * Cùng lối đọc mà `findMany` đã dùng (LEFT JOIN `users` chỉ để lấy `display_name`) —
+ * không phải đường ghi, và cũng không phải quyền đọc mới: danh mục khóa học vốn đã
+ * hiện tên tác giả theo đúng cách này.
+ */
+export interface AuthorNameLookup {
+  authorNameOf(userId: string): Promise<string | null>;
+}
+
 export interface StoredLesson {
   id: string;
   title: string;
@@ -52,7 +63,7 @@ export interface StoredChapter {
   lessons: StoredLesson[];
 }
 
-export interface CourseRepository {
+export interface CourseRepository extends AuthorNameLookup {
   findById(id: string): Promise<Course | null>;
   existsBySlug(slug: string): Promise<boolean>;
   list(filter: CourseListFilter): Promise<CourseListItem[]>;

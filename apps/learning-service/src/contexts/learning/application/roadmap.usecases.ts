@@ -1,5 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { EVENT_BUS, type EventBus } from '@codementor/messaging';
+import { TOPICS } from '@codementor/contracts';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
 import { DEFAULT_PAGE_LIMIT, canEditRoadmap, decodeCursor, requireHumanId, toPage, type AuthenticatedUser, type Page } from '@codementor/platform';
 import { Roadmap } from '../domain/model/roadmap';
@@ -43,7 +45,12 @@ function slugify(title: string, suffix?: string): string {
  */
 @Injectable()
 export class RoadmapUseCases {
-  constructor(@Inject(ROADMAP_REPOSITORY) private readonly roadmaps: RoadmapRepository) {}
+  private readonly logger = new Logger(RoadmapUseCases.name);
+
+  constructor(
+    @Inject(ROADMAP_REPOSITORY) private readonly roadmaps: RoadmapRepository,
+    @Inject(EVENT_BUS) private readonly eventBus: EventBus,
+  ) {}
 
   async list(
     scope: { createdBy: string } | { publishedOnly: true } | { pendingOnly: true },
@@ -190,6 +197,22 @@ export class RoadmapUseCases {
     if (moderated.isFail) throw moderated.error;
 
     await this.roadmaps.save(entity);
+
+    // Chỉ `approve` mới là "lộ trình mới ra mắt" — xem ghi chú ở CourseUseCases.moderate.
+    if (decision === 'approve') {
+      try {
+        await this.eventBus.publish(TOPICS.ROADMAP_PUBLISHED, {
+          roadmapId: entity.id,
+          slug: entity.slug,
+          title: entity.title,
+        });
+      } catch (error) {
+        this.logger.error(
+          `không phát được ${TOPICS.ROADMAP_PUBLISHED} cho ${entity.id}`,
+          error as Error,
+        );
+      }
+    }
     return toRoadmapView(entity, await this.roadmaps.listCourses(id));
   }
 

@@ -65,9 +65,19 @@ export interface ExerciseGeneratedV1 {
   model: string;
 }
 
+/**
+ * `title` và `slug` đi kèm payload thay vì để consumer gọi ngược lại exercise-service.
+ *
+ * Consumer chính là notification-service, và nó cần đúng hai trường này để dựng câu
+ * thông báo. Gọi HTTP ngược lại sẽ khiến việc tạo thông báo hỏng mỗi khi service nguồn
+ * sập — đúng lúc hệ thống đang yếu nhất. Đây cũng là lý do payload là ẢNH CHỤP: đổi tên
+ * bài sau đó không làm đổi thông báo đã gửi, và như vậy mới đúng.
+ */
 export interface ExercisePublishedV1 {
   exerciseId: string;
   visibility: 'public' | 'group';
+  title: string;
+  slug: string | null;
 }
 
 /* ------------------------------------------------------- Submission / Judge */
@@ -194,6 +204,53 @@ export interface CourseCompletedV1 {
   roadmapId: string | null;
 }
 
+/** Phát khi admin duyệt (`moderate('approve')`), tức lúc khoá học thực sự mở cho người học. */
+export interface CoursePublishedV1 {
+  courseId: string;
+  slug: string;
+  title: string;
+  /** Tên hiển thị của giảng viên, đã phân giải sẵn — xem ghi chú ở `ExercisePublishedV1`. */
+  lecturerName: string | null;
+}
+
+export interface RoadmapPublishedV1 {
+  roadmapId: string;
+  slug: string;
+  title: string;
+}
+
+/* ------------------------------------------------------------- Notification */
+
+/**
+ * Thông báo do admin soạn tay. Khác mọi event còn lại ở chỗ nội dung là do người viết,
+ * không phải do notification-service dựng từ dữ liệu nghiệp vụ.
+ */
+export interface AdminAnnouncementCreatedV1 {
+  announcementId: string;
+  title: string;
+  message: string;
+}
+
+/**
+ * Một thông báo đã nằm trong MongoDB. realtime-service chỉ việc đẩy xuống client.
+ *
+ * Payload mang ĐỦ nội dung để hiển thị: realtime-service không sở hữu bảng nào và không
+ * được phép đọc Mongo của notification-service, nên nếu thiếu trường nào ở đây thì
+ * client sẽ nhận một thông báo rỗng.
+ */
+export interface NotificationCreatedV1 {
+  notificationId: string;
+  type: string;
+  title: string;
+  message: string;
+  audienceType: 'ALL';
+  referenceType: string | null;
+  referenceId: string | null;
+  actionLabel: string | null;
+  actionUrl: string | null;
+  createdAt: string;
+}
+
 /* --------------------------------------------------------------- Workspace */
 
 export interface AssignmentCreatedV1 {
@@ -238,6 +295,11 @@ export interface TopicPayloadMap {
 
   [TOPICS.LESSON_COMPLETED]: LessonCompletedV1;
   [TOPICS.COURSE_COMPLETED]: CourseCompletedV1;
+  [TOPICS.COURSE_PUBLISHED]: CoursePublishedV1;
+  [TOPICS.ROADMAP_PUBLISHED]: RoadmapPublishedV1;
+
+  [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: AdminAnnouncementCreatedV1;
+  [TOPICS.NOTIFICATION_CREATED]: NotificationCreatedV1;
 
   [TOPICS.ASSIGNMENT_CREATED]: AssignmentCreatedV1;
   [TOPICS.ASSIGNMENT_REVIEWED]: AssignmentReviewedV1;

@@ -103,6 +103,12 @@ export class PrismaCourseRepository implements CourseRepository {
       LIMIT ${filter.limit + 1}`;
   }
 
+  async authorNameOf(userId: string): Promise<string | null> {
+    const rows = await this.prisma.$queryRaw<{ displayName: string | null }[]>`
+      SELECT display_name AS "displayName" FROM users WHERE id = ${userId}::uuid`;
+    return rows[0]?.displayName ?? null;
+  }
+
   async findCurriculum(courseId: string): Promise<StoredChapter[]> {
     const chapters = await this.prisma.$queryRaw<ChapterRow[]>`
       SELECT id, title, description, is_optional, position
