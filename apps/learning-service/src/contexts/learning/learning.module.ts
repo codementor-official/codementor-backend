@@ -14,17 +14,20 @@ import { MongoLessonContentRepository } from './infrastructure/mongo-lesson-cont
 import { PrismaArticleRepository } from './infrastructure/prisma-article.repository';
 import { PrismaCourseRepository } from './infrastructure/prisma-course.repository';
 import { PrismaRoadmapRepository } from './infrastructure/prisma-roadmap.repository';
+import { UserActivityController } from './presentation/user-activity.controller';
+import { UserActivityUseCases } from './application/user-activity.usecases';
 import { ArticleController } from './presentation/article.controller';
 import { CourseController } from './presentation/course.controller';
 import { RoadmapController } from './presentation/roadmap.controller';
 
 @Module({
-  controllers: [RoadmapController, CourseController, ArticleController],
+  controllers: [RoadmapController, CourseController, ArticleController, UserActivityController],
   providers: [
     RoadmapUseCases,
     CourseUseCases,
     ArticleUseCases,
     EnrollmentUseCases,
+    UserActivityUseCases,
     ExerciseSolvedConsumer,
     { provide: ROADMAP_REPOSITORY, useClass: PrismaRoadmapRepository },
     { provide: COURSE_REPOSITORY, useClass: PrismaCourseRepository },

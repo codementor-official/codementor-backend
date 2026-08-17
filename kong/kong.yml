@@ -35,6 +35,9 @@ services:
           - /api/v1/lessons
           - /api/v1/roadmaps
           - /api/v1/articles
+          # Hoạt động học tập của một tài khoản. KHÔNG đặt dưới `/api/v1/users/:id/activity`
+          # được: Kong khớp theo tiền tố, và `/api/v1/users` đã thuộc core-service.
+          - /api/v1/activity
         strip_path: false
 
   - name: exercise-service
