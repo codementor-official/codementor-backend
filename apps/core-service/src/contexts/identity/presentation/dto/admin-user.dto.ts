@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
-import { UserRole } from '@codementor/platform';
+import { PageQuery, UserRole } from '@codementor/platform';
 
 export const ASSIGNABLE_HUMAN_ROLES = [
   UserRole.STUDENT,
@@ -45,4 +45,20 @@ export class UpdateUserStatusDto {
   @ApiProperty({ enum: UserAccountStatus })
   @IsEnum(UserAccountStatus)
   status!: UserAccountStatus;
+}
+
+/** Nhận vai trò/trạng thái theo đúng giá trị enum trong PostgreSQL, không phải tên Keycloak. */
+export const PLATFORM_ROLES = ['learner', 'lecturer', 'admin'] as const;
+export const ACCOUNT_STATUSES = ['active', 'suspended', 'deleted'] as const;
+
+export class ListUsersQueryDto extends PageQuery {
+  @ApiPropertyOptional({ enum: PLATFORM_ROLES })
+  @IsOptional()
+  @IsIn([...PLATFORM_ROLES])
+  role?: (typeof PLATFORM_ROLES)[number];
+
+  @ApiPropertyOptional({ enum: ACCOUNT_STATUSES })
+  @IsOptional()
+  @IsIn([...ACCOUNT_STATUSES])
+  status?: (typeof ACCOUNT_STATUSES)[number];
 }

@@ -27,6 +27,8 @@ const SERVICES = [
   ["judge", 3007], // Python, chạy qua docker compose — start_one sẽ báo "CHƯA BUILD" và bỏ qua, không chặn service khác.
   ["ai", 3008],
   ["realtime", 3009],
+  // 3010/3011 là apps/lecturer và apps/admin bên frontend, nên dải backend nhảy qua.
+  ["notification", 3012],
 ];
 
 function pidOnPort(port) {

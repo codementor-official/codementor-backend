@@ -12,9 +12,15 @@ export type NotificationType =
   | 'COURSE_PUBLISHED'
   | 'EXERCISE_PUBLISHED'
   | 'ROADMAP_PUBLISHED'
+  | 'ARTICLE_PUBLISHED'
   | 'ADMIN_ANNOUNCEMENT';
 
-export type ReferenceType = 'COURSE' | 'EXERCISE' | 'ROADMAP';
+/**
+ * `POST` chứ không phải `ARTICLE`: đây là từ vựng hướng ra ngoài, và yêu cầu nghiệp vụ
+ * gọi loại nội dung này là "post". Bên trong hệ thống nó vẫn là `articles` — xem
+ * `TOPICS.ARTICLE_PUBLISHED`.
+ */
+export type ReferenceType = 'COURSE' | 'EXERCISE' | 'ROADMAP' | 'POST';
 
 interface ContentProps extends Record<string, unknown> {
   type: NotificationType;

@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { IDENTITY_PROVISIONING } from '@codementor/platform';
 import { GetProfileUseCase } from './application/get-profile.usecase';
+import { ListUsersUseCase } from './application/list-users.usecase';
 import { ProvisionUserUseCase } from './application/provision-user.usecase';
 import { UpdateProfileUseCase } from './application/update-profile.usecase';
 import { USER_REPOSITORY } from './domain/port/user.repository';
@@ -23,6 +24,7 @@ import { IdentityController } from './presentation/identity.controller';
   controllers: [IdentityController, AdminUsersController],
   providers: [
     GetProfileUseCase,
+    ListUsersUseCase,
     ProvisionUserUseCase,
     UpdateProfileUseCase,
     KeycloakAdminService,

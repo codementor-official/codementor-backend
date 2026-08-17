@@ -219,6 +219,15 @@ export interface RoadmapPublishedV1 {
   title: string;
 }
 
+/** Phát khi admin bấm đăng, và chỉ ở lần đầu tiên. */
+export interface ArticlePublishedV1 {
+  articleId: string;
+  slug: string;
+  title: string;
+  /** Tóm tắt do người viết soạn; bắt buộc phải có mới đăng được bài. */
+  excerpt: string | null;
+}
+
 /* ------------------------------------------------------------- Notification */
 
 /**
@@ -297,6 +306,7 @@ export interface TopicPayloadMap {
   [TOPICS.COURSE_COMPLETED]: CourseCompletedV1;
   [TOPICS.COURSE_PUBLISHED]: CoursePublishedV1;
   [TOPICS.ROADMAP_PUBLISHED]: RoadmapPublishedV1;
+  [TOPICS.ARTICLE_PUBLISHED]: ArticlePublishedV1;
 
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: AdminAnnouncementCreatedV1;
   [TOPICS.NOTIFICATION_CREATED]: NotificationCreatedV1;

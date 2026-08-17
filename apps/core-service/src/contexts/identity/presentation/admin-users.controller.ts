@@ -1,9 +1,16 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Roles } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { KeycloakAdminService } from '../infrastructure/keycloak-admin.service';
-import { CreateUserDto, UpdateUserRoleDto, UpdateUserStatusDto, UserAccountStatus } from './dto/admin-user.dto';
+import { ListUsersUseCase } from '../application/list-users.usecase';
+import {
+  CreateUserDto,
+  ListUsersQueryDto,
+  UpdateUserRoleDto,
+  UpdateUserStatusDto,
+  UserAccountStatus,
+} from './dto/admin-user.dto';
 
 /**
  * Quản trị tài khoản Ở KEYCLOAK, tách khỏi `IdentityController`.
@@ -19,13 +26,23 @@ import { CreateUserDto, UpdateUserRoleDto, UpdateUserStatusDto, UserAccountStatu
 @ApiBearerAuth('access-token')
 @Controller({ path: 'users', version: '1' })
 export class AdminUsersController {
-  constructor(private readonly keycloak: KeycloakAdminService) {}
+  constructor(
+    private readonly keycloak: KeycloakAdminService,
+    private readonly directory: ListUsersUseCase,
+  ) {}
 
   @Get()
   @Roles('admin')
-  @ApiOperation({ summary: 'Danh sách tài khoản Keycloak' })
-  listUsers() {
-    return this.keycloak.listUsers();
+  @ApiOperation({ summary: 'Danh sách tài khoản, có tìm kiếm/lọc/phân trang' })
+  listUsers(@Query() query: ListUsersQueryDto) {
+    return this.directory.execute(query);
+  }
+
+  @Get('summary')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Tổng số tài khoản và phân bố theo vai trò' })
+  summary() {
+    return this.directory.summary();
   }
 
   @Post()
