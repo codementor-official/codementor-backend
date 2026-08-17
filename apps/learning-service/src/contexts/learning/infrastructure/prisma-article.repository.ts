@@ -63,7 +63,12 @@ export class PrismaArticleRepository implements ArticleRepository {
     if (filter.tag) where.push(Prisma.sql`t.name = ${filter.tag}`);
     if (filter.q?.trim()) {
       const term = `%${filter.q.trim().toLowerCase()}%`;
-      where.push(Prisma.sql`(lower(a.title) LIKE ${term} OR a.slug::text ILIKE ${term})`);
+      // Có cả `excerpt`: người đọc tìm theo khái niệm, mà khái niệm thường nằm ở câu tóm
+      // tắt chứ không ở tiêu đề — "realtime" mô tả đúng bài WebSocket nhưng không phải là
+      // một từ trong tên bài đó.
+      where.push(
+        Prisma.sql`(lower(a.title) LIKE ${term} OR lower(a.excerpt) LIKE ${term} OR a.slug::text ILIKE ${term})`,
+      );
     }
     if (filter.cursor) {
       where.push(
