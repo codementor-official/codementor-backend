@@ -11,6 +11,7 @@ import {
 import { MessagingModule } from '@codementor/messaging';
 import { IdentityModule } from './contexts/identity/identity.module';
 import { AnnouncementModule } from './contexts/announcement/announcement.module';
+import { CatalogModule } from './contexts/catalog/catalog.module';
 
 /**
  * core-service — Identity + Catalog.
@@ -34,6 +35,7 @@ import { AnnouncementModule } from './contexts/announcement/announcement.module'
     // IdentityModule trước AuthModule: strategy Keycloak cần IDENTITY_PROVISIONING.
     IdentityModule,
     AnnouncementModule,
+    CatalogModule,
     AuthModule,
   ],
 })
