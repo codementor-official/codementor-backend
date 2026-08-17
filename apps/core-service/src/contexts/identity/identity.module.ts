@@ -3,6 +3,7 @@ import { IDENTITY_PROVISIONING } from '@codementor/platform';
 import { GetAdminUserUseCase } from './application/get-admin-user.usecase';
 import { GetProfileUseCase } from './application/get-profile.usecase';
 import { ListUsersUseCase } from './application/list-users.usecase';
+import { MirrorAccountStatusUseCase } from './application/mirror-account-status.usecase';
 import { ProvisionUserUseCase } from './application/provision-user.usecase';
 import { UpdateProfileUseCase } from './application/update-profile.usecase';
 import { USER_REPOSITORY } from './domain/port/user.repository';
@@ -27,6 +28,7 @@ import { IdentityController } from './presentation/identity.controller';
     GetAdminUserUseCase,
     GetProfileUseCase,
     ListUsersUseCase,
+    MirrorAccountStatusUseCase,
     ProvisionUserUseCase,
     UpdateProfileUseCase,
     KeycloakAdminService,
