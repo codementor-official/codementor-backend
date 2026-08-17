@@ -16,6 +16,7 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 import { CurrentUser, Roles, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { CourseUseCases } from '../application/course.usecases';
+import { EnrollmentUseCases } from '../application/enrollment.usecases';
 import {
   CreateCourseDto,
   ListCoursesQueryDto,
@@ -24,12 +25,16 @@ import {
   UpdateCourseDto,
 } from './dto/course.dto';
 import { ModerateDto } from './dto/moderate.dto';
+import { EnrollDto, RecordProgressDto } from './dto/enrollment.dto';
 
 @ApiTags('courses')
 @ApiBearerAuth('access-token')
 @Controller({ path: 'courses', version: '1' })
 export class CourseController {
-  constructor(private readonly courses: CourseUseCases) {}
+  constructor(
+    private readonly courses: CourseUseCases,
+    private readonly enrollments: EnrollmentUseCases,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Danh mục khóa học đã công khai' })
@@ -55,6 +60,45 @@ export class CourseController {
   @ApiOperation({ summary: 'Chi tiết, kèm cả cây chương và bài' })
   detail(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.courses.get(user, id);
+  }
+
+  @Post(':id/enroll')
+  @ApiOperation({ summary: 'Ghi danh vào khóa học đã công khai' })
+  @ApiResponse({ status: 422, description: 'Khóa học chưa công khai' })
+  enroll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: EnrollDto,
+  ) {
+    return this.enrollments.enroll(user, id, dto.viaRoadmapId ?? null);
+  }
+
+  @Delete(':id/enroll')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Bỏ học — tiến độ vẫn giữ, quay lại là học tiếp' })
+  unenroll(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.enrollments.drop(user, id);
+  }
+
+  @Get(':id/progress')
+  @ApiOperation({ summary: 'Tiến độ của tôi: ghi danh + trạng thái từng bài + bài nào đã mở' })
+  progress(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.enrollments.courseProgress(user, id);
+  }
+
+  // Dưới `:id` cho khớp `:id/lessons/:lessonId/content` — cùng một tài nguyên thì cùng
+  // một hình dạng đường dẫn. `:id` không được dùng để tra cứu: use case tự tìm khóa học
+  // từ bài, nên một id khóa học sai trong URL không mở được tiến độ của khóa khác.
+  @Put(':id/lessons/:lessonId/progress')
+  @ApiOperation({ summary: 'Ghi tiến độ một bài học' })
+  @ApiResponse({ status: 403, description: 'Chưa ghi danh khóa học chứa bài này' })
+  @ApiResponse({ status: 422, description: 'Bài chưa mở theo thứ tự học' })
+  recordProgress(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Body() dto: RecordProgressDto,
+  ) {
+    return this.enrollments.recordLessonProgress(user, lessonId, dto);
   }
 
   @Post()

@@ -277,7 +277,7 @@ export class CourseUseCases {
   async moderate(
     user: AuthenticatedUser,
     id: string,
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
     reason: string | null,
   ) {
     if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');

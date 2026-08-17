@@ -14,6 +14,7 @@ from fastapi import FastAPI
 
 from app.api import router as judge_router
 from app.config import settings
+from app.messaging import publisher
 from app.messaging.consumer import JudgeConsumer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -30,9 +31,16 @@ async def lifespan(_app: FastAPI):
         # hiện chưa có ai phát cmd.judge.run.v1 (submission-service còn rỗng).
         logger.exception("không khởi động được Kafka consumer — chỉ còn đường HTTP")
     try:
+        await publisher.start()
+    except Exception:
+        # Cùng lý do: chấm bài quan trọng hơn ghi tiến độ. Không có producer thì bài vẫn
+        # được chấm, chỉ là tiến độ khóa học không tự cập nhật.
+        logger.exception("không khởi động được Kafka producer — tiến độ khóa học sẽ không được ghi")
+    try:
         yield
     finally:
         await consumer.stop()
+        await publisher.stop()
 
 
 app = FastAPI(title="CodeMentor Judge", lifespan=lifespan)

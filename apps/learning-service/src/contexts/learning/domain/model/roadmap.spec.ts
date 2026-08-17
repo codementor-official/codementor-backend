@@ -152,4 +152,53 @@ describe('đổi slug', () => {
     expect(published.edit({ slug: 'ten-khac' }).isFail).toBe(true);
     expect(published.slug).toBe('lo-trinh-backend');
   });
+
+  /**
+   * `archived` không có đường ra cho tới khi `restore` được thêm: `submit` chỉ nhận
+   * draft/changes_requested/rejected, nên mọi lần gỡ đều là vĩnh viễn và cách duy nhất
+   * đưa nội dung trở lại là UPDATE thẳng vào CSDL.
+   */
+  describe('gỡ và khôi phục', () => {
+    const published = () => {
+      const roadmap = make();
+      roadmap.edit({ description: 'Mô tả' });
+      roadmap.submit([course('published'), course('published')]);
+      roadmap.moderate('approve', null);
+      return roadmap;
+    };
+
+    it('chỉ gỡ được nội dung đang công khai', () => {
+      expect(make().moderate('archive', null).isFail).toBe(true);
+      const roadmap = published();
+      expect(roadmap.moderate('archive', null).isOk).toBe(true);
+      expect(roadmap.status).toBe('archived');
+    });
+
+    it('khôi phục đưa về draft, không phải thẳng published', () => {
+      const roadmap = published();
+      roadmap.moderate('archive', null);
+
+      expect(roadmap.moderate('restore', null).isOk).toBe(true);
+      expect(roadmap.status).toBe('draft');
+    });
+
+    it('khôi phục xong đi lại đúng vòng duyệt', () => {
+      const roadmap = published();
+      const firstPublishedAt = roadmap.publishedAt;
+      roadmap.moderate('archive', null);
+      roadmap.moderate('restore', null);
+
+      expect(roadmap.submit([course('published'), course('published')]).isOk).toBe(true);
+      expect(roadmap.status).toBe('pending_review');
+      expect(roadmap.moderate('approve', null).isOk).toBe(true);
+      expect(roadmap.status).toBe('published');
+      // Gỡ rồi duyệt lại không phải là ngày phát hành mới.
+      expect(roadmap.publishedAt).toEqual(firstPublishedAt);
+    });
+
+    it('chỉ khôi phục được nội dung đã gỡ', () => {
+      expect(make().moderate('restore', null).isFail).toBe(true);
+      expect(published().moderate('restore', null).isFail).toBe(true);
+    });
+  });
 });

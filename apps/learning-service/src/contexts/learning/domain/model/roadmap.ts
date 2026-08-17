@@ -285,7 +285,7 @@ export class Roadmap extends AggregateRoot<string> {
    * `content_status` không có `hidden`, nên tác giả tự gỡ cũng đi qua `archived`.
    */
   moderate(
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
     reason: string | null,
   ): Result<true, BusinessRuleViolation | InvalidInput> {
     if (decision === 'archive') {
@@ -293,6 +293,28 @@ export class Roadmap extends AggregateRoot<string> {
         return Result.fail(new BusinessRuleViolation('Chỉ gỡ được nội dung đang công khai'));
       }
       this.props.status = 'archived';
+      this.props.updatedAt = new Date();
+      return Result.ok(true);
+    }
+
+    /**
+     * Đường ra khỏi `archived` — trước đây không có, và đó là bẫy chứ không phải luật:
+     * với `content_status` thì tác giả tự gỡ cũng rơi vào `archived`, nên "gỡ" mà không
+     * bật lại được nghĩa là mọi lần gỡ đều vĩnh viễn. Khôi phục xong phải cứu bằng UPDATE
+     * thẳng vào CSDL, tức là đi vòng qua đúng tầng sinh ra để chặn điều đó.
+     *
+     * Về `draft`, KHÔNG về thẳng `published`: nội dung bị gỡ có thể đã sai hoặc vi phạm,
+     * nên nó đi lại quy trình duyệt như mọi bản nháp khác. `publishedAt` giữ nguyên ngày
+     * phát hành đầu tiên — xem `moderate` ở nhánh `approve`.
+     */
+    if (decision === 'restore') {
+      if (this.props.status !== 'archived') {
+        return Result.fail(
+          new BusinessRuleViolation(`Chỉ khôi phục được nội dung đã gỡ (đang ${this.props.status})`),
+        );
+      }
+      this.props.status = 'draft';
+      this.props.rejectionReason = null;
       this.props.updatedAt = new Date();
       return Result.ok(true);
     }

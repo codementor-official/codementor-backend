@@ -8,6 +8,8 @@ Không ghi Mongo và không phát event: đây là chạy thử, không phải b
 """
 
 import json
+import uuid
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -16,6 +18,7 @@ from pydantic import BaseModel, Field
 from app.auth import require_user
 from app.config import settings
 from app.grading import ExecutionError, JudgeSpec, grade
+from app.messaging import publisher
 from app.services.judgement import JudgeCase
 from app.services.langs import DriverSpec, Param, UnsupportedType, starter_for
 
@@ -53,6 +56,20 @@ class SpecIn(BaseModel):
     judgeConfig: dict = Field(default_factory=dict)
 
 
+class LessonContextIn(BaseModel):
+    """Bài code này được mở từ trong một khóa học nào.
+
+    Vắng mặt là trường hợp bình thường: luyện tập tự do ở /practice và nút chạy thử của
+    giảng viên đều không thuộc khóa học nào. Có mặt thì judge phát `evt.exercise.solved.v1`
+    khi chấm đạt, và learning-service tự quyết việc đó có tính là hoàn thành bài học hay
+    không — judge không ghi tiến độ, cũng không biết người học đã ghi danh hay chưa.
+    """
+
+    courseId: str
+    lessonId: str
+    exerciseId: str
+
+
 class RunRequest(BaseModel):
     """Khớp `JudgeRunV1`, bỏ `submissionId` vì chạy thử không gắn với bài nộp nào."""
 
@@ -62,6 +79,7 @@ class RunRequest(BaseModel):
     memoryLimitKb: int = Field(default=262_144, ge=1024, le=4_194_304)
     spec: SpecIn | None = None
     testCases: list[TestCaseIn] = Field(default_factory=list)
+    context: LessonContextIn | None = None
 
 
 class CaseOut(BaseModel):
@@ -137,7 +155,7 @@ def _reject_oversized(payload: RunRequest) -> None:
 
 
 @router.post("/run", response_model=RunResponse)
-async def run(payload: RunRequest, _user: dict = Depends(require_user)) -> RunResponse:
+async def run(payload: RunRequest, user: dict = Depends(require_user)) -> RunResponse:
     _reject_oversized(payload)
 
     cases = [
@@ -176,6 +194,21 @@ async def run(payload: RunRequest, _user: dict = Depends(require_user)) -> RunRe
         # Lỗi ở tầng daemon (thiếu image, daemon không phản hồi) là lỗi hạ tầng của chúng ta,
         # không phải lỗi của bài nộp — 502, không phải 400.
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    # Chỉ khi ĐẠT và có ngữ cảnh khóa học. Chấm sai thì không có gì để kể, và không có
+    # ngữ cảnh thì đây là luyện tập tự do — không khóa học nào để ghi tiến độ.
+    if payload.context is not None and result.verdict == "accepted":
+        await publisher.publish_exercise_solved(
+            external_user_id=str(user.get("sub", "")),
+            exercise_id=payload.context.exerciseId,
+            course_id=payload.context.courseId,
+            lesson_id=payload.context.lessonId,
+            score=result.score,
+            solved_at=datetime.now(UTC).isoformat(),
+            # Chạy thử qua HTTP không nằm trong luồng nộp bài nào nên chưa có
+            # correlationId để nối tiếp; mở một chuỗi nhân quả mới bắt đầu từ đây.
+            correlation_id=str(uuid.uuid4()),
+        )
 
     return RunResponse(
         data=RunResult(

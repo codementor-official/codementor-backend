@@ -6,7 +6,12 @@ import type { AuthenticatedUser } from '@codementor/platform';
 import { EXERCISE_REPOSITORY, type ExerciseRepository } from '../domain/port/exercise.repository';
 import { toExerciseView, type ExerciseView } from './exercise-view';
 
-export type ModerationDecision = 'approve' | 'request_changes' | 'reject' | 'archive';
+export type ModerationDecision =
+  | 'approve'
+  | 'request_changes'
+  | 'reject'
+  | 'archive'
+  | 'restore';
 
 /**
  * Quyết định của admin trên một bài.

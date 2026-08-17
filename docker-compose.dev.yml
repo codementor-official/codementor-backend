@@ -1,0 +1,46 @@
+# Local development overrides — native Linux Docker, services run on the host.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d kong kafka
+#
+# Or export it once per shell and forget it is here:
+#
+#   export COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+#
+# ── Why this file exists ───────────────────────────────────────────────────────
+#
+# The base file reaches the host through `host.docker.internal` on a bridge network,
+# which is the portable choice: Docker Desktop runs the daemon in a VM, so
+# `network_mode: host` fails outright there.
+#
+# On a native Linux dev box with a firewall, that bridge cannot reach the host's
+# ports at all. Measured on 2026-08-17 from inside `codementor-backend_default`:
+#
+#   host.docker.internal (172.17.0.1):3001  → timeout after 8s
+#   the network's own gateway (172.19.0.1)  → timeout after 8s
+#   the same service from the host          → 401 in 22ms
+#
+# Kong then answers every route with a 503 "name resolution failed", or hangs until
+# the client gives up. The services are healthy the whole time, which is what makes
+# it confusing: `docker ps` shows Kong `healthy`, because Kong itself is fine.
+#
+# `network_mode: host` sidesteps the firewall entirely — Kong shares the host's
+# network stack, so reaching 127.0.0.1:3001 is not a container-to-host hop at all.
+# This was the base file's setting until 2026-08-16 (commit 2fbcb0c), whose diff
+# also removed the comment that recorded this exact problem. Hence: written down
+# again, in the file that carries the workaround.
+services:
+  kong:
+    network_mode: host
+    # kong.yml points its upstreams at `host.docker.internal`. Under host networking
+    # that name is not provided, so map it to loopback rather than editing kong.yml —
+    # the same file then works unchanged in both modes.
+    #
+    # `!override`, not a plain value: compose *appends* to sequences by default, which
+    # would leave two `host.docker.internal` lines in /etc/hosts — the base file's
+    # `host-gateway` and this one — and which of them wins is not something to leave to
+    # resolver order.
+    extra_hosts: !override
+      - 'host.docker.internal:127.0.0.1'
+    # Host networking publishes nothing; Kong binds the host's :8000 directly, and
+    # leaving a port mapping in place makes container creation fail.
+    ports: !reset []

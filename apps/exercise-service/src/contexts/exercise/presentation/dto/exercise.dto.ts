@@ -358,7 +358,7 @@ export class SaveContentDto {
   theory?: TheoryDto;
 }
 
-export const DECISIONS = ['approve', 'request_changes', 'reject', 'archive'] as const;
+export const DECISIONS = ['approve', 'request_changes', 'reject', 'archive', 'restore'] as const;
 
 export class ModerateDto {
   @ApiProperty({ enum: DECISIONS })

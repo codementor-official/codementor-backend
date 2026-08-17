@@ -191,6 +191,33 @@ export interface SubmissionEvaluatedV1 {
 
 /* ---------------------------------------------------------------- Learning */
 
+/**
+ * Judge vừa chấm ĐẠT một bài code mà người học mở từ trong một khóa học.
+ *
+ * Phát từ đường HTTP `POST /judge/run`, và CHỈ khi request mang theo `context` — luyện tập
+ * tự do ở /practice không có khóa học nào để ghi tiến độ, nên không phát gì cả.
+ *
+ * Đây là `evt.*` chứ không phải `cmd.*` một cách có chủ đích: judge kể lại việc đã xảy ra,
+ * còn "việc này có tính là hoàn thành bài học không" là quyết định của learning-service —
+ * nó mới là nơi biết bài học có thuộc khóa đó không và người học đã ghi danh chưa. Judge
+ * không được phép ra lệnh ghi tiến độ.
+ */
+export interface ExerciseSolvedV1 {
+  /**
+   * `sub` của Keycloak, KHÔNG phải `users.id`.
+   *
+   * Judge chỉ có claim trong token; ánh xạ sang khoá chính của ta nằm ở `users.external_id`
+   * và là việc của consumer. Đặt tên đúng thứ nó chứa để không ai vô tình dùng nó làm khoá
+   * ngoại — một `userId` sai loại sẽ lặng lẽ không khớp hàng nào thay vì báo lỗi.
+   */
+  externalUserId: string;
+  exerciseId: string;
+  courseId: string;
+  lessonId: string;
+  score: number;
+  solvedAt: string;
+}
+
 export interface LessonCompletedV1 {
   userId: string;
   lessonId: string;
@@ -301,6 +328,7 @@ export interface TopicPayloadMap {
   [TOPICS.JUDGE_STARTED]: JudgeStartedV1;
   [TOPICS.JUDGE_COMPLETED]: JudgeCompletedV1;
   [TOPICS.SUBMISSION_EVALUATED]: SubmissionEvaluatedV1;
+  [TOPICS.EXERCISE_SOLVED]: ExerciseSolvedV1;
 
   [TOPICS.LESSON_COMPLETED]: LessonCompletedV1;
   [TOPICS.COURSE_COMPLETED]: CourseCompletedV1;

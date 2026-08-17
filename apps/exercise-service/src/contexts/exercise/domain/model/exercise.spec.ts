@@ -292,4 +292,45 @@ describe('validateForSubmission', () => {
       expect(validateForSubmission('code', full).isOk).toBe(true);
     });
   });
+
+  /**
+   * `archived` không có đường ra cho tới khi `restore` được thêm: `submit` chỉ nhận
+   * draft/changes_requested/rejected. `publishedAt ??=` ở nhánh approve đã lường trước
+   * chuyện gỡ rồi duyệt lại — đây là đoạn đường còn thiếu.
+   */
+  describe('gỡ và khôi phục', () => {
+    const published = () => {
+      const exercise = make();
+      exercise.attachContent('mongo-id');
+      exercise.submit();
+      exercise.moderate('approve', null);
+      return exercise;
+    };
+
+    it('chỉ gỡ được bài đang công khai', () => {
+      expect(make().moderate('archive', null).isFail).toBe(true);
+      const exercise = published();
+      expect(exercise.moderate('archive', null).isOk).toBe(true);
+      expect(exercise.status).toBe('archived');
+    });
+
+    it('khôi phục đưa về draft rồi đi lại vòng duyệt, giữ ngày phát hành đầu tiên', () => {
+      const exercise = published();
+      const firstPublishedAt = exercise.publishedAt;
+      exercise.moderate('archive', null);
+
+      expect(exercise.moderate('restore', null).isOk).toBe(true);
+      expect(exercise.status).toBe('draft');
+
+      expect(exercise.submit().isOk).toBe(true);
+      expect(exercise.moderate('approve', null).isOk).toBe(true);
+      expect(exercise.status).toBe('published');
+      expect(exercise.publishedAt).toEqual(firstPublishedAt);
+    });
+
+    it('chỉ khôi phục được bài đã gỡ', () => {
+      expect(make().moderate('restore', null).isFail).toBe(true);
+      expect(published().moderate('restore', null).isFail).toBe(true);
+    });
+  });
 });

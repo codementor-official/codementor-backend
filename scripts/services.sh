@@ -13,7 +13,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 SERVICES=(core:3001 learning:3002 exercise:3003 workspace:3004 document:3005
-          submission:3006 judge:3007 ai:3008 realtime:3009)
+          submission:3006 judge:3007 ai:3008 realtime:3009 notification:3012)
 LOG_DIR="${CODEMENTOR_LOG_DIR:-/tmp/codementor-logs}"
 
 # PID đang giữ cổng, rỗng nếu không ai giữ.

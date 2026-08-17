@@ -282,7 +282,7 @@ export class Exercise extends AggregateRoot<string> {
    * một bài không ai gửi là duyệt thứ admin chưa từng xem.
    */
   moderate(
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
     reason: string | null,
   ): Result<true, BusinessRuleViolation | InvalidInput> {
     if (decision === 'archive') {
@@ -290,6 +290,27 @@ export class Exercise extends AggregateRoot<string> {
         return Result.fail(new BusinessRuleViolation('Chỉ gỡ được bài đang công khai'));
       }
       this.props.status = 'archived';
+      this.props.updatedAt = new Date();
+      return Result.ok(true);
+    }
+
+    /**
+     * Đường ra khỏi `archived`. Trước đây không có: `submit` chỉ nhận
+     * `draft|changes_requested|rejected`, nên bài đã gỡ là gỡ vĩnh viễn và cách duy nhất
+     * đưa lại là UPDATE thẳng vào CSDL — đi vòng qua đúng tầng sinh ra để chặn.
+     *
+     * Về `draft` chứ không thẳng `published`: bài bị gỡ có thể đã sai hoặc vi phạm, nên nó
+     * đi lại vòng duyệt. `publishedAt` không đổi — `??=` ở nhánh `approve` đã lường trước
+     * chuyện gỡ rồi duyệt lại, đây chỉ là bổ sung đoạn đường còn thiếu.
+     */
+    if (decision === 'restore') {
+      if (this.props.status !== 'archived') {
+        return Result.fail(
+          new BusinessRuleViolation(`Chỉ khôi phục được bài đã gỡ (đang ${this.props.status})`),
+        );
+      }
+      this.props.status = 'draft';
+      this.props.rejectionReason = null;
       this.props.updatedAt = new Date();
       return Result.ok(true);
     }

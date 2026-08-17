@@ -27,6 +27,7 @@ export const TOPICS = {
   JUDGE_STARTED: 'evt.judge.started.v1',
   JUDGE_COMPLETED: 'evt.judge.completed.v1',
   SUBMISSION_EVALUATED: 'evt.submission.evaluated.v1',
+  EXERCISE_SOLVED: 'evt.exercise.solved.v1',
 
   // ---- Learning ----
   LESSON_COMPLETED: 'evt.lesson.completed.v1',
@@ -95,6 +96,10 @@ export const PARTITION_KEY: Record<TopicName, string> = {
 
   // Đổi sang userId: XP và streak của một người phải được cộng tuần tự.
   [TOPICS.SUBMISSION_EVALUATED]: 'userId',
+  // Cùng lý do: tiến độ của một người phải được ghi tuần tự, nếu không hai bài giải gần
+  // nhau có thể mở khoá bài kế tiếp theo thứ tự sai. Key là id Keycloak vì judge chỉ có
+  // nó — vẫn là một người một partition, đó là tất cả những gì thứ tự cần.
+  [TOPICS.EXERCISE_SOLVED]: 'externalUserId',
   [TOPICS.LESSON_COMPLETED]: 'userId',
   [TOPICS.COURSE_COMPLETED]: 'userId',
 

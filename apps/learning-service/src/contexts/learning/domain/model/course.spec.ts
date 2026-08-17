@@ -187,4 +187,46 @@ describe('validateCurriculum', () => {
       ]).isFail,
     ).toBe(true);
   });
+
+  /**
+   * `archived` không có đường ra cho tới khi `restore` được thêm — và với
+   * `content_status` thì tác giả tự gỡ cũng rơi vào đây, nên "gỡ" mà không bật lại được
+   * nghĩa là mọi lần gỡ đều vĩnh viễn.
+   */
+  describe('gỡ và khôi phục', () => {
+    const submittable = { chapters: [{ lessonCount: 2 }], lessonsMissingContent: 0, exercisesNotUsable: 0 };
+    const published = () => {
+      const course = make();
+      course.edit({ description: 'Mô tả khóa học' });
+      course.submit(submittable);
+      course.moderate('approve', null);
+      return course;
+    };
+
+    it('chỉ gỡ được khóa học đang công khai', () => {
+      expect(make().moderate('archive', null).isFail).toBe(true);
+      const course = published();
+      expect(course.moderate('archive', null).isOk).toBe(true);
+      expect(course.status).toBe('archived');
+    });
+
+    it('khôi phục đưa về draft rồi đi lại vòng duyệt, giữ ngày phát hành đầu tiên', () => {
+      const course = published();
+      const firstPublishedAt = course.publishedAt;
+      course.moderate('archive', null);
+
+      expect(course.moderate('restore', null).isOk).toBe(true);
+      expect(course.status).toBe('draft');
+
+      expect(course.submit(submittable).isOk).toBe(true);
+      expect(course.moderate('approve', null).isOk).toBe(true);
+      expect(course.status).toBe('published');
+      expect(course.publishedAt).toEqual(firstPublishedAt);
+    });
+
+    it('chỉ khôi phục được khóa học đã gỡ', () => {
+      expect(make().moderate('restore', null).isFail).toBe(true);
+      expect(published().moderate('restore', null).isFail).toBe(true);
+    });
+  });
 });
