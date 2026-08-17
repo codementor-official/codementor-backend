@@ -53,8 +53,15 @@ export class AdminUsersController {
     return this.directory.summary();
   }
 
-  // Sau `summary` và trước mọi route `:id/...`: Nest khớp theo thứ tự khai báo, đặt trên
-  // `summary` thì "summary" bị đọc thành một id và `ParseUUIDPipe` trả 400.
+  @Get('growth')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Tài khoản mới theo tháng, cho biểu đồ tăng trưởng' })
+  growth() {
+    return this.directory.growth();
+  }
+
+  // Sau `summary`/`growth` và trước mọi route `:id/...`: Nest khớp theo thứ tự khai báo,
+  // đặt trên chúng thì "summary" bị đọc thành một id và `ParseUUIDPipe` trả 400.
   @Get(':id')
   @Roles('admin')
   @ApiOperation({ summary: 'Hồ sơ đầy đủ một tài khoản, kèm thống kê và khảo sát' })

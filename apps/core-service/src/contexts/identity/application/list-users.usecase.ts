@@ -94,6 +94,52 @@ export class ListUsersUseCase {
     return toPage(rows, limit);
   }
 
+  /**
+   * Số tài khoản mới theo từng tháng, cho biểu đồ tăng trưởng ở trang tổng quan.
+   *
+   * `generate_series` sinh đủ 12 tháng rồi LEFT JOIN sang dữ liệu: tháng không ai đăng ký
+   * phải trả về 0 chứ không được biến mất. Thiếu tháng thì biểu đồ đường nối thẳng qua
+   * khoảng trống, và một tháng chết trông y hệt một tháng bình thường.
+   *
+   * Đếm theo `created_at` của bảng `users`, tức là mốc ĐĂNG NHẬP ĐẦU TIÊN chứ không phải
+   * lúc tài khoản Keycloak được tạo (just-in-time provisioning). Với một nền tảng học tập
+   * thì đó mới là con số đáng nhìn: tài khoản tạo ra mà không ai dùng không phải tăng trưởng.
+   */
+  async growth(months = 12): Promise<{ month: string; newUsers: number; total: number }[]> {
+    const span = Math.min(Math.max(months, 1), 36);
+    const rows = await this.prisma.$queryRaw<{ month: Date; newUsers: bigint; total: bigint }[]>`
+      WITH months AS (
+        SELECT generate_series(
+          -- Ép ::int là bắt buộc: Prisma gửi số của JavaScript xuống dưới dạng bigint, còn
+          -- make_interval chỉ nhận int, và Postgres báo "function does not exist" chứ
+          -- không nói là sai kiểu.
+          --
+          -- KHÔNG dùng dấu huyền trong chú thích SQL ở đây: nó đóng template literal ngay
+          -- tại chỗ. tsc và nest build đều cho qua, chỉ Node lúc nạp tệp mới chết.
+          date_trunc('month', now()) - make_interval(months => ${span - 1}::int),
+          date_trunc('month', now()),
+          interval '1 month'
+        ) AS month
+      )
+      SELECT m.month,
+             count(u.id) AS "newUsers",
+             -- Cộng dồn: tổng số tài khoản tính tới hết tháng đó, kể cả những tài khoản
+             -- có trước khoảng đang xét.
+             (SELECT count(*) FROM users WHERE created_at < m.month + interval '1 month'
+                AND status <> 'deleted') AS total
+      FROM months m
+      LEFT JOIN users u
+        ON date_trunc('month', u.created_at) = m.month AND u.status <> 'deleted'
+      GROUP BY m.month
+      ORDER BY m.month`;
+
+    return rows.map((row) => ({
+      month: row.month.toISOString().slice(0, 7),
+      newUsers: Number(row.newUsers),
+      total: Number(row.total),
+    }));
+  }
+
   /** Số liệu cho trang tổng quan: tổng số và phân bố theo vai trò. */
   async summary(): Promise<{ total: number; byRole: Record<string, number> }> {
     const rows = await this.prisma.$queryRaw<{ role: string; count: bigint }[]>`
