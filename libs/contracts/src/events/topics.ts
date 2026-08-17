@@ -39,6 +39,14 @@ export const TOPICS = {
    */
   COURSE_PUBLISHED: 'evt.course.published.v1',
   ROADMAP_PUBLISHED: 'evt.roadmap.published.v1',
+  /**
+   * Bài viết biên tập — thứ mà yêu cầu gọi là "post". Hệ thống đã gọi nó là `article`
+   * từ bảng `articles` tới route `/articles/[slug]` bên client, nên giữ nguyên tên đó.
+   *
+   * Chỉ phát ở lần công khai ĐẦU TIÊN: sửa bài đã đăng, hoặc gỡ xuống rồi đăng lại,
+   * không được báo "bài viết mới" lần nữa. Xem `Article.publish()`.
+   */
+  ARTICLE_PUBLISHED: 'evt.article.published.v1',
 
   // ---- Notification ----
   /** Admin gửi thông báo toàn hệ thống. Không gắn với tài nguyên nghiệp vụ nào. */
@@ -94,6 +102,7 @@ export const PARTITION_KEY: Record<TopicName, string> = {
   // chính tài nguyên để hai lần duyệt cùng một khoá học giữ đúng thứ tự.
   [TOPICS.COURSE_PUBLISHED]: 'courseId',
   [TOPICS.ROADMAP_PUBLISHED]: 'roadmapId',
+  [TOPICS.ARTICLE_PUBLISHED]: 'articleId',
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: 'announcementId',
   [TOPICS.NOTIFICATION_CREATED]: 'notificationId',
 

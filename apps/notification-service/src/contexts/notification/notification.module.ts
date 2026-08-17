@@ -13,6 +13,7 @@ import { MongoNotificationRepository } from './infrastructure/mongo-notification
 import { RecordNotificationUseCase } from './application/record-notification.usecase';
 import {
   fromAdminAnnouncement,
+  fromArticlePublished,
   fromCoursePublished,
   fromExercisePublished,
   fromRoadmapPublished,
@@ -58,6 +59,9 @@ export class NotificationModule implements OnModuleInit {
       )
       .on(TOPICS.ROADMAP_PUBLISHED, (payload, envelope) =>
         this.record.record(envelope, fromRoadmapPublished(payload)),
+      )
+      .on(TOPICS.ARTICLE_PUBLISHED, (payload, envelope) =>
+        this.record.record(envelope, fromArticlePublished(payload)),
       )
       .on(TOPICS.ADMIN_ANNOUNCEMENT_CREATED, (payload, envelope) =>
         this.record.record(envelope, fromAdminAnnouncement(payload)),

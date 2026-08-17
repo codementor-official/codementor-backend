@@ -1,6 +1,7 @@
 import type { InvalidInput, Result } from '@codementor/kernel';
 import type {
   AdminAnnouncementCreatedV1,
+  ArticlePublishedV1,
   CoursePublishedV1,
   ExercisePublishedV1,
   RoadmapPublishedV1,
@@ -70,6 +71,27 @@ export function fromRoadmapPublished(payload: RoadmapPublishedV1): Draft {
     actionLabel: 'Khám phá lộ trình',
     // `/paths/[pathId]` nhận SLUG chứ không phải id — xem roadmap-card.tsx bên client.
     actionUrl: `/paths/${payload.slug}`,
+    metadata: { slug: payload.slug },
+  });
+}
+
+export function fromArticlePublished(payload: ArticlePublishedV1): Draft {
+  // Tóm tắt là câu người viết tự chọn để mời đọc, nên dùng lại nguyên văn khi có. Không
+  // có thì rơi về một câu chung — thà chung chung còn hơn hiện một đoạn trống.
+  const teaser = payload.excerpt?.trim()
+    ? `${payload.excerpt.trim()}`
+    : 'Khám phá ngay để cập nhật thêm kiến thức mới.';
+
+  return NotificationContent.create({
+    type: 'ARTICLE_PUBLISHED',
+    title: '📝 Bài viết mới vừa được đăng!',
+    message: `CodeMentor vừa cập nhật bài viết ${quoted(payload.title)}. ${teaser}`,
+    referenceType: 'POST',
+    referenceId: payload.articleId,
+    actionLabel: 'Đọc bài viết',
+    // `/articles/[slug]` là route có thật bên client — khác khoá học, bài viết có trang
+    // chi tiết đứng độc lập nên liên kết sâu được thẳng tới đúng bài.
+    actionUrl: `/articles/${payload.slug}`,
     metadata: { slug: payload.slug },
   });
 }
