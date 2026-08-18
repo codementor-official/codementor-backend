@@ -97,14 +97,40 @@ export class KeycloakAdminService {
     const id = response.headers.get('location')?.split('/').at(-1);
     if (!id) throw new BadGatewayException('Keycloak không trả về user id');
 
-    if (input.temporaryPassword) {
-      await this.request(`/users/${id}/reset-password`, {
-        method: 'PUT',
-        body: JSON.stringify({ type: 'password', value: input.temporaryPassword, temporary: true }),
-      });
+    // Keycloak đã tạo xong tài khoản ở trên. Mọi bước sau đây mà hỏng đều để lại một tài
+    // khoản không vai trò, và lần thử lại với cùng email sẽ nhận 409 — địa chỉ đó coi như
+    // mất luôn. Hỏng thì xoá đi, để người dùng tạo lại được.
+    try {
+      if (input.temporaryPassword) {
+        await this.request(`/users/${id}/reset-password`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            type: 'password',
+            value: input.temporaryPassword,
+            temporary: true,
+          }),
+        });
+      }
+      await this.assignHumanRole(id, input.role);
+      return await this.getUser(id);
+    } catch (error) {
+      await this.deleteUserQuietly(id);
+      throw error;
     }
-    await this.assignHumanRole(id, input.role);
-    return this.getUser(id);
+  }
+
+  /**
+   * Xoá một tài khoản vừa tạo dở dang. Nuốt lỗi thất bại của chính nó: nếu dọn dẹp không
+   * được thì lỗi đang được ném ra ngoài mới là thứ cần báo, còn "xoá không được" chỉ làm
+   * lu mờ nguyên nhân thật.
+   */
+  private async deleteUserQuietly(userId: string): Promise<void> {
+    try {
+      await this.request(`/users/${userId}`, { method: 'DELETE' });
+      this.logger.warn(`đã xoá tài khoản tạo dở dang: ${userId}`);
+    } catch (error) {
+      this.logger.error(`không xoá được tài khoản tạo dở dang ${userId}`, error as Error);
+    }
   }
 
   async assignHumanRole(userId: string, role: UserRole): Promise<ManagedUser> {
