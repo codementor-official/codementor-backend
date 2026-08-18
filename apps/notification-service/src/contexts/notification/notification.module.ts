@@ -14,6 +14,8 @@ import { RecordNotificationUseCase } from './application/record-notification.use
 import {
   fromAdminAnnouncement,
   fromArticlePublished,
+  fromContentModerated,
+  fromContentReviewRequested,
   fromCoursePublished,
   fromExercisePublished,
   fromRoadmapPublished,
@@ -65,6 +67,12 @@ export class NotificationModule implements OnModuleInit {
       )
       .on(TOPICS.ADMIN_ANNOUNCEMENT_CREATED, (payload, envelope) =>
         this.record.record(envelope, fromAdminAnnouncement(payload)),
+      )
+      .on(TOPICS.CONTENT_REVIEW_REQUESTED, (payload, envelope) =>
+        this.record.record(envelope, fromContentReviewRequested(payload)),
+      )
+      .on(TOPICS.CONTENT_MODERATED, (payload, envelope) =>
+        this.record.record(envelope, fromContentModerated(payload)),
       );
 
     await this.consumer.start('notification-service');

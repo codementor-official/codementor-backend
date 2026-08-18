@@ -1,3 +1,4 @@
+import type { AudienceType } from './audience';
 import type { TOPICS } from './topics';
 
 /* ---------------------------------------------------------------- Identity */
@@ -255,6 +256,48 @@ export interface ArticlePublishedV1 {
   excerpt: string | null;
 }
 
+
+/* -------------------------------------------------------------- Kiểm duyệt */
+
+/**
+ * Bốn loại nội dung đi qua cùng một máy trạng thái duyệt. Chuỗi giống `ReferenceType`
+ * bên notification-service ("POST" chứ không phải "ARTICLE" — từ vựng hướng ra ngoài).
+ */
+export type ReviewableKind = 'COURSE' | 'ROADMAP' | 'EXERCISE' | 'POST';
+
+/**
+ * Giảng viên bấm "Gửi duyệt".
+ *
+ * `authorName` đi kèm payload thay vì để consumer gọi ngược lại — cùng lý do đã ghi ở
+ * `ExercisePublishedV1`: thông báo là ảnh chụp, và dựng nó không được phụ thuộc vào việc
+ * service nguồn còn sống hay không.
+ */
+export interface ContentReviewRequestedV1 {
+  kind: ReviewableKind;
+  contentId: string;
+  slug: string | null;
+  title: string;
+  authorName: string | null;
+}
+
+/**
+ * Admin đã quyết. Gửi riêng cho tác giả, nên payload mang `authorExternalId`.
+ *
+ * `sub` của Keycloak chứ không phải `users.id`: realtime-service chỉ biết danh tính từ
+ * token bắt tay và cố tình không đọc bảng `users` của service khác. Dùng `users.id` ở đây
+ * đồng nghĩa thông báo vẫn lưu đúng nhưng không bao giờ đẩy được xuống máy tác giả.
+ */
+export interface ContentModeratedV1 {
+  kind: ReviewableKind;
+  contentId: string;
+  slug: string | null;
+  title: string;
+  decision: 'approve' | 'request_changes' | 'reject' | 'archive';
+  /** Bắt buộc có khi từ chối hoặc yêu cầu sửa — đó là câu tác giả sẽ đọc. */
+  reason: string | null;
+  authorExternalId: string;
+}
+
 /* ------------------------------------------------------------- Notification */
 
 /**
@@ -279,7 +322,15 @@ export interface NotificationCreatedV1 {
   type: string;
   title: string;
   message: string;
-  audienceType: 'ALL';
+  /**
+   * Ai được nhận. `ALL` là mọi người đã đăng nhập; `ROLE`/`USER` thì `audienceKey` mang
+   * tên vai trò hoặc `sub` Keycloak của đúng một người.
+   *
+   * realtime-service lấy tên phòng từ đúng hai trường này (`audienceRoom`) — nó không có
+   * cách nào khác để biết đẩy cho ai, vì nó không đọc Mongo của notification-service.
+   */
+  audienceType: AudienceType;
+  audienceKey: string | null;
   referenceType: string | null;
   referenceId: string | null;
   actionLabel: string | null;
@@ -335,6 +386,9 @@ export interface TopicPayloadMap {
   [TOPICS.COURSE_PUBLISHED]: CoursePublishedV1;
   [TOPICS.ROADMAP_PUBLISHED]: RoadmapPublishedV1;
   [TOPICS.ARTICLE_PUBLISHED]: ArticlePublishedV1;
+
+  [TOPICS.CONTENT_REVIEW_REQUESTED]: ContentReviewRequestedV1;
+  [TOPICS.CONTENT_MODERATED]: ContentModeratedV1;
 
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: AdminAnnouncementCreatedV1;
   [TOPICS.NOTIFICATION_CREATED]: NotificationCreatedV1;

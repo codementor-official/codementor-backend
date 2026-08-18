@@ -6,17 +6,9 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
+import { audienceRoom, audienceRoomsFor } from '@codementor/contracts';
 import type { NotificationCreatedV1 } from '@codementor/contracts';
 import { HandshakeAuthService } from './handshake-auth.service';
-
-/**
- * Phòng chung cho mọi người đã đăng nhập.
- *
- * Giai đoạn này mọi thông báo đều `audienceType: ALL` nên một phòng là đủ. Khi có
- * thông báo riêng theo người/theo nhóm thì thêm `socket.join('user:' + id)` ngay tại
- * `handleConnection` — chỗ duy nhất biết danh tính đã xác thực.
- */
-const GLOBAL_ROOM = 'global';
 
 /** Tên sự kiện client lắng nghe. Đổi tên ở đây là breaking change với frontend. */
 export const NOTIFICATION_EVENT = 'notification:new';
@@ -58,12 +50,22 @@ export class NotificationGateway implements OnGatewayConnection {
       return;
     }
 
-    await socket.join(GLOBAL_ROOM);
+    // Ba phòng: tất cả, vai trò, và đích danh người này. Tên phòng do `audienceRoom`
+    // của libs/contracts dựng — cùng hàm mà notification-service dùng để gắn nhãn cho
+    // thông báo, nên không có cách nào để hai bên gọi cùng một đối tượng bằng hai tên.
+    await socket.join(audienceRoomsFor(identity.externalId, identity.role));
     this.logger.debug(`đã kết nối: ${identity.externalId} (${identity.role})`);
   }
 
-  /** Gọi bởi consumer Kafka khi notification-service báo có thông báo mới. */
+  /**
+   * Gọi bởi consumer Kafka khi notification-service báo có thông báo mới.
+   *
+   * Đẩy vào ĐÚNG một phòng, phòng do chính thông báo chỉ định. Đẩy ra phòng chung rồi
+   * để client tự lọc sẽ gửi nội dung của admin xuống máy mọi người học — thông báo đã
+   * rời server thì không thu lại được.
+   */
   broadcast(notification: NotificationCreatedV1): void {
-    this.server.to(GLOBAL_ROOM).emit(NOTIFICATION_EVENT, notification);
+    const room = audienceRoom(notification.audienceType, notification.audienceKey);
+    this.server.to(room).emit(NOTIFICATION_EVENT, notification);
   }
 }

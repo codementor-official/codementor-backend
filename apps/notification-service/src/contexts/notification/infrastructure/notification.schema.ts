@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
+import type { AudienceType } from '@codementor/contracts';
 import type { NotificationType, ReferenceType } from '../domain/model/notification-content';
 
 /**
@@ -26,7 +27,11 @@ export class Notification {
   message!: string;
 
   @Prop({ required: true, default: 'ALL' })
-  audienceType!: 'ALL';
+  audienceType!: AudienceType;
+
+  /** Tên vai trò với `ROLE`, `sub` Keycloak với `USER`, null với `ALL`. */
+  @Prop({ type: String, default: null })
+  audienceKey!: string | null;
 
   @Prop({ type: String, default: null })
   referenceType!: ReferenceType | null;

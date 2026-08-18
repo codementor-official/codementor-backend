@@ -8,6 +8,7 @@ import {
   decodeCursor,
   requireHumanId,
   toPage,
+  ContentAuthorLookup,
   type AuthenticatedUser,
   type Page,
 } from '@codementor/platform';
@@ -74,7 +75,23 @@ export class ArticleUseCases {
     @Inject(ARTICLE_REPOSITORY) private readonly articles: ArticleRepository,
     @Inject(ARTICLE_CONTENT_REPOSITORY) private readonly contents: ArticleContentRepository,
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
+    private readonly authors: ContentAuthorLookup,
   ) {}
+
+  /**
+   * Phát một sự kiện thông báo mà KHÔNG để nó làm hỏng thao tác vừa xong.
+   *
+   * Bài đã đổi trạng thái trong Postgres rồi; Kafka chết ở bước này không được biến một
+   * lần gửi duyệt thành công thành lỗi 500 trên màn hình giảng viên. Cùng đánh đổi mà
+   * `moderate` đã chọn cho `ARTICLE_PUBLISHED`.
+   */
+  private async announce(fire: () => Promise<unknown>, what: string): Promise<void> {
+    try {
+      await fire();
+    } catch (error) {
+      this.logger.error(`không phát được ${what}`, error as Error);
+    }
+  }
 
   /** Danh mục công khai — đường đọc của người học, không cần đăng nhập vai trò nào. */
   async catalogue(query: ListArticlesQuery): Promise<Page<ArticleListItem>> {
@@ -176,7 +193,10 @@ export class ArticleUseCases {
   }
 
   /**
-   * Người viết gửi bài đi duyệt. Không phát sự kiện gì ở đây — bài chưa ra công khai.
+   * Người viết gửi bài đi duyệt.
+   *
+   * Sự kiện phát ở đây KHÔNG phải "có bài mới cho người học" — bài vẫn là bản nháp. Nó
+   * gửi cho admin, những người duy nhất làm được gì với nó.
    */
   async submit(user: AuthenticatedUser, id: string): Promise<ArticleView> {
     const article = await this.mustEdit(user, id);
@@ -184,6 +204,18 @@ export class ArticleUseCases {
     if (submitted.isFail) throw submitted.error;
 
     await this.articles.save(article);
+    await this.announce(
+      () =>
+        this.eventBus.publish(TOPICS.CONTENT_REVIEW_REQUESTED, {
+          kind: 'POST',
+          contentId: article.id,
+          slug: article.slug,
+          title: article.title,
+          // Người gửi chính là tác giả, nên tên lấy thẳng từ token — không cần tra bảng.
+          authorName: user.displayName,
+        }),
+      `${TOPICS.CONTENT_REVIEW_REQUESTED} cho ${article.id}`,
+    );
     return this.toView(article);
   }
 
@@ -232,21 +264,36 @@ export class ArticleUseCases {
     await this.articles.save(article);
 
     if (moderated.value.firstPublish) {
-      // Thông báo là việc phụ: Kafka chết không được làm hỏng thao tác duyệt, vì bài đã
-      // `published` trong DB rồi. Cùng đánh đổi với CourseUseCases.moderate.
-      try {
-        await this.eventBus.publish(TOPICS.ARTICLE_PUBLISHED, {
-          articleId: article.id,
-          slug: article.slug,
-          title: article.title,
-          excerpt: article.excerpt,
-        });
-      } catch (error) {
-        this.logger.error(
-          `không phát được ${TOPICS.ARTICLE_PUBLISHED} cho ${article.id}`,
-          error as Error,
-        );
-      }
+      await this.announce(
+        () =>
+          this.eventBus.publish(TOPICS.ARTICLE_PUBLISHED, {
+            articleId: article.id,
+            slug: article.slug,
+            title: article.title,
+            excerpt: article.excerpt,
+          }),
+        `${TOPICS.ARTICLE_PUBLISHED} cho ${article.id}`,
+      );
+    }
+
+    // Sự kiện thứ hai, người nhận khác hẳn: `ARTICLE_PUBLISHED` báo cho người học rằng
+    // có bài mới, còn cái này báo riêng cho tác giả rằng bài của họ vừa được quyết. Một
+    // lần duyệt sinh cả hai; gộp lại thì một trong hai nhóm nhận nhầm thông báo.
+    const author = await this.authors.find(article.authorId);
+    if (author?.externalId) {
+      await this.announce(
+        () =>
+          this.eventBus.publish(TOPICS.CONTENT_MODERATED, {
+            kind: 'POST',
+            contentId: article.id,
+            slug: article.slug,
+            title: article.title,
+            decision,
+            reason,
+            authorExternalId: author.externalId as string,
+          }),
+        `${TOPICS.CONTENT_MODERATED} cho ${article.id}`,
+      );
     }
     return this.toView(article);
   }

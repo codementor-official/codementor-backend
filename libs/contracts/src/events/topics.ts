@@ -49,6 +49,24 @@ export const TOPICS = {
    */
   ARTICLE_PUBLISHED: 'evt.article.published.v1',
 
+  // ---- Kiểm duyệt (chung cho mọi loại nội dung) ----
+  /**
+   * Giảng viên vừa gửi một nội dung đi duyệt. Người nhận là ADMIN, không phải người học.
+   *
+   * Một topic chung cho khoá học/lộ trình/bài tập/bài viết thay vì bốn: người nhận, câu
+   * chữ và hành động giống hệt nhau ở cả bốn — chỉ khác đúng một chữ trong câu. Bốn topic
+   * sẽ là bốn consumer, bốn hàm dựng nội dung và bốn chỗ phải nhớ sửa.
+   */
+  CONTENT_REVIEW_REQUESTED: 'evt.content.review_requested.v1',
+  /**
+   * Admin đã ra quyết định. Người nhận là TÁC GIẢ của nội dung đó, không phải cả hệ thống.
+   *
+   * Tách khỏi `*_PUBLISHED`: hai sự kiện nói hai chuyện với hai nhóm người khác nhau.
+   * Duyệt một khoá học vừa báo cho người học "có khoá mới" (`COURSE_PUBLISHED`) vừa báo
+   * cho giảng viên "bài của bạn đã được duyệt" — gộp lại thì một trong hai nhóm nhận nhầm.
+   */
+  CONTENT_MODERATED: 'evt.content.moderated.v1',
+
   // ---- Notification ----
   /** Admin gửi thông báo toàn hệ thống. Không gắn với tài nguyên nghiệp vụ nào. */
   ADMIN_ANNOUNCEMENT_CREATED: 'evt.admin.announcement.created.v1',
@@ -108,6 +126,9 @@ export const PARTITION_KEY: Record<TopicName, string> = {
   [TOPICS.COURSE_PUBLISHED]: 'courseId',
   [TOPICS.ROADMAP_PUBLISHED]: 'roadmapId',
   [TOPICS.ARTICLE_PUBLISHED]: 'articleId',
+  // Khoá theo chính nội dung: hai quyết định liên tiếp trên cùng một bài phải tới đúng thứ tự.
+  [TOPICS.CONTENT_REVIEW_REQUESTED]: 'contentId',
+  [TOPICS.CONTENT_MODERATED]: 'contentId',
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: 'announcementId',
   [TOPICS.NOTIFICATION_CREATED]: 'notificationId',
 

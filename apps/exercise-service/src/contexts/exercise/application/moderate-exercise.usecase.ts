@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
 import { NotAuthorized, NotFound } from '@codementor/kernel';
-import type { AuthenticatedUser } from '@codementor/platform';
+import { ContentAuthorLookup, type AuthenticatedUser } from '@codementor/platform';
 import { EXERCISE_REPOSITORY, type ExerciseRepository } from '../domain/port/exercise.repository';
 import { toExerciseView, type ExerciseView } from './exercise-view';
 
@@ -26,6 +26,7 @@ export class ModerateExerciseUseCase {
   constructor(
     @Inject(EXERCISE_REPOSITORY) private readonly exercises: ExerciseRepository,
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
+    private readonly authors: ContentAuthorLookup,
   ) {}
 
   async execute(
@@ -60,6 +61,31 @@ export class ModerateExerciseUseCase {
           `không phát được ${TOPICS.EXERCISE_PUBLISHED} cho ${id}`,
           error as Error,
         );
+      }
+    }
+
+    // Người nhận khác hẳn `EXERCISE_PUBLISHED` ở trên: cái kia nói với người học "có bài
+    // mới", cái này nói riêng với tác giả rằng bài của họ vừa được quyết — kể cả khi bài
+    // bị trả lại, và kể cả bài của một nhóm học tập vốn không broadcast cho ai.
+    if (decision !== 'restore') {
+      const author = await this.authors.find(exercise.authorId);
+      if (author?.externalId) {
+        try {
+          await this.eventBus.publish(TOPICS.CONTENT_MODERATED, {
+            kind: 'EXERCISE',
+            contentId: id,
+            slug: exercise.slug.value,
+            title: exercise.title,
+            decision,
+            reason,
+            authorExternalId: author.externalId,
+          });
+        } catch (error) {
+          this.logger.error(
+            `không phát được ${TOPICS.CONTENT_MODERATED} cho ${id}`,
+            error as Error,
+          );
+        }
       }
     }
     return toExerciseView(exercise);

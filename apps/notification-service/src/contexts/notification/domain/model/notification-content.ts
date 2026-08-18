@@ -1,4 +1,5 @@
 import { InvalidInput, Result, ValueObject } from '@codementor/kernel';
+import type { AudienceType } from '@codementor/contracts';
 
 /**
  * Loại thông báo. Trùng đúng enum trong validator của MongoDB
@@ -13,7 +14,13 @@ export type NotificationType =
   | 'EXERCISE_PUBLISHED'
   | 'ROADMAP_PUBLISHED'
   | 'ARTICLE_PUBLISHED'
-  | 'ADMIN_ANNOUNCEMENT';
+  | 'ADMIN_ANNOUNCEMENT'
+  /** Giảng viên vừa gửi một nội dung đi duyệt — chỉ admin nhận. */
+  | 'CONTENT_REVIEW_REQUESTED'
+  /** Ba kết cục của một lần duyệt — chỉ tác giả nhận. */
+  | 'CONTENT_APPROVED'
+  | 'CONTENT_CHANGES_REQUESTED'
+  | 'CONTENT_REJECTED';
 
 /**
  * `POST` chứ không phải `ARTICLE`: đây là từ vựng hướng ra ngoài, và yêu cầu nghiệp vụ
@@ -24,6 +31,8 @@ export type ReferenceType = 'COURSE' | 'EXERCISE' | 'ROADMAP' | 'POST';
 
 interface ContentProps extends Record<string, unknown> {
   type: NotificationType;
+  audienceType: AudienceType;
+  audienceKey: string | null;
   title: string;
   message: string;
   referenceType: ReferenceType | null;
@@ -35,6 +44,9 @@ interface ContentProps extends Record<string, unknown> {
 
 export interface NotificationContentInput {
   type: NotificationType;
+  /** Bỏ trống = `ALL`, giữ nguyên hành vi của những thông báo phát cho toàn hệ thống. */
+  audienceType?: AudienceType;
+  audienceKey?: string | null;
   title: string;
   message: string;
   referenceType?: ReferenceType | null;
@@ -130,9 +142,25 @@ export class NotificationContent extends ValueObject<ContentProps> {
       );
     }
 
+    const audienceType = input.audienceType ?? 'ALL';
+    const audienceKey = input.audienceKey?.trim() || null;
+    // `ROLE`/`USER` không có khoá là thông báo gửi vào hư không: nó lưu được, không ai
+    // đọc được, và không có gì trên giao diện tố cáo chuyện đó. `ALL` thì ngược lại —
+    // một khoá thừa ở đây nghĩa là người viết tưởng mình đang gửi riêng cho ai đó.
+    if ((audienceType === 'ALL') !== (audienceKey === null)) {
+      return Result.fail(
+        new InvalidInput('audienceKey bắt buộc với ROLE/USER và phải rỗng với ALL', {
+          audienceType,
+          audienceKey,
+        }),
+      );
+    }
+
     return Result.ok(
       new NotificationContent({
         type: input.type,
+        audienceType,
+        audienceKey,
         title,
         message,
         referenceType,
@@ -146,6 +174,12 @@ export class NotificationContent extends ValueObject<ContentProps> {
 
   get type(): NotificationType {
     return this.props.type;
+  }
+  get audienceType(): AudienceType {
+    return this.props.audienceType;
+  }
+  get audienceKey(): string | null {
+    return this.props.audienceKey;
   }
   get title(): string {
     return this.props.title;

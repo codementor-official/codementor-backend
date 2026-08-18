@@ -1,6 +1,8 @@
 import { NotificationContent } from './notification-content';
 import {
   fromAdminAnnouncement,
+  fromContentModerated,
+  fromContentReviewRequested,
   fromCoursePublished,
   fromExercisePublished,
   fromRoadmapPublished,
@@ -54,6 +56,18 @@ describe('NotificationContent', () => {
       }).isFail,
     ).toBe(true);
   });
+  it('mặc định gửi cho tất cả, và ALL không được mang khoá đối tượng', () => {
+    expect(NotificationContent.create(valid).value.audienceType).toBe('ALL');
+    expect(NotificationContent.create(valid).value.audienceKey).toBeNull();
+    expect(
+      NotificationContent.create({ ...valid, audienceKey: 'admin' }).isFail,
+    ).toBe(true);
+  });
+
+  it('ROLE/USER không có khoá thì bị từ chối — nếu không, thông báo lưu được mà không ai đọc được', () => {
+    expect(NotificationContent.create({ ...valid, audienceType: 'ROLE' }).isFail).toBe(true);
+    expect(NotificationContent.create({ ...valid, audienceType: 'USER' }).isFail).toBe(true);
+  });
 });
 
 describe('dựng nội dung từ sự kiện', () => {
@@ -104,5 +118,48 @@ describe('dựng nội dung từ sự kiện', () => {
     expect(result.value.actionUrl).toBeNull();
     expect(result.value.actionLabel).toBeNull();
     expect(result.value.referenceType).toBeNull();
+  });
+
+  it('gửi duyệt báo cho admin, không phải cho người học', () => {
+    const result = fromContentReviewRequested({
+      kind: 'POST',
+      contentId: 'a1',
+      slug: 'bai-viet',
+      title: 'Bài viết',
+      authorName: 'Gia Sĩ',
+    });
+    expect(result.isOk).toBe(true);
+    expect(result.value.audienceType).toBe('ROLE');
+    expect(result.value.audienceKey).toBe('admin');
+    expect(result.value.actionUrl).toBe('/moderation');
+  });
+
+  it('quyết định của admin gửi riêng cho tác giả, và lý do nằm trong câu chữ', () => {
+    const changes = fromContentModerated({
+      kind: 'COURSE',
+      contentId: 'c1',
+      slug: 'khoa-hoc',
+      title: 'Khoá học',
+      decision: 'request_changes',
+      reason: 'Thiếu bài học',
+      authorExternalId: 'sub-123',
+    });
+    expect(changes?.value.audienceType).toBe('USER');
+    expect(changes?.value.audienceKey).toBe('sub-123');
+    expect(changes?.value.message).toContain('Thiếu bài học');
+  });
+
+  it('lưu trữ không sinh thông báo — đó là việc vận hành, không phải phán quyết về bài', () => {
+    expect(
+      fromContentModerated({
+        kind: 'COURSE',
+        contentId: 'c1',
+        slug: 'khoa-hoc',
+        title: 'Khoá học',
+        decision: 'archive',
+        reason: null,
+        authorExternalId: 'sub-123',
+      }),
+    ).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
-import { DEFAULT_PAGE_LIMIT, canEditRoadmap, decodeCursor, requireHumanId, toPage, type AuthenticatedUser, type Page } from '@codementor/platform';
+import { DEFAULT_PAGE_LIMIT, canEditRoadmap, decodeCursor, requireHumanId, toPage, ContentAuthorLookup, type AuthenticatedUser, type Page } from '@codementor/platform';
 import { Roadmap } from '../domain/model/roadmap';
 import type { CurrentLevel, RoadmapEdit, RoadmapField } from '../domain/model/roadmap';
 import {
@@ -50,6 +50,7 @@ export class RoadmapUseCases {
   constructor(
     @Inject(ROADMAP_REPOSITORY) private readonly roadmaps: RoadmapRepository,
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
+    private readonly authors: ContentAuthorLookup,
   ) {}
 
   async list(
@@ -158,6 +159,21 @@ export class RoadmapUseCases {
     if (submitted.isFail) throw submitted.error;
 
     await this.roadmaps.save(roadmap);
+    // Gửi cho ADMIN: lộ trình vẫn là bản nháp, người học chưa có gì để xem.
+    try {
+      await this.eventBus.publish(TOPICS.CONTENT_REVIEW_REQUESTED, {
+        kind: 'ROADMAP',
+        contentId: roadmap.id,
+        slug: roadmap.slug,
+        title: roadmap.title,
+        authorName: user.displayName,
+      });
+    } catch (error) {
+      this.logger.error(
+        `không phát được ${TOPICS.CONTENT_REVIEW_REQUESTED} cho ${roadmap.id}`,
+        error as Error,
+      );
+    }
     return toRoadmapView(roadmap, courses);
   }
 
@@ -213,7 +229,36 @@ export class RoadmapUseCases {
         );
       }
     }
+    await this.announceModerated(entity, decision, reason);
     return toRoadmapView(entity, await this.roadmaps.listCourses(id));
+  }
+
+  /** Báo riêng cho tác giả — xem ghi chú cùng tên ở `CourseUseCases`. */
+  private async announceModerated(
+    roadmap: Roadmap,
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
+    reason: string | null,
+  ): Promise<void> {
+    if (decision === 'restore') return;
+    const author = await this.authors.find(roadmap.createdBy);
+    if (!author?.externalId) return;
+
+    try {
+      await this.eventBus.publish(TOPICS.CONTENT_MODERATED, {
+        kind: 'ROADMAP',
+        contentId: roadmap.id,
+        slug: roadmap.slug,
+        title: roadmap.title,
+        decision,
+        reason,
+        authorExternalId: author.externalId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `không phát được ${TOPICS.CONTENT_MODERATED} cho ${roadmap.id}`,
+        error as Error,
+      );
+    }
   }
 
   private async mustFind(id: string): Promise<Roadmap> {

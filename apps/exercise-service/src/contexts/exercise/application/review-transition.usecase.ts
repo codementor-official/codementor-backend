@@ -1,4 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { EVENT_BUS, type EventBus } from '@codementor/messaging';
+import { TOPICS } from '@codementor/contracts';
 import { NotAuthorized, NotFound } from '@codementor/kernel';
 import { canEditExercise, type AuthenticatedUser } from '@codementor/platform';
 import { validateForSubmission } from '../domain/model/exercise-content';
@@ -16,9 +18,12 @@ import { toExerciseView, type ExerciseView } from './exercise-view';
  */
 @Injectable()
 export class ReviewTransitionUseCase {
+  private readonly logger = new Logger(ReviewTransitionUseCase.name);
+
   constructor(
     @Inject(EXERCISE_REPOSITORY) private readonly exercises: ExerciseRepository,
     @Inject(EXERCISE_CONTENT_REPOSITORY) private readonly contents: ExerciseContentRepository,
+    @Inject(EVENT_BUS) private readonly eventBus: EventBus,
   ) {}
 
   async submit(user: AuthenticatedUser, id: string): Promise<ExerciseView> {
@@ -37,6 +42,22 @@ export class ReviewTransitionUseCase {
     if (submitted.isFail) throw submitted.error;
 
     await this.exercises.save(exercise);
+    // Gửi cho ADMIN, không phải người học — bài vẫn đang là bản nháp. Kafka chết chỉ ghi
+    // log: bài đã `pending_review` trong DB rồi, báo lỗi lên đây là nói dối người gửi.
+    try {
+      await this.eventBus.publish(TOPICS.CONTENT_REVIEW_REQUESTED, {
+        kind: 'EXERCISE',
+        contentId: exercise.id,
+        slug: exercise.slug.value,
+        title: exercise.title,
+        authorName: user.displayName,
+      });
+    } catch (error) {
+      this.logger.error(
+        `không phát được ${TOPICS.CONTENT_REVIEW_REQUESTED} cho ${exercise.id}`,
+        error as Error,
+      );
+    }
     return toExerciseView(exercise);
   }
 

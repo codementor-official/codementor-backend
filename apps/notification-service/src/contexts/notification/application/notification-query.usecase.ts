@@ -3,6 +3,7 @@ import {
   NOTIFICATION_REPOSITORY,
   type NotificationRepository,
   type NotificationView,
+  type Viewer,
 } from '../domain/port/notification.repository';
 
 /** Trần cứng để một client hỏi `limit=100000` không kéo sập service. */
@@ -21,12 +22,12 @@ export class NotificationQuery {
     @Inject(NOTIFICATION_REPOSITORY) private readonly repository: NotificationRepository,
   ) {}
 
-  async list(userId: string, limit?: number, before?: string): Promise<NotificationPage> {
+  async list(viewer: Viewer, limit?: number, before?: string): Promise<NotificationPage> {
     const size = Math.min(Math.max(limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const cursor = before ? new Date(before) : undefined;
     // `new Date('rác')` cho Invalid Date, và Mongo sẽ ném lỗi khó hiểu ở tận tầng driver.
     const items = await this.repository.list(
-      userId,
+      viewer,
       size,
       cursor && !Number.isNaN(cursor.getTime()) ? cursor : undefined,
     );
@@ -39,8 +40,8 @@ export class NotificationQuery {
     };
   }
 
-  unreadCount(userId: string): Promise<number> {
-    return this.repository.unreadCount(userId);
+  unreadCount(viewer: Viewer): Promise<number> {
+    return this.repository.unreadCount(viewer);
   }
 
   async markRead(userId: string, notificationId: string): Promise<void> {
@@ -48,7 +49,7 @@ export class NotificationQuery {
     if (!found) throw new NotFoundException('Không tìm thấy thông báo');
   }
 
-  markAllRead(userId: string): Promise<number> {
-    return this.repository.markAllRead(userId);
+  markAllRead(viewer: Viewer): Promise<number> {
+    return this.repository.markAllRead(viewer);
   }
 }

@@ -28,8 +28,13 @@ export class RecordNotificationUseCase {
 
   async record(
     envelope: EventEnvelope<unknown>,
-    draft: Result<NotificationContent, InvalidInput>,
+    /**
+     * `null` = sự kiện này không đáng báo cho ai (vd. admin lưu trữ một nội dung đã đăng).
+     * Khác hẳn `Result` thất bại, vốn là lỗi lập trình trong hàm dựng.
+     */
+    draft: Result<NotificationContent, InvalidInput> | null,
   ): Promise<void> {
+    if (draft === null) return;
     // Nội dung không hợp lệ là lỗi lập trình trong hàm dựng, không phải lỗi của message.
     // Ném ra để `EventConsumer` nhả dấu đã-xử-lý và message được giao lại sau khi sửa —
     // im lặng bỏ qua thì thông báo biến mất vĩnh viễn mà không ai biết.
@@ -53,7 +58,8 @@ export class RecordNotificationUseCase {
         type: content.type,
         title: content.title,
         message: content.message,
-        audienceType: 'ALL',
+        audienceType: content.audienceType,
+        audienceKey: content.audienceKey,
         referenceType: content.referenceType,
         referenceId: content.referenceId,
         actionLabel: content.actionLabel,

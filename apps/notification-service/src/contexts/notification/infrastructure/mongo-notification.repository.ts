@@ -6,6 +6,7 @@ import type {
   NotificationRepository,
   NotificationView,
   StoredNotification,
+  Viewer,
 } from '../domain/port/notification.repository';
 import { Notification, NotificationRead } from './notification.schema';
 
@@ -31,7 +32,8 @@ export class MongoNotificationRepository implements NotificationRepository {
         type: content.type,
         title: content.title,
         message: content.message,
-        audienceType: 'ALL',
+        audienceType: content.audienceType,
+        audienceKey: content.audienceKey,
         referenceType: content.referenceType,
         referenceId: content.referenceId,
         actionLabel: content.actionLabel,
@@ -50,9 +52,9 @@ export class MongoNotificationRepository implements NotificationRepository {
    * Phân trang bằng con trỏ `createdAt` chứ không phải `skip`: thông báo mới được chèn
    * vào ĐẦU danh sách liên tục, nên `skip` sẽ khiến người dùng thấy lặp lại mục đã xem.
    */
-  async list(userId: string, limit: number, before?: Date): Promise<NotificationView[]> {
+  async list(viewer: Viewer, limit: number, before?: Date): Promise<NotificationView[]> {
     const found = await this.notifications
-      .find(before ? { createdAt: { $lt: before } } : {})
+      .find({ ...addressedTo(viewer), ...(before ? { createdAt: { $lt: before } } : {}) })
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
@@ -63,7 +65,7 @@ export class MongoNotificationRepository implements NotificationRepository {
     const readIds = new Set(
       (
         await this.reads
-          .find({ userId, notificationId: { $in: found.map((n) => n._id) } })
+          .find({ userId: viewer.userId, notificationId: { $in: found.map((n) => n._id) } })
           .select({ notificationId: 1 })
           .lean()
       ).map((r) => r.notificationId.toString()),
@@ -85,18 +87,22 @@ export class MongoNotificationRepository implements NotificationRepository {
   }
 
   /**
-   * Chưa đọc = tổng số thông báo trừ số đã đọc.
+   * Chưa đọc = số thông báo GỬI CHO NGƯỜI NÀY mà họ chưa đọc.
    *
-   * Đúng vì mọi thông báo giai đoạn này đều `audienceType: ALL` và không có thông báo nào
-   * bị xoá. Thêm audience theo user/role thì phép trừ này hỏng — lúc đó đếm phải lọc theo
-   * cùng điều kiện với `list`.
+   * Trước đây là phép trừ "tổng − đã đọc", đúng khi mọi thông báo đều `ALL`. Từ lúc có
+   * thông báo theo vai trò và theo người, phép trừ ấy cho số âm-hoặc-thổi-phồng: một
+   * giảng viên sẽ thấy chấm đỏ vì những thông báo gửi riêng cho admin mà họ không bao
+   * giờ mở được. Đếm phải lọc theo ĐÚNG điều kiện của `list`, không có đường tắt.
    */
-  async unreadCount(userId: string): Promise<number> {
-    const [total, read] = await Promise.all([
-      this.notifications.countDocuments({}),
-      this.reads.countDocuments({ userId }),
-    ]);
-    return Math.max(total - read, 0);
+  async unreadCount(viewer: Viewer): Promise<number> {
+    const readIds = (
+      await this.reads.find({ userId: viewer.userId }).select({ notificationId: 1 }).lean()
+    ).map((r) => r.notificationId);
+
+    return this.notifications.countDocuments({
+      ...addressedTo(viewer),
+      _id: { $nin: readIds },
+    });
   }
 
   /** Bấm hai lần vào cùng một thông báo không được tạo hai dòng — nên là upsert. */
@@ -118,12 +124,12 @@ export class MongoNotificationRepository implements NotificationRepository {
    * mức phase này (hàng chục) thì đủ. Khi danh sách lên tới hàng nghìn, đổi sang mốc
    * "đã đọc tới thời điểm T" cho mỗi user thay vì một dòng cho mỗi thông báo.
    */
-  async markAllRead(userId: string): Promise<number> {
-    const readIds = (await this.reads.find({ userId }).select({ notificationId: 1 }).lean()).map(
-      (r) => r.notificationId,
-    );
+  async markAllRead(viewer: Viewer): Promise<number> {
+    const readIds = (
+      await this.reads.find({ userId: viewer.userId }).select({ notificationId: 1 }).lean()
+    ).map((r) => r.notificationId);
     const unread = await this.notifications
-      .find({ _id: { $nin: readIds } })
+      .find({ ...addressedTo(viewer), _id: { $nin: readIds } })
       .select({ _id: 1 })
       .lean();
     if (unread.length === 0) return 0;
@@ -132,7 +138,7 @@ export class MongoNotificationRepository implements NotificationRepository {
     await this.reads.bulkWrite(
       unread.map((n) => ({
         updateOne: {
-          filter: { userId, notificationId: n._id },
+          filter: { userId: viewer.userId, notificationId: n._id },
           update: { $setOnInsert: { readAt } },
           upsert: true,
         },
@@ -140,4 +146,21 @@ export class MongoNotificationRepository implements NotificationRepository {
     );
     return unread.length;
   }
+}
+
+/**
+ * Điều kiện "thông báo này gửi tới người đang hỏi".
+ *
+ * Một hàm dùng chung cho cả `list`, `unreadCount` và `markAllRead` chứ không chép ba lần:
+ * ba bộ lọc lệch nhau sẽ cho ra chấm đỏ đếm những thông báo mà danh sách không hiện, và
+ * người dùng không có cách nào làm nó tắt đi.
+ */
+function addressedTo(viewer: Viewer): Record<string, unknown> {
+  return {
+    $or: [
+      { audienceType: 'ALL' },
+      { audienceType: 'ROLE', audienceKey: viewer.role },
+      { audienceType: 'USER', audienceKey: viewer.externalId },
+    ],
+  };
 }

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
-import { DEFAULT_PAGE_LIMIT, canEditCourse, decodeCursor, requireHumanId, toPage, type AuthenticatedUser, type Page } from '@codementor/platform';
+import { DEFAULT_PAGE_LIMIT, canEditCourse, decodeCursor, requireHumanId, toPage, ContentAuthorLookup, type AuthenticatedUser, type Page } from '@codementor/platform';
 import { Course } from '../domain/model/course';
 import type { CourseEdit } from '../domain/model/course';
 import { validateCurriculum, type ChapterDraft } from '../domain/model/curriculum';
@@ -91,6 +91,7 @@ export class CourseUseCases {
     @Inject(COURSE_REPOSITORY) private readonly courses: CourseRepository,
     @Inject(LESSON_CONTENT_REPOSITORY) private readonly contents: LessonContentRepository,
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
+    private readonly authors: ContentAuthorLookup,
   ) {}
 
   async list(
@@ -248,6 +249,22 @@ export class CourseUseCases {
     if (submitted.isFail) throw submitted.error;
 
     await this.courses.save(course);
+    // Người nhận là ADMIN, không phải người học: khoá học vẫn là bản nháp cho tới khi
+    // được duyệt. Thất bại ở đây chỉ ghi log — xem `announcePublished` cho lý do đầy đủ.
+    try {
+      await this.eventBus.publish(TOPICS.CONTENT_REVIEW_REQUESTED, {
+        kind: 'COURSE',
+        contentId: course.id,
+        slug: course.slug,
+        title: course.title,
+        authorName: user.displayName,
+      });
+    } catch (error) {
+      this.logger.error(
+        `không phát được ${TOPICS.CONTENT_REVIEW_REQUESTED} cho ${course.id}`,
+        error as Error,
+      );
+    }
     return toView(course, curriculum);
   }
 
@@ -294,6 +311,7 @@ export class CourseUseCases {
     if (decision === 'approve') {
       await this.announcePublished(entity);
     }
+    await this.announceModerated(entity, decision, reason);
     return toView(entity, await this.courses.findCurriculum(id));
   }
 
@@ -315,6 +333,42 @@ export class CourseUseCases {
       });
     } catch (error) {
       this.logger.error(`không phát được ${TOPICS.COURSE_PUBLISHED} cho ${course.id}`, error as Error);
+    }
+  }
+
+  /**
+   * Báo riêng cho TÁC GIẢ về quyết định vừa rồi.
+   *
+   * Tách khỏi `announcePublished`: cái kia nói với người học "có khoá mới", cái này nói
+   * với giảng viên "bài của bạn đã được quyết". Cùng một cú bấm duyệt sinh cả hai, và
+   * gộp chúng lại nghĩa là một trong hai nhóm nhận nhầm.
+   *
+   * `restore` không báo: nó chỉ đưa nội dung đã lưu trữ về bản nháp, chưa phải phán quyết.
+   */
+  private async announceModerated(
+    course: Course,
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
+    reason: string | null,
+  ): Promise<void> {
+    if (decision === 'restore') return;
+    const author = await this.authors.find(course.createdBy);
+    if (!author?.externalId) return;
+
+    try {
+      await this.eventBus.publish(TOPICS.CONTENT_MODERATED, {
+        kind: 'COURSE',
+        contentId: course.id,
+        slug: course.slug,
+        title: course.title,
+        decision,
+        reason,
+        authorExternalId: author.externalId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `không phát được ${TOPICS.CONTENT_MODERATED} cho ${course.id}`,
+        error as Error,
+      );
     }
   }
 

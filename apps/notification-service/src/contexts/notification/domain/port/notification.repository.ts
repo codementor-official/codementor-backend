@@ -28,6 +28,16 @@ export interface StoredNotification {
   createdAt: Date;
 }
 
+/**
+ * Người đang đọc. Cả `externalId` lẫn `role` đều cần: một thông báo tới được người này
+ * nếu nó gửi cho tất cả, cho vai trò của họ, hoặc đích danh họ.
+ */
+export interface Viewer {
+  userId: string;
+  externalId: string;
+  role: string;
+}
+
 export interface NotificationRepository {
   /**
    * Ghi thông báo mới. Trả `null` nếu `eventId` đã có — Kafka giao lại message là
@@ -36,15 +46,15 @@ export interface NotificationRepository {
   create(eventId: string, content: NotificationContent): Promise<StoredNotification | null>;
 
   /** Mới nhất trước. `before` là con trỏ `createdAt` của trang liền trước. */
-  list(userId: string, limit: number, before?: Date): Promise<NotificationView[]>;
+  list(viewer: Viewer, limit: number, before?: Date): Promise<NotificationView[]>;
 
-  unreadCount(userId: string): Promise<number>;
+  unreadCount(viewer: Viewer): Promise<number>;
 
   /** `false` nếu không có thông báo nào mang id đó. */
   markRead(userId: string, notificationId: string): Promise<boolean>;
 
   /** Trả về số thông báo vừa được đánh dấu. */
-  markAllRead(userId: string): Promise<number>;
+  markAllRead(viewer: Viewer): Promise<number>;
 }
 
 export const NOTIFICATION_REPOSITORY = Symbol('NOTIFICATION_REPOSITORY');

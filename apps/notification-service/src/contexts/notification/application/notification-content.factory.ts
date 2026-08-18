@@ -2,11 +2,15 @@ import type { InvalidInput, Result } from '@codementor/kernel';
 import type {
   AdminAnnouncementCreatedV1,
   ArticlePublishedV1,
+  ContentModeratedV1,
+  ContentReviewRequestedV1,
   CoursePublishedV1,
   ExercisePublishedV1,
+  ReviewableKind,
   RoadmapPublishedV1,
 } from '@codementor/contracts';
 import { NotificationContent } from '../domain/model/notification-content';
+import type { ReferenceType } from '../domain/model/notification-content';
 
 /**
  * Sự kiện nghiệp vụ → câu chữ người dùng đọc.
@@ -105,5 +109,97 @@ export function fromAdminAnnouncement(payload: AdminAnnouncementCreatedV1): Draf
     message: payload.message,
     // Không có gì để bấm vào: thông báo bảo trì không dẫn tới trang nào cả.
     metadata: { announcementId: payload.announcementId },
+  });
+}
+
+/* ------------------------------------------------------- Kiểm duyệt nội dung */
+
+/**
+ * `ReviewableKind` trùng đúng `ReferenceType` về giá trị, nhưng hai kiểu ấy thuộc hai
+ * tầng khác nhau và không được phép ép ngầm cho nhau: một ngày nào đó thêm loại nội dung
+ * duyệt được mà chưa có thông báo tương ứng, bảng này sẽ báo lỗi biên dịch đúng chỗ.
+ */
+const REFERENCE_BY_KIND: Record<ReviewableKind, ReferenceType> = {
+  COURSE: 'COURSE',
+  ROADMAP: 'ROADMAP',
+  EXERCISE: 'EXERCISE',
+  POST: 'POST',
+};
+
+const KIND_LABEL: Record<ReviewableKind, string> = {
+  COURSE: 'khoá học',
+  ROADMAP: 'lộ trình',
+  EXERCISE: 'bài code',
+  POST: 'bài viết',
+};
+
+/** Trang danh sách bên studio giảng viên, nơi tác giả mở nội dung ra sửa. */
+const LECTURER_PATH: Record<ReviewableKind, string> = {
+  COURSE: '/courses',
+  ROADMAP: '/roadmaps',
+  EXERCISE: '/exercises',
+  POST: '/articles',
+};
+
+/** Gửi cho ADMIN, không phải người học: nội dung này còn đang là bản nháp. */
+export function fromContentReviewRequested(payload: ContentReviewRequestedV1): Draft {
+  const author = payload.authorName?.trim();
+  const who = author ? `Giảng viên ${author}` : 'Một giảng viên';
+
+  return NotificationContent.create({
+    type: 'CONTENT_REVIEW_REQUESTED',
+    audienceType: 'ROLE',
+    audienceKey: 'admin',
+    title: '🔔 Có nội dung chờ bạn duyệt',
+    message: `${who} vừa gửi ${KIND_LABEL[payload.kind]} ${quoted(payload.title)} đi duyệt.`,
+    referenceType: REFERENCE_BY_KIND[payload.kind],
+    referenceId: payload.contentId,
+    actionLabel: 'Mở hàng chờ duyệt',
+    actionUrl: '/moderation',
+    metadata: { kind: payload.kind, slug: payload.slug, authorName: payload.authorName },
+  });
+}
+
+/**
+ * Gửi riêng cho TÁC GIẢ. Ba quyết định, ba câu khác nhau — người bị trả lại cần đọc được
+ * lý do ngay trên thông báo, vì đó là thứ quyết định họ phải làm gì tiếp theo.
+ *
+ * `archive` không sinh thông báo: gỡ một nội dung đã đăng là việc vận hành của admin,
+ * không phải phán quyết về bài của tác giả.
+ */
+export function fromContentModerated(payload: ContentModeratedV1): Draft | null {
+  if (payload.decision === 'archive') return null;
+
+  const label = KIND_LABEL[payload.kind];
+  const name = quoted(payload.title);
+  const reason = payload.reason?.trim();
+
+  const copy = {
+    approve: {
+      type: 'CONTENT_APPROVED' as const,
+      title: '✅ Nội dung của bạn đã được duyệt',
+      message: `${label[0].toUpperCase()}${label.slice(1)} ${name} đã được duyệt và công khai.`,
+    },
+    request_changes: {
+      type: 'CONTENT_CHANGES_REQUESTED' as const,
+      title: '✏️ Quản trị viên yêu cầu bạn sửa lại',
+      message: `${label[0].toUpperCase()}${label.slice(1)} ${name} bị gửi lại. Lý do: ${reason ?? 'không nêu'}`,
+    },
+    reject: {
+      type: 'CONTENT_REJECTED' as const,
+      title: '❌ Nội dung của bạn bị từ chối',
+      message: `${label[0].toUpperCase()}${label.slice(1)} ${name} không được duyệt. Lý do: ${reason ?? 'không nêu'}`,
+    },
+  }[payload.decision];
+
+  return NotificationContent.create({
+    ...copy,
+    audienceType: 'USER',
+    audienceKey: payload.authorExternalId,
+    referenceType: REFERENCE_BY_KIND[payload.kind],
+    referenceId: payload.contentId,
+    actionLabel: 'Mở nội dung',
+    actionUrl: LECTURER_PATH[payload.kind],
+    metadata: { kind: payload.kind, slug: payload.slug, reason: reason ?? null },
   });
 }
