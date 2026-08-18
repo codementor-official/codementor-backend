@@ -269,9 +269,17 @@ export class ArticleUseCases {
     await this.articles.delete(id);
   }
 
+  /**
+   * Đếm bài viết theo trạng thái.
+   *
+   * Lọc theo tác giả y hệt list(): giảng viên chỉ thấy bài của chính mình ở danh sách,
+   * nên con số trên bảng điều khiển của họ phải đếm cùng một tập. Trước đây hàm này đếm
+   * TOÀN BỘ bảng, nên một giảng viên có ba bài vẫn thấy "10 đã đăng" — vừa sai, vừa để lộ
+   * quy mô nội dung của cả nền tảng.
+   */
   countByStatus(user: AuthenticatedUser): Promise<Record<string, number>> {
     this.mustAuthor(user);
-    return this.articles.countByStatus();
+    return this.articles.countByStatus(user.role === 'admin' ? undefined : requireHumanId(user));
   }
 
   private async toView(article: Article): Promise<ArticleView> {

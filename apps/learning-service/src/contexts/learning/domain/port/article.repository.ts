@@ -57,7 +57,7 @@ export interface ArticleRepository {
   save(article: Article): Promise<void>;
   delete(id: string): Promise<void>;
   /** Đếm theo trạng thái, cho trang tổng quan của admin. */
-  countByStatus(): Promise<Record<string, number>>;
+  countByStatus(authorId?: string): Promise<Record<string, number>>;
   /** Chủ đề của các bài ĐÃ công khai, kèm số bài — nguồn cho dãy chip lọc. */
   publishedTags(): Promise<{ name: string; count: number }[]>;
   /** Số bài đang chờ duyệt — cho chấm đỏ ở hàng chờ của admin. */

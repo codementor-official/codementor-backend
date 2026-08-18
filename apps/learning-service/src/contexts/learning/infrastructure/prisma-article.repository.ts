@@ -145,9 +145,12 @@ export class PrismaArticleRepository implements ArticleRepository {
     await this.prisma.$executeRaw`DELETE FROM articles WHERE id = ${id}::uuid`;
   }
 
-  async countByStatus(): Promise<Record<string, number>> {
+  async countByStatus(authorId?: string): Promise<Record<string, number>> {
     const rows = await this.prisma.$queryRaw<{ status: string; count: bigint }[]>`
-      SELECT status::text AS status, count(*) AS count FROM articles GROUP BY status`;
+      SELECT status::text AS status, count(*) AS count
+      FROM articles
+      WHERE (${authorId ?? null}::uuid IS NULL OR author_id = ${authorId ?? null}::uuid)
+      GROUP BY status`;
     // `count(*)` về đây là bigint và JSON.stringify sẽ nổ nếu để nguyên.
     return Object.fromEntries(rows.map((row) => [row.status, Number(row.count)]));
   }
