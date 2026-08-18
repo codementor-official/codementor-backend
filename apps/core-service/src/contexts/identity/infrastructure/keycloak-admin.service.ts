@@ -79,7 +79,7 @@ export class KeycloakAdminService {
     email: string;
     displayName: string;
     role: UserRole;
-    temporaryPassword?: string;
+    password: string;
   }): Promise<ManagedUser> {
     const response = await this.rawRequest('/users', {
       method: 'POST',
@@ -101,16 +101,13 @@ export class KeycloakAdminService {
     // khoản không vai trò, và lần thử lại với cùng email sẽ nhận 409 — địa chỉ đó coi như
     // mất luôn. Hỏng thì xoá đi, để người dùng tạo lại được.
     try {
-      if (input.temporaryPassword) {
-        await this.request(`/users/${id}/reset-password`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            type: 'password',
-            value: input.temporaryPassword,
-            temporary: true,
-          }),
-        });
-      }
+      // `temporary: false` là bắt buộc chứ không phải lựa chọn: mật khẩu tạm bật required
+      // action `UPDATE_PASSWORD`, và Direct Access Grant không có màn hình nào để làm việc
+      // đó — nó trả `invalid_grant`, người dùng nhận đúng thông báo "sai mật khẩu".
+      await this.request(`/users/${id}/reset-password`, {
+        method: 'PUT',
+        body: JSON.stringify({ type: 'password', value: input.password, temporary: false }),
+      });
       await this.assignHumanRole(id, input.role);
       return await this.getUser(id);
     } catch (error) {

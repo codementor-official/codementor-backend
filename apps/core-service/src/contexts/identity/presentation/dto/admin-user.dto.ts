@@ -23,11 +23,18 @@ export class CreateUserDto {
   @IsIn([...ASSIGNABLE_HUMAN_ROLES])
   role!: UserRole;
 
-  @ApiPropertyOptional({ description: 'Temporary credential stored only by Keycloak' })
-  @IsOptional()
+  /**
+   * Bắt buộc, và KHÔNG phải mật khẩu tạm.
+   *
+   * Đặt `temporary: true` sinh ra required action `UPDATE_PASSWORD`, mà Direct Access
+   * Grant — đường đăng nhập duy nhất của form trong ứng dụng — không phục vụ được: nó
+   * trả `invalid_grant`, và màn đăng nhập hiển thị đúng chữ "sai mật khẩu". Tài khoản
+   * tạo ra như vậy không đăng nhập được ở đâu cả.
+   */
+  @ApiProperty({ description: 'Mật khẩu đăng nhập, do quản trị viên đặt và trao tay' })
   @IsString()
   @MinLength(12)
-  temporaryPassword?: string;
+  password!: string;
 }
 
 export class UpdateUserRoleDto {
