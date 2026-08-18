@@ -5,7 +5,7 @@ import type { AuthenticatedUser } from '@codementor/platform';
 import { AuditLogService } from '../../audit/application/audit-log.service';
 import { KeycloakAdminService } from '../infrastructure/keycloak-admin.service';
 import { GetAdminUserUseCase } from '../application/get-admin-user.usecase';
-import { MirrorAccountStatusUseCase } from '../application/mirror-account-status.usecase';
+import { MirrorAccountUseCase } from '../application/mirror-account.usecase';
 import { ListUsersUseCase } from '../application/list-users.usecase';
 import {
   CreateUserDto,
@@ -23,9 +23,9 @@ import {
  * lặng lẽ làm hỏng đăng nhập ở mọi client.
  *
  * Keycloak sở hữu vai trò và quyền đăng nhập; hàng trong `users` được tạo lúc token đầu
- * tiên đi qua (just-in-time provisioning). Ngoại lệ duy nhất là `users.status`: nó được
- * chép lại sau khi khoá/mở, vì mọi màn hình đọc cột đó chứ không hỏi Keycloak — xem
- * `MirrorAccountStatusUseCase` cho lý do đầy đủ.
+ * tiên đi qua (just-in-time provisioning). Ngoại lệ là `users.role` và `users.status`:
+ * cả hai được chép lại sau khi đổi, vì mọi màn hình đọc hai cột đó chứ không hỏi Keycloak
+ * — xem `MirrorAccountUseCase` cho lý do đầy đủ.
  */
 @ApiTags('identity')
 @ApiBearerAuth('access-token')
@@ -36,7 +36,7 @@ export class AdminUsersController {
     private readonly directory: ListUsersUseCase,
     private readonly profile: GetAdminUserUseCase,
     private readonly audit: AuditLogService,
-    private readonly mirrorStatus: MirrorAccountStatusUseCase,
+    private readonly mirror: MirrorAccountUseCase,
   ) {}
 
   @Get()
@@ -102,6 +102,9 @@ export class AdminUsersController {
     @Body() dto: UpdateUserRoleDto,
   ) {
     const result = await this.keycloak.assignHumanRole(id, dto.role);
+    // Cùng lý do với khoá/mở: danh sách quản trị đọc `users.role` chứ không hỏi Keycloak,
+    // nên không chép về thì đổi vai trò xong bảng vẫn hiện vai trò cũ.
+    await this.mirror.role(id, dto.role);
     await this.audit.record(actor, {
       action: 'user.role_changed',
       targetType: 'user',
@@ -124,7 +127,7 @@ export class AdminUsersController {
     const result = await this.keycloak.setEnabled(id, active);
     // Keycloak đã là nguồn sự thật cho việc đăng nhập, nhưng mọi màn hình đọc
     // `users.status` — không chép về thì khoá xong danh sách vẫn hiện "đang hoạt động".
-    await this.mirrorStatus.execute(id, active);
+    await this.mirror.status(id, active);
     await this.audit.record(actor, {
       action: active ? 'user.activated' : 'user.suspended',
       targetType: 'user',
