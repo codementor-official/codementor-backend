@@ -296,6 +296,8 @@ export interface ContentModeratedV1 {
   /** Bắt buộc có khi từ chối hoặc yêu cầu sửa — đó là câu tác giả sẽ đọc. */
   reason: string | null;
   authorExternalId: string;
+  /** Tên người vừa ra quyết định — lấy thẳng từ token của họ, không cần tra bảng. */
+  moderatorName: string;
 }
 
 /* ------------------------------------------------------------- Notification */

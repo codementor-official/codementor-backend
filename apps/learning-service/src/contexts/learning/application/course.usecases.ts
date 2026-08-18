@@ -311,7 +311,7 @@ export class CourseUseCases {
     if (decision === 'approve') {
       await this.announcePublished(entity);
     }
-    await this.announceModerated(entity, decision, reason);
+    await this.announceModerated(entity, decision, reason, user.displayName);
     return toView(entity, await this.courses.findCurriculum(id));
   }
 
@@ -349,6 +349,7 @@ export class CourseUseCases {
     course: Course,
     decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
     reason: string | null,
+    moderatorName: string,
   ): Promise<void> {
     if (decision === 'restore') return;
     const author = await this.authors.find(course.createdBy);
@@ -363,6 +364,7 @@ export class CourseUseCases {
         decision,
         reason,
         authorExternalId: author.externalId,
+        moderatorName,
       });
     } catch (error) {
       this.logger.error(

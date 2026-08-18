@@ -79,6 +79,7 @@ export class ModerateExerciseUseCase {
             decision,
             reason,
             authorExternalId: author.externalId,
+            moderatorName: user.displayName,
           });
         } catch (error) {
           this.logger.error(

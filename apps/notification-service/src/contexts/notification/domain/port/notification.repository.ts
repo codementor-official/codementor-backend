@@ -45,16 +45,21 @@ export interface NotificationRepository {
    */
   create(eventId: string, content: NotificationContent): Promise<StoredNotification | null>;
 
-  /** Mới nhất trước. `before` là con trỏ `createdAt` của trang liền trước. */
-  list(viewer: Viewer, limit: number, before?: Date): Promise<NotificationView[]>;
+  /**
+   * Mới nhất trước. `before` là con trỏ `createdAt` của trang liền trước.
+   *
+   * `types` thu hẹp thêm những gì audience filter đã cho — dùng để một ứng dụng chỉ đọc
+   * đúng những loại nó hiển thị (vd. lecturer/admin không cần thấy "khoá học mới ra mắt").
+   */
+  list(viewer: Viewer, limit: number, before?: Date, types?: string[]): Promise<NotificationView[]>;
 
-  unreadCount(viewer: Viewer): Promise<number>;
+  unreadCount(viewer: Viewer, types?: string[]): Promise<number>;
 
   /** `false` nếu không có thông báo nào mang id đó. */
   markRead(userId: string, notificationId: string): Promise<boolean>;
 
   /** Trả về số thông báo vừa được đánh dấu. */
-  markAllRead(viewer: Viewer): Promise<number>;
+  markAllRead(viewer: Viewer, types?: string[]): Promise<number>;
 }
 
 export const NOTIFICATION_REPOSITORY = Symbol('NOTIFICATION_REPOSITORY');

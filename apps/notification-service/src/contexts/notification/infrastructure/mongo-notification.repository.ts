@@ -52,9 +52,13 @@ export class MongoNotificationRepository implements NotificationRepository {
    * Phân trang bằng con trỏ `createdAt` chứ không phải `skip`: thông báo mới được chèn
    * vào ĐẦU danh sách liên tục, nên `skip` sẽ khiến người dùng thấy lặp lại mục đã xem.
    */
-  async list(viewer: Viewer, limit: number, before?: Date): Promise<NotificationView[]> {
+  async list(viewer: Viewer, limit: number, before?: Date, types?: string[]): Promise<NotificationView[]> {
     const found = await this.notifications
-      .find({ ...addressedTo(viewer), ...(before ? { createdAt: { $lt: before } } : {}) })
+      .find({
+        ...addressedTo(viewer),
+        ...typeFilter(types),
+        ...(before ? { createdAt: { $lt: before } } : {}),
+      })
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
@@ -94,13 +98,14 @@ export class MongoNotificationRepository implements NotificationRepository {
    * giảng viên sẽ thấy chấm đỏ vì những thông báo gửi riêng cho admin mà họ không bao
    * giờ mở được. Đếm phải lọc theo ĐÚNG điều kiện của `list`, không có đường tắt.
    */
-  async unreadCount(viewer: Viewer): Promise<number> {
+  async unreadCount(viewer: Viewer, types?: string[]): Promise<number> {
     const readIds = (
       await this.reads.find({ userId: viewer.userId }).select({ notificationId: 1 }).lean()
     ).map((r) => r.notificationId);
 
     return this.notifications.countDocuments({
       ...addressedTo(viewer),
+      ...typeFilter(types),
       _id: { $nin: readIds },
     });
   }
@@ -124,12 +129,12 @@ export class MongoNotificationRepository implements NotificationRepository {
    * mức phase này (hàng chục) thì đủ. Khi danh sách lên tới hàng nghìn, đổi sang mốc
    * "đã đọc tới thời điểm T" cho mỗi user thay vì một dòng cho mỗi thông báo.
    */
-  async markAllRead(viewer: Viewer): Promise<number> {
+  async markAllRead(viewer: Viewer, types?: string[]): Promise<number> {
     const readIds = (
       await this.reads.find({ userId: viewer.userId }).select({ notificationId: 1 }).lean()
     ).map((r) => r.notificationId);
     const unread = await this.notifications
-      .find({ ...addressedTo(viewer), _id: { $nin: readIds } })
+      .find({ ...addressedTo(viewer), ...typeFilter(types), _id: { $nin: readIds } })
       .select({ _id: 1 })
       .lean();
     if (unread.length === 0) return 0;
@@ -163,4 +168,12 @@ function addressedTo(viewer: Viewer): Record<string, unknown> {
       { audienceType: 'USER', audienceKey: viewer.externalId },
     ],
   };
+}
+
+/**
+ * Bỏ trống thì không lọc gì thêm — ứng dụng học viên đọc mọi loại nó được phép thấy.
+ * Có giá trị thì CHỈ thu hẹp, không bao giờ mở rộng những gì `addressedTo` đã cho phép.
+ */
+function typeFilter(types?: string[]): Record<string, unknown> {
+  return types && types.length > 0 ? { type: { $in: types } } : {};
 }

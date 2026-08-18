@@ -1,8 +1,28 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsInt, IsISO8601, IsOptional, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsArray, IsInt, IsISO8601, IsOptional, IsString, Max, Min } from 'class-validator';
 
-export class ListNotificationsQueryDto {
+/** Dùng chung cho list, unread-count và read-all — ba đường đọc phải lọc CÙNG một điều kiện. */
+export class NotificationScopeDto {
+  /**
+   * Giới hạn theo `NotificationType`, phẩy cách nhau (`?types=CONTENT_REVIEW_REQUESTED,ADMIN_ANNOUNCEMENT`).
+   *
+   * Không kiểm khớp với enum ở đây: bộ lọc này chỉ THU HẸP thêm những gì audience filter
+   * đã cho phép, không bao giờ mở rộng nó — một giá trị lạ chỉ khớp 0 dòng, không lộ gì.
+   * Ứng dụng lecturer/admin tự khai types cố định trong lib/api.ts của mình, ứng dụng học
+   * viên bỏ trống để thấy mọi loại quảng bá.
+   */
+  @ApiPropertyOptional({ description: 'Lọc theo loại, phẩy cách nhau' })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.split(',').filter(Boolean) : value,
+  )
+  @IsArray()
+  @IsString({ each: true })
+  types?: string[];
+}
+
+export class ListNotificationsQueryDto extends NotificationScopeDto {
   @ApiPropertyOptional({ default: 20, maximum: 50 })
   @IsOptional()
   @Type(() => Number)

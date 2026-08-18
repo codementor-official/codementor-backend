@@ -22,7 +22,12 @@ export class NotificationQuery {
     @Inject(NOTIFICATION_REPOSITORY) private readonly repository: NotificationRepository,
   ) {}
 
-  async list(viewer: Viewer, limit?: number, before?: string): Promise<NotificationPage> {
+  async list(
+    viewer: Viewer,
+    limit?: number,
+    before?: string,
+    types?: string[],
+  ): Promise<NotificationPage> {
     const size = Math.min(Math.max(limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const cursor = before ? new Date(before) : undefined;
     // `new Date('rác')` cho Invalid Date, và Mongo sẽ ném lỗi khó hiểu ở tận tầng driver.
@@ -30,6 +35,7 @@ export class NotificationQuery {
       viewer,
       size,
       cursor && !Number.isNaN(cursor.getTime()) ? cursor : undefined,
+      types,
     );
 
     return {
@@ -40,8 +46,8 @@ export class NotificationQuery {
     };
   }
 
-  unreadCount(viewer: Viewer): Promise<number> {
-    return this.repository.unreadCount(viewer);
+  unreadCount(viewer: Viewer, types?: string[]): Promise<number> {
+    return this.repository.unreadCount(viewer, types);
   }
 
   async markRead(userId: string, notificationId: string): Promise<void> {
@@ -49,7 +55,7 @@ export class NotificationQuery {
     if (!found) throw new NotFoundException('Không tìm thấy thông báo');
   }
 
-  markAllRead(viewer: Viewer): Promise<number> {
-    return this.repository.markAllRead(viewer);
+  markAllRead(viewer: Viewer, types?: string[]): Promise<number> {
+    return this.repository.markAllRead(viewer, types);
   }
 }

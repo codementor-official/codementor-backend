@@ -4,7 +4,7 @@ import { CurrentUser, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { NotificationQuery } from '../application/notification-query.usecase';
 import type { Viewer } from '../domain/port/notification.repository';
-import { ListNotificationsQueryDto } from './dto/list-notifications.dto';
+import { ListNotificationsQueryDto, NotificationScopeDto } from './dto/list-notifications.dto';
 
 /**
  * Ba mẩu danh tính, cả ba lấy từ token đã xác thực: `users.id` để tra trạng thái đã đọc,
@@ -31,13 +31,15 @@ export class NotificationController {
   @Get()
   @ApiOperation({ summary: 'Lịch sử thông báo, mới nhất trước' })
   list(@CurrentUser() user: AuthenticatedUser, @Query() query: ListNotificationsQueryDto) {
-    return this.notifications.list(viewerOf(user), query.limit, query.before);
+    return this.notifications.list(viewerOf(user), query.limit, query.before, query.types);
   }
 
+  // Cùng `types` mà `list` nhận, và bắt buộc lọc GIỐNG HỆT: đếm rộng hơn danh sách nghĩa
+  // là chấm đỏ báo còn việc trong khi bảng đã trống, và không cách nào tắt nó đi được.
   @Get('unread-count')
   @ApiOperation({ summary: 'Số thông báo chưa đọc, dùng cho chấm đỏ trên chuông' })
-  async unreadCount(@CurrentUser() user: AuthenticatedUser) {
-    return { count: await this.notifications.unreadCount(viewerOf(user)) };
+  async unreadCount(@CurrentUser() user: AuthenticatedUser, @Query() query: NotificationScopeDto) {
+    return { count: await this.notifications.unreadCount(viewerOf(user), query.types) };
   }
 
   @Patch(':id/read')
@@ -49,7 +51,7 @@ export class NotificationController {
 
   @Patch('read-all')
   @ApiOperation({ summary: 'Đánh dấu tất cả đã đọc' })
-  async markAllRead(@CurrentUser() user: AuthenticatedUser) {
-    return { marked: await this.notifications.markAllRead(viewerOf(user)) };
+  async markAllRead(@CurrentUser() user: AuthenticatedUser, @Query() query: NotificationScopeDto) {
+    return { marked: await this.notifications.markAllRead(viewerOf(user), query.types) };
   }
 }

@@ -173,22 +173,25 @@ export function fromContentModerated(payload: ContentModeratedV1): Draft | null 
   const label = KIND_LABEL[payload.kind];
   const name = quoted(payload.title);
   const reason = payload.reason?.trim();
+  // Tên người vừa quyết đứng đầu câu: tác giả cần biết AI đã xem bài của họ, không chỉ
+  // "hệ thống" nói chung — nhất là ở hai câu bị trả lại, nơi họ có thể cần hỏi lại người đó.
+  const moderator = payload.moderatorName.trim() || 'Quản trị viên';
 
   const copy = {
     approve: {
       type: 'CONTENT_APPROVED' as const,
       title: '✅ Nội dung của bạn đã được duyệt',
-      message: `${label[0].toUpperCase()}${label.slice(1)} ${name} đã được duyệt và công khai.`,
+      message: `${moderator} đã duyệt ${label} ${name} của bạn. Nội dung đã công khai.`,
     },
     request_changes: {
       type: 'CONTENT_CHANGES_REQUESTED' as const,
       title: '✏️ Quản trị viên yêu cầu bạn sửa lại',
-      message: `${label[0].toUpperCase()}${label.slice(1)} ${name} bị gửi lại. Lý do: ${reason ?? 'không nêu'}`,
+      message: `${moderator} gửi lại ${label} ${name} của bạn. Lý do: ${reason ?? 'không nêu'}`,
     },
     reject: {
       type: 'CONTENT_REJECTED' as const,
       title: '❌ Nội dung của bạn bị từ chối',
-      message: `${label[0].toUpperCase()}${label.slice(1)} ${name} không được duyệt. Lý do: ${reason ?? 'không nêu'}`,
+      message: `${moderator} từ chối ${label} ${name} của bạn. Lý do: ${reason ?? 'không nêu'}`,
     },
   }[payload.decision];
 

@@ -291,6 +291,7 @@ export class ArticleUseCases {
             decision,
             reason,
             authorExternalId: author.externalId as string,
+            moderatorName: user.displayName,
           }),
         `${TOPICS.CONTENT_MODERATED} cho ${article.id}`,
       );

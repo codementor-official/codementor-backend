@@ -134,7 +134,7 @@ describe('dựng nội dung từ sự kiện', () => {
     expect(result.value.actionUrl).toBe('/moderation');
   });
 
-  it('quyết định của admin gửi riêng cho tác giả, và lý do nằm trong câu chữ', () => {
+  it('quyết định của admin gửi riêng cho tác giả, kèm tên người quyết và lý do', () => {
     const changes = fromContentModerated({
       kind: 'COURSE',
       contentId: 'c1',
@@ -143,10 +143,12 @@ describe('dựng nội dung từ sự kiện', () => {
       decision: 'request_changes',
       reason: 'Thiếu bài học',
       authorExternalId: 'sub-123',
+      moderatorName: 'Admin Test',
     });
     expect(changes?.value.audienceType).toBe('USER');
     expect(changes?.value.audienceKey).toBe('sub-123');
     expect(changes?.value.message).toContain('Thiếu bài học');
+    expect(changes?.value.message).toContain('Admin Test');
   });
 
   it('lưu trữ không sinh thông báo — đó là việc vận hành, không phải phán quyết về bài', () => {
@@ -159,6 +161,7 @@ describe('dựng nội dung từ sự kiện', () => {
         decision: 'archive',
         reason: null,
         authorExternalId: 'sub-123',
+        moderatorName: 'Admin Test',
       }),
     ).toBeNull();
   });
