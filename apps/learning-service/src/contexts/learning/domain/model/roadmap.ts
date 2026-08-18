@@ -293,6 +293,10 @@ export class Roadmap extends AggregateRoot<string> {
         return Result.fail(new BusinessRuleViolation('Chỉ gỡ được nội dung đang công khai'));
       }
       this.props.status = 'archived';
+      // Lý do gỡ dùng chung ô với lý do từ chối: tác giả chỉ có MỘT chỗ để đọc "vì sao
+      // nội dung của tôi không còn công khai". Gỡ mà không nêu lý do thì xoá câu cũ đi —
+      // để lại lý do của lần từ chối trước là nói về một chuyện khác.
+      this.props.rejectionReason = reason?.trim() || null;
       this.props.updatedAt = new Date();
       return Result.ok(true);
     }
@@ -319,10 +323,27 @@ export class Roadmap extends AggregateRoot<string> {
       return Result.ok(true);
     }
 
-    if (this.props.status !== 'pending_review') {
+    /**
+     * `approve` đi được từ `rejected` và `changes_requested`, không riêng `pending_review`.
+     *
+     * Admin từ chối rồi nghĩ lại là chuyện có thật, và lộ trình lúc đó vẫn đúng nguyên bản
+     * họ vừa đọc — không có gì phải xem lại. Thiếu đường này thì cách duy nhất để sửa một
+     * quyết định của admin là nhờ tác giả gửi lại, tức là bắt người ngoài chịu hậu quả của
+     * cái nhấn nhầm.
+     *
+     * `reject` và `request_changes` thì vẫn chỉ từ `pending_review`: từ chối thứ chưa ai
+     * gửi là trả lời một câu hỏi chưa được hỏi.
+     */
+    const allowed: ContentStatus[] =
+      decision === 'approve'
+        ? ['pending_review', 'rejected', 'changes_requested']
+        : ['pending_review'];
+    if (!allowed.includes(this.props.status)) {
       return Result.fail(
         new BusinessRuleViolation(
-          `Lộ trình không ở trạng thái chờ duyệt (đang ${this.props.status})`,
+          decision === 'approve'
+            ? `Lộ trình không ở trạng thái duyệt được (đang ${this.props.status})`
+            : `Lộ trình không ở trạng thái chờ duyệt (đang ${this.props.status})`,
         ),
       );
     }

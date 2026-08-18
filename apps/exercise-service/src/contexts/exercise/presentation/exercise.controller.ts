@@ -72,7 +72,7 @@ export class ExerciseController {
 
   @Get('moderation')
   @Roles('admin')
-  @ApiOperation({ summary: 'Hàng chờ duyệt, cũ trước' })
+  @ApiOperation({ summary: 'Hàng chờ duyệt, cũ trước. `?status=` để tìm nội dung đã quyết định' })
   queue(@Query() query: ListExercisesQueryDto) {
     return this.listExercises.execute({ pendingOnly: true }, query);
   }

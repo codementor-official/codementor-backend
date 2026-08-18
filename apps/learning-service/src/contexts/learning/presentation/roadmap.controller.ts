@@ -45,7 +45,7 @@ export class RoadmapController {
 
   @Get('moderation')
   @Roles('admin')
-  @ApiOperation({ summary: 'Hàng chờ duyệt, cũ trước' })
+  @ApiOperation({ summary: 'Hàng chờ duyệt, cũ trước. `?status=` để tìm nội dung đã quyết định' })
   queue(@Query() query: ListRoadmapsQueryDto) {
     return this.roadmaps.list({ pendingOnly: true }, query);
   }

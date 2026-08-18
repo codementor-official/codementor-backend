@@ -98,12 +98,15 @@ export class CourseUseCases {
     query: ListCoursesQuery,
   ): Promise<Page<CourseListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
+    // Xem chú thích ở `ListExercisesUseCase`: admin phải tìm lại được khoá đã duyệt
+    // hoặc đã từ chối, nếu không thì không có đường lùi cho một quyết định lỡ tay.
+    const status = 'publishedOnly' in scope ? undefined : query.status;
     const rows = await this.courses.list({
       createdBy: 'createdBy' in scope ? scope.createdBy : null,
       publishedOnly: 'publishedOnly' in scope,
-      pendingOnly: 'pendingOnly' in scope,
+      pendingOnly: 'pendingOnly' in scope && status === undefined,
       level: query.level,
-      status: 'createdBy' in scope ? query.status : undefined,
+      status,
       q: query.q,
       limit,
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,

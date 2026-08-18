@@ -29,13 +29,20 @@ export class ListExercisesUseCase {
     query: ListExercisesQuery,
   ): Promise<Page<ExerciseListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
+    // Kho chung theo định nghĩa chỉ có bài `published`, nên `status` ở đó vô nghĩa.
+    // Hai phạm vi còn lại đọc được: `/mine` để tác giả lọc bài của mình, `/moderation`
+    // để admin tìm bài đã duyệt (gỡ nhầm) hay đã từ chối (duyệt lại) — hàng chờ mà chỉ
+    // thấy được `pending_review` thì mọi quyết định lỡ tay là quyết định vĩnh viễn.
+    const status = 'publishedOnly' in scope ? undefined : query.status;
     const rows = await this.exercises.list({
       authorId: 'authorId' in scope ? scope.authorId : null,
       publishedOnly: 'publishedOnly' in scope,
-      pendingOnly: 'pendingOnly' in scope,
+      // Xin trạng thái cụ thể thì bỏ ràng buộc `pending_review`: hai điều kiện AND với
+      // nhau luôn ra rỗng, và màn hình rỗng trông hệt như "không có gì để duyệt".
+      pendingOnly: 'pendingOnly' in scope && status === undefined,
       kind: query.kind,
       difficulty: query.difficulty,
-      status: 'authorId' in scope ? query.status : undefined,
+      status,
       q: query.q,
       limit,
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,

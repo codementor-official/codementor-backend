@@ -228,5 +228,40 @@ describe('validateCurriculum', () => {
       expect(make().moderate('restore', null).isFail).toBe(true);
       expect(published().moderate('restore', null).isFail).toBe(true);
     });
+
+    // Gỡ vì nội dung sai thì tác giả phải đọc được vì sao, ở đúng ô đã đọc lý do từ chối.
+    it('gỡ kèm lý do thì lý do đó thay chỗ lý do từ chối cũ', () => {
+      const course = published();
+      course.moderate('archive', '  Bài 3 dùng ảnh vi phạm bản quyền  ');
+      expect(course.rejectionReason).toBe('Bài 3 dùng ảnh vi phạm bản quyền');
+    });
+  });
+
+  /** Lối lùi cho quyết định của admin — xem chú thích ở `Course.moderate`. */
+  describe('admin đổi ý', () => {
+    const submittable = { chapters: [{ lessonCount: 2 }], lessonsMissingContent: 0, exercisesNotUsable: 0 };
+    const decided = (decision: 'reject' | 'request_changes') => {
+      const course = make();
+      course.edit({ description: 'Mô tả khóa học' });
+      course.submit(submittable);
+      course.moderate(decision, 'Chưa đạt');
+      return course;
+    };
+
+    it('duyệt được khóa học vừa từ chối, không cần tác giả gửi lại', () => {
+      const course = decided('reject');
+      expect(course.status).toBe('rejected');
+      expect(course.moderate('approve', null).isOk).toBe(true);
+      expect(course.status).toBe('published');
+      expect(course.rejectionReason).toBeNull();
+    });
+
+    it('duyệt được khóa học đang chờ tác giả sửa', () => {
+      expect(decided('request_changes').moderate('approve', null).isOk).toBe(true);
+    });
+
+    it('không từ chối được khóa học chưa gửi duyệt', () => {
+      expect(make().moderate('reject', 'Không hợp lệ').isFail).toBe(true);
+    });
   });
 });
