@@ -60,9 +60,13 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
     if (filter.createdBy !== null) where.push(Prisma.sql`r.created_by = ${filter.createdBy}::uuid`);
     if (filter.publishedOnly) where.push(Prisma.sql`r.status = 'published'`);
     if (filter.pendingOnly) where.push(Prisma.sql`r.status = 'pending_review'`);
+    if (filter.excludeDraft && !filter.status) where.push(Prisma.sql`r.status <> 'draft'`);
     if (filter.field) where.push(Prisma.sql`r.field = ${filter.field}::roadmap_field`);
     if (filter.level) where.push(Prisma.sql`r.level = ${filter.level}::current_level`);
     if (filter.status) where.push(Prisma.sql`r.status = ${filter.status}::content_status`);
+    if (filter.authorId) where.push(Prisma.sql`r.created_by = ${filter.authorId}::uuid`);
+    if (filter.updatedFrom) where.push(Prisma.sql`r.updated_at >= ${filter.updatedFrom}::timestamptz`);
+    if (filter.updatedTo) where.push(Prisma.sql`r.updated_at <= ${filter.updatedTo}::timestamptz`);
     if (filter.q) {
       where.push(
         Prisma.sql`(r.title ILIKE ${'%' + filter.q + '%'} OR r.slug::text ILIKE ${'%' + filter.q + '%'})`,

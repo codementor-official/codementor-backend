@@ -249,7 +249,10 @@ export class Roadmap extends AggregateRoot<string> {
    * đường, nên điều kiện này kiểm cả nội dung con chứ không chỉ chính nó.
    */
   submit(courses: { status: ContentStatus }[]): Result<true, BusinessRuleViolation> {
-    const allowed: ContentStatus[] = ['draft', 'changes_requested', 'rejected'];
+    // `published` nằm trong danh sách này để một lộ trình đã đăng vẫn sửa được: tác giả
+    // lưu bản chỉnh rồi gửi duyệt lại — bản cũ ẩn khỏi danh mục cho tới khi admin duyệt
+    // bản mới, không lặng lẽ thay nội dung một lộ trình đang công khai mà không ai xem lại.
+    const allowed: ContentStatus[] = ['draft', 'changes_requested', 'rejected', 'published'];
     if (!allowed.includes(this.props.status)) {
       return Result.fail(
         new BusinessRuleViolation(`Không gửi duyệt được từ trạng thái ${this.props.status}`),
@@ -369,7 +372,9 @@ export class Roadmap extends AggregateRoot<string> {
     if (this.props.status !== 'pending_review') {
       return Result.fail(new BusinessRuleViolation('Lộ trình không ở trạng thái chờ duyệt'));
     }
-    this.props.status = 'draft';
+    // Đã công khai trước đó thì huỷ gửi duyệt đưa VỀ published, không phải draft — đây là
+    // huỷ một lần gửi lại (sửa xong lộ trình đang sống), không phải gỡ lộ trình đang sống.
+    this.props.status = this.props.publishedAt !== null ? 'published' : 'draft';
     this.props.updatedAt = new Date();
     return Result.ok(true);
   }

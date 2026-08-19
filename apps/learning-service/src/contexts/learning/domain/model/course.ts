@@ -236,7 +236,10 @@ export class Course extends AggregateRoot<string> {
     lessonsMissingContent: number;
     exercisesNotUsable: number;
   }): Result<true, BusinessRuleViolation> {
-    const allowed: ContentStatus[] = ['draft', 'changes_requested', 'rejected'];
+    // `published` nằm trong danh sách này để một khoá đã lên sóng vẫn sửa được: tác giả
+    // lưu bản chỉnh, rồi gửi duyệt lại — bản cũ ẩn khỏi danh mục cho tới khi admin duyệt
+    // bản mới, không lặng lẽ thay nội dung một khoá học đang công khai mà không ai xem lại.
+    const allowed: ContentStatus[] = ['draft', 'changes_requested', 'rejected', 'published'];
     if (!allowed.includes(this.props.status)) {
       return Result.fail(
         new BusinessRuleViolation(`Không gửi duyệt được từ trạng thái ${this.props.status}`),
@@ -365,7 +368,9 @@ export class Course extends AggregateRoot<string> {
     if (this.props.status !== 'pending_review') {
       return Result.fail(new BusinessRuleViolation('Khóa học không ở trạng thái chờ duyệt'));
     }
-    this.props.status = 'draft';
+    // Đã công khai trước đó thì huỷ gửi duyệt đưa VỀ published, không phải draft — đây là
+    // huỷ một lần gửi lại (sửa xong khoá đang sống), không phải gỡ khoá đang sống xuống.
+    this.props.status = this.props.publishedAt !== null ? 'published' : 'draft';
     this.props.updatedAt = new Date();
     return Result.ok(true);
   }

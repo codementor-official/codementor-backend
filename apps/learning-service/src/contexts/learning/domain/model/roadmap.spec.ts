@@ -208,6 +208,29 @@ describe('đổi slug', () => {
     });
   });
 
+  describe('sửa và gửi duyệt lại lộ trình đang công khai', () => {
+    const published = () => {
+      const roadmap = make();
+      roadmap.edit({ description: 'Mô tả' });
+      roadmap.submit([course('published'), course('published')]);
+      roadmap.moderate('approve', null);
+      return roadmap;
+    };
+
+    it('gửi duyệt lại được — sửa lộ trình đang sống thì phải qua duyệt lại', () => {
+      const roadmap = published();
+      expect(roadmap.submit([course('published'), course('published')]).isOk).toBe(true);
+      expect(roadmap.status).toBe('pending_review');
+    });
+
+    it('hủy gửi duyệt lại thì về published, không phải draft', () => {
+      const roadmap = published();
+      roadmap.submit([course('published'), course('published')]);
+      expect(roadmap.withdraw().isOk).toBe(true);
+      expect(roadmap.status).toBe('published');
+    });
+  });
+
   /** Lối lùi cho quyết định của admin — xem chú thích ở `Roadmap.moderate`. */
   describe('admin đổi ý', () => {
     const rejected = () => {

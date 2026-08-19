@@ -10,6 +10,9 @@ export interface ListExercisesQuery {
   kind?: string;
   difficulty?: string;
   status?: string;
+  authorId?: string;
+  updatedFrom?: string;
+  updatedTo?: string;
   q?: string;
   cursor?: string;
   limit?: number;
@@ -25,7 +28,11 @@ export class ListExercisesUseCase {
    * mọi trạng thái" — tổ hợp đó không diễn đạt được.
    */
   async execute(
-    scope: { authorId: string } | { publishedOnly: true } | { pendingOnly: true },
+    scope:
+      | { authorId: string }
+      | { publishedOnly: true }
+      | { pendingOnly: true }
+      | { adminAll: true },
     query: ListExercisesQuery,
   ): Promise<Page<ExerciseListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
@@ -34,15 +41,22 @@ export class ListExercisesUseCase {
     // để admin tìm bài đã duyệt (gỡ nhầm) hay đã từ chối (duyệt lại) — hàng chờ mà chỉ
     // thấy được `pending_review` thì mọi quyết định lỡ tay là quyết định vĩnh viễn.
     const status = 'publishedOnly' in scope ? undefined : query.status;
+    // `adminAll` dùng lại chính ô `authorId`: trang quản trị xem mọi tác giả theo mặc
+    // định, nhưng lọc còn về đúng một người khi `query.authorId` được truyền — cùng một
+    // cột, không cần thêm ô riêng.
+    const adminAuthorId = 'adminAll' in scope ? (query.authorId ?? null) : null;
     const rows = await this.exercises.list({
-      authorId: 'authorId' in scope ? scope.authorId : null,
+      authorId: 'authorId' in scope ? scope.authorId : adminAuthorId,
       publishedOnly: 'publishedOnly' in scope,
       // Xin trạng thái cụ thể thì bỏ ràng buộc `pending_review`: hai điều kiện AND với
       // nhau luôn ra rỗng, và màn hình rỗng trông hệt như "không có gì để duyệt".
       pendingOnly: 'pendingOnly' in scope && status === undefined,
+      excludeDraft: 'adminAll' in scope,
       kind: query.kind,
       difficulty: query.difficulty,
       status,
+      updatedFrom: query.updatedFrom ? new Date(query.updatedFrom) : undefined,
+      updatedTo: query.updatedTo ? new Date(query.updatedTo) : undefined,
       q: query.q,
       limit,
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,

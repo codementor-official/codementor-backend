@@ -77,6 +77,15 @@ export class ExerciseController {
     return this.listExercises.execute({ pendingOnly: true }, query);
   }
 
+  @Get('admin')
+  @Roles('admin')
+  @ApiOperation({
+    summary: 'Quản lý bài code: mọi tác giả, mọi trạng thái trừ nháp, có lọc theo tác giả/ngày',
+  })
+  manage(@Query() query: ListExercisesQueryDto) {
+    return this.listExercises.execute({ adminAll: true }, query);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Chi tiết, gồm cả thân bài' })
   @ApiResponse({ status: 404, description: 'Không tồn tại hoặc không có quyền xem' })
@@ -157,5 +166,19 @@ export class ExerciseController {
   @ApiOperation({ summary: 'Hủy gửi duyệt, về draft để sửa tiếp' })
   withdraw(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.review.withdraw(user, id);
+  }
+
+  @Post(':id/archive')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Tác giả tự gỡ bài đang công khai của mình' })
+  archiveMine(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.review.archiveMine(user, id);
+  }
+
+  @Post(':id/restore')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Tác giả tự khôi phục bài đã gỡ của mình' })
+  restoreMine(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.review.restoreMine(user, id);
   }
 }

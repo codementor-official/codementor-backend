@@ -56,6 +56,15 @@ export class CourseController {
     return this.courses.list({ pendingOnly: true }, query);
   }
 
+  @Get('admin')
+  @Roles('admin')
+  @ApiOperation({
+    summary: 'Quản lý khóa học: mọi tác giả, mọi trạng thái trừ nháp, có lọc theo tác giả/ngày',
+  })
+  manage(@Query() query: ListCoursesQueryDto) {
+    return this.courses.list({ adminAll: true }, query);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Chi tiết, kèm cả cây chương và bài' })
   detail(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -195,6 +204,20 @@ export class CourseController {
   @ApiOperation({ summary: 'Hủy gửi duyệt' })
   withdraw(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.courses.withdraw(user, id);
+  }
+
+  @Post(':id/archive')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Tác giả tự gỡ khóa học đang công khai của mình' })
+  archiveMine(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.courses.archiveMine(user, id);
+  }
+
+  @Post(':id/restore')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Tác giả tự khôi phục khóa học đã gỡ của mình' })
+  restoreMine(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.courses.restoreMine(user, id);
   }
 
   @Delete(':id')

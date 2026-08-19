@@ -70,11 +70,14 @@ export class PrismaExerciseRepository implements ExerciseRepository {
       where.push(Prisma.sql`e.visibility = 'public' AND e.status = 'published'`);
     }
     if (filter.pendingOnly) where.push(Prisma.sql`e.status = 'pending_review'`);
+    if (filter.excludeDraft && !filter.status) where.push(Prisma.sql`e.status <> 'draft'`);
     if (filter.kind) where.push(Prisma.sql`e.kind = ${filter.kind}::exercise_kind`);
     if (filter.difficulty) {
       where.push(Prisma.sql`e.difficulty = ${filter.difficulty}::exercise_difficulty`);
     }
     if (filter.status) where.push(Prisma.sql`e.status = ${filter.status}::exercise_status`);
+    if (filter.updatedFrom) where.push(Prisma.sql`e.updated_at >= ${filter.updatedFrom}::timestamptz`);
+    if (filter.updatedTo) where.push(Prisma.sql`e.updated_at <= ${filter.updatedTo}::timestamptz`);
     if (filter.q) {
       // citext ở slug nhưng title là text, nên vẫn cần ILIKE.
       where.push(Prisma.sql`(e.title ILIKE ${'%' + filter.q + '%'} OR e.slug::text ILIKE ${'%' + filter.q + '%'})`);

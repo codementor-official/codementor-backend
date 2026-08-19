@@ -7,11 +7,15 @@ export interface ExerciseListFilter {
   authorId: string | null;
   /** Hàng chờ duyệt: mọi tác giả, chỉ `pending_review`. Sắp CŨ TRƯỚC. */
   pendingOnly?: boolean;
+  /** Trang quản trị: mọi tác giả, mọi trạng thái TRỪ `draft`, trừ khi có `status` ép cụ thể. */
+  excludeDraft?: boolean;
   kind?: string;
   difficulty?: string;
   status?: string;
   /** Chỉ dùng cho kho chung: buộc public + published. */
   publishedOnly: boolean;
+  updatedFrom?: Date;
+  updatedTo?: Date;
   q?: string;
   limit: number;
   cursor?: { updatedAt: Date; id: string };

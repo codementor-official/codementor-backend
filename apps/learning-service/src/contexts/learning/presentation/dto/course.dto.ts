@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsIn,
   IsInt,
   IsOptional,
@@ -207,4 +208,19 @@ export class ListCoursesQueryDto extends PageQuery {
   @IsOptional()
   @IsIn(CONTENT_STATUSES)
   status?: (typeof CONTENT_STATUSES)[number];
+
+  @ApiPropertyOptional({ description: 'Lọc theo giảng viên đứng tên (trang quản trị)' })
+  @IsOptional()
+  @IsUUID()
+  authorId?: string;
+
+  @ApiPropertyOptional({ description: 'Cập nhật từ ngày này (ISO 8601), trang quản trị' })
+  @IsOptional()
+  @IsDateString()
+  updatedFrom?: string;
+
+  @ApiPropertyOptional({ description: 'Cập nhật tới ngày này (ISO 8601), trang quản trị' })
+  @IsOptional()
+  @IsDateString()
+  updatedTo?: string;
 }

@@ -237,6 +237,30 @@ describe('validateCurriculum', () => {
     });
   });
 
+  describe('sửa và gửi duyệt lại khóa học đang công khai', () => {
+    const submittable = { chapters: [{ lessonCount: 2 }], lessonsMissingContent: 0, exercisesNotUsable: 0 };
+    const published = () => {
+      const course = make();
+      course.edit({ description: 'Mô tả khóa học' });
+      course.submit(submittable);
+      course.moderate('approve', null);
+      return course;
+    };
+
+    it('gửi duyệt lại được — sửa khóa đang sống thì phải qua duyệt lại', () => {
+      const course = published();
+      expect(course.submit(submittable).isOk).toBe(true);
+      expect(course.status).toBe('pending_review');
+    });
+
+    it('hủy gửi duyệt lại thì về published, không phải draft', () => {
+      const course = published();
+      course.submit(submittable);
+      expect(course.withdraw().isOk).toBe(true);
+      expect(course.status).toBe('published');
+    });
+  });
+
   /** Lối lùi cho quyết định của admin — xem chú thích ở `Course.moderate`. */
   describe('admin đổi ý', () => {
     const submittable = { chapters: [{ lessonCount: 2 }], lessonsMissingContent: 0, exercisesNotUsable: 0 };

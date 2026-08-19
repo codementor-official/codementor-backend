@@ -21,6 +21,9 @@ import {
 export interface ListCoursesQuery {
   level?: string;
   status?: string;
+  authorId?: string;
+  updatedFrom?: string;
+  updatedTo?: string;
   q?: string;
   cursor?: string;
   limit?: number;
@@ -95,7 +98,11 @@ export class CourseUseCases {
   ) {}
 
   async list(
-    scope: { createdBy: string } | { publishedOnly: true } | { pendingOnly: true },
+    scope:
+      | { createdBy: string }
+      | { publishedOnly: true }
+      | { pendingOnly: true }
+      | { adminAll: true },
     query: ListCoursesQuery,
   ): Promise<Page<CourseListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
@@ -106,8 +113,14 @@ export class CourseUseCases {
       createdBy: 'createdBy' in scope ? scope.createdBy : null,
       publishedOnly: 'publishedOnly' in scope,
       pendingOnly: 'pendingOnly' in scope && status === undefined,
+      // Trang quản trị: mọi tác giả, mọi trạng thái trừ nháp — giảng viên chưa gửi duyệt
+      // thì đó vẫn là bản riêng của họ, admin không cần thấy cho tới khi có gì để quyết.
+      excludeDraft: 'adminAll' in scope,
       level: query.level,
       status,
+      authorId: query.authorId,
+      updatedFrom: query.updatedFrom ? new Date(query.updatedFrom) : undefined,
+      updatedTo: query.updatedTo ? new Date(query.updatedTo) : undefined,
       q: query.q,
       limit,
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,
@@ -275,6 +288,30 @@ export class CourseUseCases {
     const course = await this.mustOwn(user, id);
     const withdrawn = course.withdraw();
     if (withdrawn.isFail) throw withdrawn.error;
+
+    await this.courses.save(course);
+    return toView(course, await this.courses.findCurriculum(id));
+  }
+
+  /**
+   * Tác giả tự gỡ khóa học đang công khai của mình — cùng chuyển trạng thái với
+   * `moderate('archive')` của admin, chỉ khác chỗ kiểm quyền: chủ sở hữu, không phải vai
+   * trò. Không phát thông báo, đây là tác giả tự quyết chứ không phải một phán quyết.
+   */
+  async archiveMine(user: AuthenticatedUser, id: string): Promise<CourseView> {
+    const course = await this.mustOwn(user, id);
+    const archived = course.moderate('archive', null);
+    if (archived.isFail) throw archived.error;
+
+    await this.courses.save(course);
+    return toView(course, await this.courses.findCurriculum(id));
+  }
+
+  /** Tác giả tự khôi phục khóa học đã gỡ của mình — về draft, đi lại vòng duyệt. */
+  async restoreMine(user: AuthenticatedUser, id: string): Promise<CourseView> {
+    const course = await this.mustOwn(user, id);
+    const restored = course.moderate('restore', null);
+    if (restored.isFail) throw restored.error;
 
     await this.courses.save(course);
     return toView(course, await this.courses.findCurriculum(id));

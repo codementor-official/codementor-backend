@@ -148,6 +148,13 @@ export class ArticleController {
     return this.articles.archive(user, id);
   }
 
+  @Post(':id/restore')
+  @Roles('admin', 'lecturer')
+  @ApiOperation({ summary: 'Khôi phục bài đã lưu trữ về draft' })
+  restoreMine(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.articles.restoreMine(user, id);
+  }
+
   @Delete(':id')
   @Roles('admin', 'lecturer')
   @HttpCode(HttpStatus.NO_CONTENT)

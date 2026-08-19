@@ -18,6 +18,9 @@ export interface ListRoadmapsQuery {
   field?: string;
   level?: string;
   status?: string;
+  authorId?: string;
+  updatedFrom?: string;
+  updatedTo?: string;
   q?: string;
   cursor?: string;
   limit?: number;
@@ -54,7 +57,11 @@ export class RoadmapUseCases {
   ) {}
 
   async list(
-    scope: { createdBy: string } | { publishedOnly: true } | { pendingOnly: true },
+    scope:
+      | { createdBy: string }
+      | { publishedOnly: true }
+      | { pendingOnly: true }
+      | { adminAll: true },
     query: ListRoadmapsQuery,
   ): Promise<Page<RoadmapListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
@@ -64,9 +71,13 @@ export class RoadmapUseCases {
       createdBy: 'createdBy' in scope ? scope.createdBy : null,
       publishedOnly: 'publishedOnly' in scope,
       pendingOnly: 'pendingOnly' in scope && status === undefined,
+      excludeDraft: 'adminAll' in scope,
       field: query.field,
       level: query.level,
       status,
+      authorId: query.authorId,
+      updatedFrom: query.updatedFrom ? new Date(query.updatedFrom) : undefined,
+      updatedTo: query.updatedTo ? new Date(query.updatedTo) : undefined,
       q: query.q,
       limit,
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,
@@ -183,6 +194,26 @@ export class RoadmapUseCases {
     const roadmap = await this.mustOwn(user, id);
     const withdrawn = roadmap.withdraw();
     if (withdrawn.isFail) throw withdrawn.error;
+
+    await this.roadmaps.save(roadmap);
+    return toRoadmapView(roadmap, await this.roadmaps.listCourses(id));
+  }
+
+  /** Tác giả tự gỡ lộ trình đang công khai của mình — xem chú thích cùng tên ở `CourseUseCases`. */
+  async archiveMine(user: AuthenticatedUser, id: string): Promise<RoadmapView> {
+    const roadmap = await this.mustOwn(user, id);
+    const archived = roadmap.moderate('archive', null);
+    if (archived.isFail) throw archived.error;
+
+    await this.roadmaps.save(roadmap);
+    return toRoadmapView(roadmap, await this.roadmaps.listCourses(id));
+  }
+
+  /** Tác giả tự khôi phục lộ trình đã gỡ của mình — về draft, đi lại vòng duyệt. */
+  async restoreMine(user: AuthenticatedUser, id: string): Promise<RoadmapView> {
+    const roadmap = await this.mustOwn(user, id);
+    const restored = roadmap.moderate('restore', null);
+    if (restored.isFail) throw restored.error;
 
     await this.roadmaps.save(roadmap);
     return toRoadmapView(roadmap, await this.roadmaps.listCourses(id));

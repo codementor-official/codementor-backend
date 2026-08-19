@@ -252,7 +252,7 @@ export class ArticleUseCases {
   async moderate(
     user: AuthenticatedUser,
     id: string,
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
     reason: string | null,
   ): Promise<ArticleView> {
     if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');
@@ -275,6 +275,9 @@ export class ArticleUseCases {
         `${TOPICS.ARTICLE_PUBLISHED} cho ${article.id}`,
       );
     }
+
+    // `restore` không báo: nó chỉ đưa bài đã lưu trữ về bản nháp, chưa phải phán quyết.
+    if (decision === 'restore') return this.toView(article);
 
     // Sự kiện thứ hai, người nhận khác hẳn: `ARTICLE_PUBLISHED` báo cho người học rằng
     // có bài mới, còn cái này báo riêng cho tác giả rằng bài của họ vừa được quyết. Một
@@ -299,9 +302,30 @@ export class ArticleUseCases {
     return this.toView(article);
   }
 
-  /** Gỡ bài đang công khai. Đi qua `moderate('archive')` nên chỉ admin làm được. */
-  archive(user: AuthenticatedUser, id: string): Promise<ArticleView> {
-    return this.moderate(user, id, 'archive', null);
+  /**
+   * Tác giả tự gỡ bài đang công khai của mình — cùng chuyển trạng thái với
+   * `moderate('archive')` của admin, chỉ khác chỗ kiểm quyền: chủ sở hữu (qua `mustEdit`),
+   * không phải vai trò. Không phát thông báo, đây là tác giả tự quyết chứ không phải một
+   * phán quyết. (Trước đây gọi thẳng `moderate()`, nhưng `moderate()` chặn cứng non-admin
+   * nên route này chưa từng thực sự dùng được cho giảng viên.)
+   */
+  async archive(user: AuthenticatedUser, id: string): Promise<ArticleView> {
+    const article = await this.mustEdit(user, id);
+    const archived = article.moderate('archive', null);
+    if (archived.isFail) throw archived.error;
+
+    await this.articles.save(article);
+    return this.toView(article);
+  }
+
+  /** Tác giả tự khôi phục bài đã gỡ của mình — về draft, đi lại vòng duyệt. */
+  async restoreMine(user: AuthenticatedUser, id: string): Promise<ArticleView> {
+    const article = await this.mustEdit(user, id);
+    const restored = article.moderate('restore', null);
+    if (restored.isFail) throw restored.error;
+
+    await this.articles.save(article);
+    return this.toView(article);
   }
 
   /**

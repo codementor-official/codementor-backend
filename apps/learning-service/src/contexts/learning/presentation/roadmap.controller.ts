@@ -50,6 +50,15 @@ export class RoadmapController {
     return this.roadmaps.list({ pendingOnly: true }, query);
   }
 
+  @Get('admin')
+  @Roles('admin')
+  @ApiOperation({
+    summary: 'Quản lý lộ trình: mọi tác giả, mọi trạng thái trừ nháp, có lọc theo tác giả/ngày',
+  })
+  manage(@Query() query: ListRoadmapsQueryDto) {
+    return this.roadmaps.list({ adminAll: true }, query);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Chi tiết, kèm danh sách khóa học đã sắp thứ tự' })
   detail(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -114,6 +123,20 @@ export class RoadmapController {
   @ApiOperation({ summary: 'Hủy gửi duyệt' })
   withdraw(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.roadmaps.withdraw(user, id);
+  }
+
+  @Post(':id/archive')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Tác giả tự gỡ lộ trình đang công khai của mình' })
+  archiveMine(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.roadmaps.archiveMine(user, id);
+  }
+
+  @Post(':id/restore')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Tác giả tự khôi phục lộ trình đã gỡ của mình' })
+  restoreMine(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.roadmaps.restoreMine(user, id);
   }
 
   @Delete(':id')

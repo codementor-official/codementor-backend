@@ -70,8 +70,12 @@ export class PrismaCourseRepository implements CourseRepository {
     if (filter.createdBy !== null) where.push(Prisma.sql`c.created_by = ${filter.createdBy}::uuid`);
     if (filter.publishedOnly) where.push(Prisma.sql`c.status = 'published'`);
     if (filter.pendingOnly) where.push(Prisma.sql`c.status = 'pending_review'`);
+    if (filter.excludeDraft && !filter.status) where.push(Prisma.sql`c.status <> 'draft'`);
     if (filter.level) where.push(Prisma.sql`c.level = ${filter.level}::current_level`);
     if (filter.status) where.push(Prisma.sql`c.status = ${filter.status}::content_status`);
+    if (filter.authorId) where.push(Prisma.sql`c.created_by = ${filter.authorId}::uuid`);
+    if (filter.updatedFrom) where.push(Prisma.sql`c.updated_at >= ${filter.updatedFrom}::timestamptz`);
+    if (filter.updatedTo) where.push(Prisma.sql`c.updated_at <= ${filter.updatedTo}::timestamptz`);
     if (filter.q) {
       where.push(
         Prisma.sql`(c.title ILIKE ${'%' + filter.q + '%'} OR c.slug::text ILIKE ${'%' + filter.q + '%'})`,

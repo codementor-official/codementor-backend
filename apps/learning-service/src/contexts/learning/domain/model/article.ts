@@ -152,7 +152,10 @@ export class Article extends AggregateRoot<string> {
    * bài của chính họ — quyết định đó thuộc về admin.
    */
   submit(): Result<true, BusinessRuleViolation> {
-    const allowed: ContentStatus[] = ['draft', 'changes_requested', 'rejected'];
+    // `published` nằm trong danh sách này để một bài đã đăng vẫn sửa được: tác giả lưu
+    // bản chỉnh rồi gửi duyệt lại — bản cũ ẩn khỏi danh mục cho tới khi admin duyệt bản
+    // mới, không lặng lẽ thay nội dung một bài đang công khai mà không ai xem lại.
+    const allowed: ContentStatus[] = ['draft', 'changes_requested', 'rejected', 'published'];
     if (!allowed.includes(this.props.status)) {
       return Result.fail(
         new BusinessRuleViolation(`Không gửi duyệt được từ trạng thái ${this.props.status}`),
@@ -184,7 +187,7 @@ export class Article extends AggregateRoot<string> {
    * người đọc sẽ nhận "bài viết mới" về đúng thứ họ đọc tuần trước.
    */
   moderate(
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
     reason: string | null,
   ): Result<{ firstPublish: boolean }, BusinessRuleViolation | InvalidInput> {
     if (decision === 'archive') {
@@ -192,6 +195,23 @@ export class Article extends AggregateRoot<string> {
         return Result.fail(new BusinessRuleViolation('Chỉ gỡ được nội dung đang công khai'));
       }
       this.props.status = 'archived';
+      this.props.updatedAt = new Date();
+      return Result.ok({ firstPublish: false });
+    }
+
+    /**
+     * Đường ra khỏi `archived` — xem chú thích cùng tên ở `Course.moderate`. Về `draft`,
+     * KHÔNG về thẳng `published`: bài bị gỡ có thể đã sai hoặc vi phạm, nên đi lại quy
+     * trình duyệt như mọi bản nháp khác. `publishedAt` giữ nguyên ngày phát hành đầu tiên.
+     */
+    if (decision === 'restore') {
+      if (this.props.status !== 'archived') {
+        return Result.fail(
+          new BusinessRuleViolation(`Chỉ khôi phục được nội dung đã gỡ (đang ${this.props.status})`),
+        );
+      }
+      this.props.status = 'draft';
+      this.props.rejectionReason = null;
       this.props.updatedAt = new Date();
       return Result.ok({ firstPublish: false });
     }
@@ -227,7 +247,9 @@ export class Article extends AggregateRoot<string> {
     if (this.props.status !== 'pending_review') {
       return Result.fail(new BusinessRuleViolation('Bài viết không ở trạng thái chờ duyệt'));
     }
-    this.props.status = 'draft';
+    // Đã công khai trước đó thì huỷ gửi duyệt đưa VỀ published, không phải draft — đây là
+    // huỷ một lần gửi lại (sửa xong bài đang sống), không phải gỡ bài đang sống xuống.
+    this.props.status = this.props.publishedAt !== null ? 'published' : 'draft';
     this.props.updatedAt = new Date();
     return Result.ok(true);
   }

@@ -99,15 +99,30 @@ describe('Exercise — vòng đời', () => {
     }
   });
 
-  it('không gửi duyệt được từ published', () => {
+  it('gửi duyệt lại được từ published — sửa bài đang sống thì phải qua duyệt lại', () => {
     const exercise = make();
     exercise.attachContent('mongo-id');
     exercise.submit();
     const published = Exercise.rehydrate('id', {
       ...(exercise as unknown as { props: Parameters<typeof Exercise.rehydrate>[1] }).props,
       status: 'published',
+      publishedAt: new Date(),
     });
-    expect(published.submit().isFail).toBe(true);
+    expect(published.submit().isOk).toBe(true);
+    expect(published.status).toBe('pending_review');
+  });
+
+  it('hủy gửi duyệt lại một bài đã từng công khai thì về published, không phải draft', () => {
+    const exercise = make();
+    exercise.attachContent('mongo-id');
+    exercise.submit();
+    const resubmitted = Exercise.rehydrate('id', {
+      ...(exercise as unknown as { props: Parameters<typeof Exercise.rehydrate>[1] }).props,
+      status: 'pending_review',
+      publishedAt: new Date(),
+    });
+    expect(resubmitted.withdraw().isOk).toBe(true);
+    expect(resubmitted.status).toBe('published');
   });
 });
 

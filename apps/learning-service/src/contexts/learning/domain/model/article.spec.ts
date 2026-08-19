@@ -90,6 +90,19 @@ describe('Article', () => {
     expect(article.withdraw().isFail).toBe(true);
   });
 
+  it('sửa bài đang công khai gửi duyệt lại được, hủy thì về published chứ không phải draft', () => {
+    const article = ready();
+    article.submit();
+    article.moderate('approve', null);
+    expect(article.status).toBe('published');
+
+    expect(article.submit().isOk).toBe(true);
+    expect(article.status).toBe('pending_review');
+
+    expect(article.withdraw().isOk).toBe(true);
+    expect(article.status).toBe('published');
+  });
+
   // Slug là địa chỉ công khai, và nó đã nằm trong `actionUrl` của thông báo đã gửi.
   it('khoá slug sau khi bài đã từng công khai', () => {
     const article = ready();
@@ -100,6 +113,29 @@ describe('Article', () => {
     expect(article.edit({ slug: 'doi-slug-sau-khi-dang' }).isFail).toBe(true);
     // Truyền lại đúng slug hiện tại thì không phải là đổi, nên vẫn hợp lệ.
     expect(article.edit({ slug: 'doi-slug-luc-nhap' }).isOk).toBe(true);
+  });
+
+  it('khôi phục bài đã gỡ đưa về draft, không phải thẳng published', () => {
+    const article = ready();
+    article.submit();
+    article.moderate('approve', null);
+    const publishedAt = article.publishedAt;
+    article.moderate('archive', null);
+    expect(article.status).toBe('archived');
+
+    const restored = article.moderate('restore', null);
+    expect(restored.isOk).toBe(true);
+    expect(article.status).toBe('draft');
+    // Ngày phát hành đầu tiên vẫn giữ nguyên — khôi phục không phải một lần đăng mới.
+    expect(article.publishedAt).toEqual(publishedAt);
+
+    // Gửi duyệt lại thì đi đúng vòng duyệt như một bản nháp bình thường.
+    expect(article.submit().isOk).toBe(true);
+    expect(article.status).toBe('pending_review');
+  });
+
+  it('chỉ khôi phục được bài đã gỡ', () => {
+    expect(ready().moderate('restore', null).isFail).toBe(true);
   });
 
   it('chỉ lưu trữ được bài đang công khai', () => {

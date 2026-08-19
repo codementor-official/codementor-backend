@@ -171,7 +171,8 @@ export class Exercise extends AggregateRoot<string> {
 
   /**
    * Đang chờ duyệt thì khoá sửa: cho sửa nghĩa là admin có thể duyệt một bản khác bản
-   * họ đã đọc. Lối thoát là `withdraw()` đưa về `draft`.
+   * họ đã đọc. Lối thoát là `withdraw()` — về `draft` nếu chưa từng công khai, về
+   * `published` nếu đây là một lần gửi duyệt lại cho bài đang sống.
    */
   get isLockedForReview(): boolean {
     return this.props.status === 'pending_review';
@@ -244,7 +245,10 @@ export class Exercise extends AggregateRoot<string> {
    * luồng bình thường, không phải trường hợp đặc biệt.
    */
   submit(): Result<true, BusinessRuleViolation> {
-    const allowed: ExerciseStatus[] = ['draft', 'changes_requested', 'rejected'];
+    // `published` nằm trong danh sách này để một bài đã lên sóng vẫn sửa được: tác giả lưu
+    // bản chỉnh rồi gửi duyệt lại — bản cũ ẩn khỏi danh mục cho tới khi admin duyệt bản
+    // mới, không lặng lẽ thay nội dung một bài đang công khai mà không ai xem lại.
+    const allowed: ExerciseStatus[] = ['draft', 'changes_requested', 'rejected', 'published'];
     if (!allowed.includes(this.props.status)) {
       return Result.fail(
         new BusinessRuleViolation(`Không gửi duyệt được từ trạng thái ${this.props.status}`),
@@ -265,7 +269,9 @@ export class Exercise extends AggregateRoot<string> {
     if (this.props.status !== 'pending_review') {
       return Result.fail(new BusinessRuleViolation('Bài không ở trạng thái chờ duyệt'));
     }
-    this.props.status = 'draft';
+    // Đã công khai trước đó thì huỷ gửi duyệt đưa VỀ published, không phải draft — đây là
+    // huỷ một lần gửi lại (sửa xong bài đang sống), không phải gỡ bài đang sống xuống.
+    this.props.status = this.props.publishedAt !== null ? 'published' : 'draft';
     this.props.updatedAt = new Date();
     return Result.ok(true);
   }

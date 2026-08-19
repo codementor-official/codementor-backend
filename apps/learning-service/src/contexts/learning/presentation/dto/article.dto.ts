@@ -83,8 +83,14 @@ export class SaveArticleContentDto {
   contentHtml!: string;
 }
 
-/** Bốn nhánh giống hệt kiểm duyệt khoá học và lộ trình. */
-export const MODERATION_DECISIONS = ['approve', 'request_changes', 'reject', 'archive'] as const;
+/** Năm nhánh giống hệt kiểm duyệt khoá học và lộ trình. */
+export const MODERATION_DECISIONS = [
+  'approve',
+  'request_changes',
+  'reject',
+  'archive',
+  'restore',
+] as const;
 
 export class ModerateArticleDto {
   @ApiProperty({ enum: MODERATION_DECISIONS })

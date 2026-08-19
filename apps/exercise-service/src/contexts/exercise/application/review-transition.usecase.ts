@@ -70,6 +70,30 @@ export class ReviewTransitionUseCase {
     return toExerciseView(exercise);
   }
 
+  /**
+   * Tác giả tự gỡ bài đang công khai của mình — cùng chuyển trạng thái với
+   * `ModerateExerciseUseCase`'s `archive`, chỉ khác chỗ kiểm quyền: chủ sở hữu, không
+   * phải vai trò admin. Không phát thông báo, đây là tác giả tự quyết.
+   */
+  async archiveMine(user: AuthenticatedUser, id: string): Promise<ExerciseView> {
+    const exercise = await this.load(user, id);
+    const archived = exercise.moderate('archive', null);
+    if (archived.isFail) throw archived.error;
+
+    await this.exercises.save(exercise);
+    return toExerciseView(exercise);
+  }
+
+  /** Tác giả tự khôi phục bài đã gỡ của mình — về draft, đi lại vòng duyệt. */
+  async restoreMine(user: AuthenticatedUser, id: string): Promise<ExerciseView> {
+    const exercise = await this.load(user, id);
+    const restored = exercise.moderate('restore', null);
+    if (restored.isFail) throw restored.error;
+
+    await this.exercises.save(exercise);
+    return toExerciseView(exercise);
+  }
+
   private async load(user: AuthenticatedUser, id: string) {
     const exercise = await this.exercises.findById(id);
     if (exercise === null) throw new NotFound('Bài tập', id);
