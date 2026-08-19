@@ -332,5 +332,48 @@ describe('validateForSubmission', () => {
       expect(make().moderate('restore', null).isFail).toBe(true);
       expect(published().moderate('restore', null).isFail).toBe(true);
     });
+
+    // Gỡ vì bài sai thì tác giả phải đọc được vì sao, ở đúng ô họ đã đọc lý do từ chối.
+    it('gỡ kèm lý do thì lý do đó thay chỗ lý do từ chối cũ', () => {
+      const exercise = published();
+      exercise.moderate('archive', '  Testcase sai từ case 3  ');
+      expect(exercise.rejectionReason).toBe('Testcase sai từ case 3');
+    });
+  });
+
+  /**
+   * Hai lối lùi cho quyết định của admin. Thiếu chúng thì một lần nhấn nhầm chỉ sửa được
+   * bằng UPDATE thẳng vào CSDL, hoặc bằng cách phiền tác giả gửi lại bài.
+   */
+  describe('admin đổi ý', () => {
+    const rejected = () => {
+      const exercise = make();
+      exercise.attachContent('mongo-id');
+      exercise.submit();
+      exercise.moderate('reject', 'Đề chưa rõ ràng');
+      return exercise;
+    };
+
+    it('duyệt được bài mình vừa từ chối, không cần tác giả gửi lại', () => {
+      const exercise = rejected();
+      expect(exercise.status).toBe('rejected');
+      expect(exercise.moderate('approve', null).isOk).toBe(true);
+      expect(exercise.status).toBe('published');
+      expect(exercise.rejectionReason).toBeNull();
+    });
+
+    it('duyệt được bài đang chờ tác giả sửa', () => {
+      const exercise = make();
+      exercise.attachContent('mongo-id');
+      exercise.submit();
+      exercise.moderate('request_changes', 'Thiếu ví dụ');
+      expect(exercise.moderate('approve', null).isOk).toBe(true);
+      expect(exercise.status).toBe('published');
+    });
+
+    // Duyệt thì lùi được, còn từ chối thì không: bài draft chưa ai gửi lên để mà từ chối.
+    it('không từ chối được bài chưa gửi duyệt', () => {
+      expect(make().moderate('reject', 'Không hợp lệ').isFail).toBe(true);
+    });
   });
 });

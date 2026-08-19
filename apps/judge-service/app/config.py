@@ -6,7 +6,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # The eight Node services read codementor-backend/.env; judge reads the same file so a
 # connection string is never defined twice. Absolute, because `.env` alone resolves against
 # the process working directory — which differs between `npm run judge:dev` and Docker.
-BACKEND_DIR = Path(__file__).resolve().parents[3]
+_PARENTS = Path(__file__).resolve().parents
+# ponytail: trong image, config.py nằm ở /app/app nên không có parents[3];
+# ở đó env đến từ `env_file:` của compose, file .env không cần tồn tại.
+BACKEND_DIR = _PARENTS[3] if len(_PARENTS) > 3 else _PARENTS[1]
 
 
 class Settings(BaseSettings):

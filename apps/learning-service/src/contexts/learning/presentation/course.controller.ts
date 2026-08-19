@@ -51,7 +51,7 @@ export class CourseController {
 
   @Get('moderation')
   @Roles('admin')
-  @ApiOperation({ summary: 'Hàng chờ duyệt, cũ trước' })
+  @ApiOperation({ summary: 'Hàng chờ duyệt, cũ trước. `?status=` để tìm nội dung đã quyết định' })
   queue(@Query() query: ListCoursesQueryDto) {
     return this.courses.list({ pendingOnly: true }, query);
   }

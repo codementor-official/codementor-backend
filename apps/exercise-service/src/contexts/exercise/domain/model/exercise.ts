@@ -278,8 +278,8 @@ export class Exercise extends AggregateRoot<string> {
    *   reject            → rejected, dứt khoát hơn nhưng vẫn gửi lại được
    *   archive           → archived, gỡ khỏi catalog
    *
-   * `archive` đi được từ `published`; ba cái còn lại chỉ từ `pending_review` — duyệt
-   * một bài không ai gửi là duyệt thứ admin chưa từng xem.
+   * `archive` đi từ `published`, `restore` từ `archived`, `approve` từ `pending_review`
+   * hoặc từ một lần từ chối trước đó, còn `reject`/`request_changes` chỉ từ `pending_review`.
    */
   moderate(
     decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
@@ -290,6 +290,10 @@ export class Exercise extends AggregateRoot<string> {
         return Result.fail(new BusinessRuleViolation('Chỉ gỡ được bài đang công khai'));
       }
       this.props.status = 'archived';
+      // Lý do gỡ dùng chung ô với lý do từ chối: tác giả chỉ có MỘT chỗ để đọc "vì sao
+      // nội dung của tôi không còn công khai". Gỡ mà không nêu lý do thì xoá câu cũ đi —
+      // để lại lý do của lần từ chối trước là nói về một chuyện khác.
+      this.props.rejectionReason = reason?.trim() || null;
       this.props.updatedAt = new Date();
       return Result.ok(true);
     }
@@ -315,9 +319,28 @@ export class Exercise extends AggregateRoot<string> {
       return Result.ok(true);
     }
 
-    if (this.props.status !== 'pending_review') {
+    /**
+     * `approve` đi được từ `rejected` và `changes_requested`, không riêng `pending_review`.
+     *
+     * Admin từ chối rồi nghĩ lại là chuyện có thật, và bài lúc đó vẫn đúng nguyên bản
+     * họ vừa đọc — không có gì phải xem lại. Thiếu đường này thì cách duy nhất để sửa một
+     * quyết định của admin là nhờ tác giả gửi lại, tức là bắt người ngoài chịu hậu quả của
+     * cái nhấn nhầm.
+     *
+     * `reject` và `request_changes` thì vẫn chỉ từ `pending_review`: từ chối thứ chưa ai
+     * gửi là trả lời một câu hỏi chưa được hỏi.
+     */
+    const allowed: ExerciseStatus[] =
+      decision === 'approve'
+        ? ['pending_review', 'rejected', 'changes_requested']
+        : ['pending_review'];
+    if (!allowed.includes(this.props.status)) {
       return Result.fail(
-        new BusinessRuleViolation(`Bài không ở trạng thái chờ duyệt (đang ${this.props.status})`),
+        new BusinessRuleViolation(
+          decision === 'approve'
+            ? `Bài không ở trạng thái duyệt được (đang ${this.props.status})`
+            : `Bài không ở trạng thái chờ duyệt (đang ${this.props.status})`,
+        ),
       );
     }
 

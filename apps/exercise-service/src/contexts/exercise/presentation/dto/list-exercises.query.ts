@@ -14,7 +14,7 @@ export class ListExercisesQueryDto extends PageQuery {
   @IsIn(DIFFICULTIES)
   difficulty?: (typeof DIFFICULTIES)[number];
 
-  /** Chỉ có tác dụng ở `/mine`: kho chung theo định nghĩa chỉ có bài `published`. */
+  /** Có tác dụng ở `/mine` và `/moderation`; kho chung theo định nghĩa chỉ có bài `published`. */
   @ApiPropertyOptional({ enum: STATUSES })
   @IsOptional()
   @IsIn(STATUSES)

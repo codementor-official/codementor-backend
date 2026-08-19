@@ -58,13 +58,15 @@ export class RoadmapUseCases {
     query: ListRoadmapsQuery,
   ): Promise<Page<RoadmapListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
+    // Xem chú thích ở `ListExercisesUseCase`.
+    const status = 'publishedOnly' in scope ? undefined : query.status;
     const rows = await this.roadmaps.list({
       createdBy: 'createdBy' in scope ? scope.createdBy : null,
       publishedOnly: 'publishedOnly' in scope,
-      pendingOnly: 'pendingOnly' in scope,
+      pendingOnly: 'pendingOnly' in scope && status === undefined,
       field: query.field,
       level: query.level,
-      status: 'createdBy' in scope ? query.status : undefined,
+      status,
       q: query.q,
       limit,
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,

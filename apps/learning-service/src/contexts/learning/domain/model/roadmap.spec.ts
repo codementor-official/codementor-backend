@@ -200,5 +200,34 @@ describe('đổi slug', () => {
       expect(make().moderate('restore', null).isFail).toBe(true);
       expect(published().moderate('restore', null).isFail).toBe(true);
     });
+
+    it('gỡ kèm lý do thì lý do đó thay chỗ lý do từ chối cũ', () => {
+      const roadmap = published();
+      roadmap.moderate('archive', '  Thiếu khoá nền tảng  ');
+      expect(roadmap.rejectionReason).toBe('Thiếu khoá nền tảng');
+    });
+  });
+
+  /** Lối lùi cho quyết định của admin — xem chú thích ở `Roadmap.moderate`. */
+  describe('admin đổi ý', () => {
+    const rejected = () => {
+      const roadmap = make();
+      roadmap.edit({ description: 'Mô tả' });
+      roadmap.submit([course('published'), course('published')]);
+      roadmap.moderate('reject', 'Thứ tự khoá chưa hợp lý');
+      return roadmap;
+    };
+
+    it('duyệt được lộ trình vừa từ chối, không cần tác giả gửi lại', () => {
+      const roadmap = rejected();
+      expect(roadmap.status).toBe('rejected');
+      expect(roadmap.moderate('approve', null).isOk).toBe(true);
+      expect(roadmap.status).toBe('published');
+      expect(roadmap.rejectionReason).toBeNull();
+    });
+
+    it('không từ chối được lộ trình chưa gửi duyệt', () => {
+      expect(make().moderate('reject', 'Không hợp lệ').isFail).toBe(true);
+    });
   });
 });
