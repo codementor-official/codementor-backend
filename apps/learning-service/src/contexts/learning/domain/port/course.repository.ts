@@ -105,6 +105,7 @@ export interface CourseRepository extends AuthorNameLookup {
   setLessonContentRef(lessonId: string, contentRef: string): Promise<void>;
   save(course: Course): Promise<void>;
   delete(id: string): Promise<void>;
+  findReferencingRoadmaps(courseId: string): Promise<{ id: string; title: string; slug: string }[]>;
 }
 
 export interface LessonContent {

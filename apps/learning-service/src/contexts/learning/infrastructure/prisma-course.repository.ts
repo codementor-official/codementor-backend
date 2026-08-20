@@ -340,6 +340,15 @@ export class PrismaCourseRepository implements CourseRepository {
     }
   }
 
+  async findReferencingRoadmaps(courseId: string): Promise<{ id: string; title: string; slug: string }[]> {
+    return this.prisma.$queryRaw<{ id: string; title: string; slug: string }[]>`
+      SELECT DISTINCT r.id, r.title, r.slug::text AS slug
+      FROM roadmaps r
+      JOIN roadmap_courses rc ON rc.roadmap_id = r.id
+      WHERE rc.course_id = ${courseId}::uuid
+    `;
+  }
+
   private toDomain(row: CourseRow): Course {
     return Course.rehydrate(row.id, {
       slug: row.slug,

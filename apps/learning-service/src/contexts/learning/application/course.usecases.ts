@@ -145,6 +145,16 @@ export class CourseUseCases {
     return toView(course, await this.courses.findCurriculum(id));
   }
 
+  async getReferences(user: AuthenticatedUser, id: string): Promise<{ roadmaps: { id: string; title: string; slug: string }[] }> {
+    const course = await this.mustFind(id);
+    if (course.status !== 'published' && !canEditCourse(user, { created_by: course.createdBy })) {
+      throw new NotFound('Khóa học', id);
+    }
+
+    const roadmaps = await this.courses.findReferencingRoadmaps(id);
+    return { roadmaps };
+  }
+
   async create(
     user: AuthenticatedUser,
     input: { title: string; level: CurrentLevel; slug?: string },

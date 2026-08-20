@@ -19,6 +19,7 @@ import { CreateExerciseUseCase } from '../application/create-exercise.usecase';
 import { DeleteExerciseUseCase } from '../application/delete-exercise.usecase';
 import { ForkExerciseUseCase } from '../application/fork-exercise.usecase';
 import { GetExerciseUseCase } from '../application/get-exercise.usecase';
+import { GetExerciseReferencesUseCase } from '../application/get-exercise-references.usecase';
 import { ListExercisesUseCase } from '../application/list-exercises.usecase';
 import { ModerateExerciseUseCase } from '../application/moderate-exercise.usecase';
 import { ReviewTransitionUseCase } from '../application/review-transition.usecase';
@@ -49,6 +50,7 @@ export class ExerciseController {
   constructor(
     private readonly listExercises: ListExercisesUseCase,
     private readonly getExercise: GetExerciseUseCase,
+    private readonly getExerciseReferences: GetExerciseReferencesUseCase,
     private readonly createExercise: CreateExerciseUseCase,
     private readonly updateExercise: UpdateExerciseUseCase,
     private readonly saveContent: SaveContentUseCase,
@@ -92,6 +94,13 @@ export class ExerciseController {
   @ApiResponse({ status: 404, description: 'Không tồn tại hoặc không có quyền xem' })
   detail(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.getExercise.execute(user, id);
+  }
+
+  @Get(':id/references')
+  @ApiOperation({ summary: 'Lấy danh sách khoá học đang tham chiếu bài code này' })
+  @ApiResponse({ status: 404, description: 'Không tồn tại hoặc không có quyền xem' })
+  references(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.getExerciseReferences.execute(user, id);
   }
 
   @Post()

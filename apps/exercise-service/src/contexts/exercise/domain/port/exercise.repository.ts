@@ -52,6 +52,7 @@ export interface ExerciseRepository {
   list(filter: ExerciseListFilter): Promise<ExerciseListItem[]>;
   save(exercise: Exercise): Promise<void>;
   delete(id: string): Promise<void>;
+  findReferencingCourses(exerciseId: string): Promise<{ id: string; title: string; slug: string }[]>;
 }
 
 /**

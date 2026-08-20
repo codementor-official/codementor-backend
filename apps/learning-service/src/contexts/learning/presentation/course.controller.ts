@@ -73,9 +73,16 @@ export class CourseController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Chi tiết, kèm cả cây chương và bài' })
+  @ApiOperation({ summary: 'Chi tiết, kèm curriculum đã sắp xếp' })
   detail(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.courses.get(user, id);
+  }
+
+  @Get(':id/references')
+  @ApiOperation({ summary: 'Lấy danh sách lộ trình đang tham chiếu khoá học này' })
+  @ApiResponse({ status: 404, description: 'Không tồn tại hoặc không có quyền xem' })
+  references(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.courses.getReferences(user, id);
   }
 
   @Post(':id/enroll')

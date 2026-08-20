@@ -155,6 +155,15 @@ export class PrismaExerciseRepository implements ExerciseRepository {
     }
   }
 
+  async findReferencingCourses(exerciseId: string): Promise<{ id: string; title: string; slug: string }[]> {
+    return this.prisma.$queryRaw<{ id: string; title: string; slug: string }[]>`
+      SELECT DISTINCT c.id, c.title, c.slug::text AS slug
+      FROM courses c
+      JOIN lessons l ON l.course_id = c.id
+      WHERE l.exercise_id = ${exerciseId}::uuid
+    `;
+  }
+
   private toDomain(row: ExerciseRow): Exercise {
     const slug = Slug.create(row.slug);
     if (slug.isFail) throw new Error(`Slug không hợp lệ trong CSDL cho exercise ${row.id}`);
