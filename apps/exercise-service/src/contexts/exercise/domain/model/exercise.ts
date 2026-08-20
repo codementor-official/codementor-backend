@@ -171,8 +171,7 @@ export class Exercise extends AggregateRoot<string> {
 
   /**
    * Đang chờ duyệt thì khoá sửa: cho sửa nghĩa là admin có thể duyệt một bản khác bản
-   * họ đã đọc. Lối thoát là `withdraw()` — về `draft` nếu chưa từng công khai, về
-   * `published` nếu đây là một lần gửi duyệt lại cho bài đang sống.
+   * họ đã đọc. Lối thoát là `withdraw()` — luôn đưa bài về `draft`.
    */
   get isLockedForReview(): boolean {
     return this.props.status === 'pending_review';
@@ -265,13 +264,15 @@ export class Exercise extends AggregateRoot<string> {
   }
 
   /** Lối thoát khỏi trạng thái bị khoá. Chỉ từ `pending_review`. */
+  /**
+   * Huỷ gửi duyệt — LUÔN về `draft`, không bao giờ về `published`.
+   * Cùng lý do đã ghi đầy đủ ở `Course.withdraw` bên learning-service.
+   */
   withdraw(): Result<true, BusinessRuleViolation> {
     if (this.props.status !== 'pending_review') {
       return Result.fail(new BusinessRuleViolation('Bài không ở trạng thái chờ duyệt'));
     }
-    // Đã công khai trước đó thì huỷ gửi duyệt đưa VỀ published, không phải draft — đây là
-    // huỷ một lần gửi lại (sửa xong bài đang sống), không phải gỡ bài đang sống xuống.
-    this.props.status = this.props.publishedAt !== null ? 'published' : 'draft';
+    this.props.status = 'draft';
     this.props.updatedAt = new Date();
     return Result.ok(true);
   }
@@ -288,18 +289,37 @@ export class Exercise extends AggregateRoot<string> {
    * hoặc từ một lần từ chối trước đó, còn `reject`/`request_changes` chỉ từ `pending_review`.
    */
   moderate(
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore' | 'revert',
     reason: string | null,
   ): Result<true, BusinessRuleViolation | InvalidInput> {
+    /** Hoàn tác một quyết định vừa lỡ tay — xem chú thích đầy đủ ở `Course.moderate`. */
+    if (decision === 'revert') {
+      const revertible: ExerciseStatus[] = ['rejected', 'changes_requested', 'published'];
+      if (!revertible.includes(this.props.status)) {
+        return Result.fail(
+          new BusinessRuleViolation(
+            `Không hoàn tác được từ trạng thái ${this.props.status} — chỉ hoàn tác được quyết định duyệt, từ chối hoặc yêu cầu sửa`,
+          ),
+        );
+      }
+      this.props.status = 'pending_review';
+      this.props.rejectionReason = null;
+      this.props.updatedAt = new Date();
+      return Result.ok(true);
+    }
+
     if (decision === 'archive') {
       if (this.props.status !== 'published') {
         return Result.fail(new BusinessRuleViolation('Chỉ gỡ được bài đang công khai'));
       }
+      // Bắt buộc nêu lý do, cùng luật với reject/request_changes bên dưới: đây luôn là
+      // admin chủ động thu hồi — kể cả khi duyệt một yêu cầu xin gỡ của tác giả, ô này chỉ
+      // trống nếu gọi sai chỗ (`requestRemoval` mới là đường tác giả tự xin gỡ).
+      if (!reason?.trim()) {
+        return Result.fail(new InvalidInput('Phải nêu lý do khi gỡ nội dung đang công khai'));
+      }
       this.props.status = 'archived';
-      // Lý do gỡ dùng chung ô với lý do từ chối: tác giả chỉ có MỘT chỗ để đọc "vì sao
-      // nội dung của tôi không còn công khai". Gỡ mà không nêu lý do thì xoá câu cũ đi —
-      // để lại lý do của lần từ chối trước là nói về một chuyện khác.
-      this.props.rejectionReason = reason?.trim() || null;
+      this.props.rejectionReason = reason.trim();
       this.props.updatedAt = new Date();
       return Result.ok(true);
     }
@@ -382,5 +402,33 @@ export class Exercise extends AggregateRoot<string> {
   /** Xoá được khi chưa từng công khai. CSDL vẫn chặn nếu còn chương tham chiếu. */
   get isDeletable(): boolean {
     return this.props.status !== 'published';
+  }
+
+  /** Đang chờ admin duyệt yêu cầu xin gỡ — xem chú thích cùng tên ở `Course` (learning-service). */
+  get removalRequested(): boolean {
+    return this.props.status === 'published' && this.props.rejectionReason !== null;
+  }
+
+  /** Tác giả xin gỡ bài đang công khai của mình. */
+  requestRemoval(reason: string): Result<true, BusinessRuleViolation | InvalidInput> {
+    if (this.props.status !== 'published') {
+      return Result.fail(new BusinessRuleViolation('Chỉ xin gỡ được nội dung đang công khai'));
+    }
+    if (!reason.trim()) {
+      return Result.fail(new InvalidInput('Phải nêu lý do khi xin gỡ nội dung đang công khai'));
+    }
+    this.props.rejectionReason = reason.trim();
+    this.props.updatedAt = new Date();
+    return Result.ok(true);
+  }
+
+  /** Admin từ chối yêu cầu xin gỡ — bài không đổi gì, chỉ xoá nguyện vọng đang chờ. */
+  denyRemoval(): Result<true, BusinessRuleViolation> {
+    if (!this.removalRequested) {
+      return Result.fail(new BusinessRuleViolation('Không có yêu cầu xin gỡ nào đang chờ'));
+    }
+    this.props.rejectionReason = null;
+    this.props.updatedAt = new Date();
+    return Result.ok(true);
   }
 }

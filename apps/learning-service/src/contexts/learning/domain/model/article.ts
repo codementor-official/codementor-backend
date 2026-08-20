@@ -187,14 +187,37 @@ export class Article extends AggregateRoot<string> {
    * người đọc sẽ nhận "bài viết mới" về đúng thứ họ đọc tuần trước.
    */
   moderate(
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore' | 'revert',
     reason: string | null,
   ): Result<{ firstPublish: boolean }, BusinessRuleViolation | InvalidInput> {
+    /** Hoàn tác một quyết định vừa lỡ tay — xem chú thích đầy đủ ở `Course.moderate`. */
+    if (decision === 'revert') {
+      const revertible: ContentStatus[] = ['rejected', 'changes_requested', 'published'];
+      if (!revertible.includes(this.props.status)) {
+        return Result.fail(
+          new BusinessRuleViolation(
+            `Không hoàn tác được từ trạng thái ${this.props.status} — chỉ hoàn tác được quyết định duyệt, từ chối hoặc yêu cầu sửa`,
+          ),
+        );
+      }
+      this.props.status = 'pending_review';
+      this.props.rejectionReason = null;
+      this.props.updatedAt = new Date();
+      return Result.ok({ firstPublish: false });
+    }
+
     if (decision === 'archive') {
       if (this.props.status !== 'published') {
         return Result.fail(new BusinessRuleViolation('Chỉ gỡ được nội dung đang công khai'));
       }
+      // Bắt buộc nêu lý do, cùng luật với reject/request_changes bên dưới: đây luôn là
+      // admin chủ động thu hồi — kể cả khi duyệt một yêu cầu xin gỡ của tác giả, ô này chỉ
+      // trống nếu gọi sai chỗ (`requestRemoval` mới là đường tác giả tự xin gỡ).
+      if (!reason?.trim()) {
+        return Result.fail(new InvalidInput('Phải nêu lý do khi gỡ nội dung đang công khai'));
+      }
       this.props.status = 'archived';
+      this.props.rejectionReason = reason.trim();
       this.props.updatedAt = new Date();
       return Result.ok({ firstPublish: false });
     }
@@ -242,14 +265,15 @@ export class Article extends AggregateRoot<string> {
     return Result.ok({ firstPublish: false });
   }
 
-  /** Người viết rút bài khỏi hàng chờ, quay lại bản nháp. */
+  /**
+   * Người viết rút bài khỏi hàng chờ — LUÔN về `draft`, không bao giờ về `published`.
+   * Cùng lý do đã ghi đầy đủ ở `Course.withdraw`.
+   */
   withdraw(): Result<true, BusinessRuleViolation> {
     if (this.props.status !== 'pending_review') {
       return Result.fail(new BusinessRuleViolation('Bài viết không ở trạng thái chờ duyệt'));
     }
-    // Đã công khai trước đó thì huỷ gửi duyệt đưa VỀ published, không phải draft — đây là
-    // huỷ một lần gửi lại (sửa xong bài đang sống), không phải gỡ bài đang sống xuống.
-    this.props.status = this.props.publishedAt !== null ? 'published' : 'draft';
+    this.props.status = 'draft';
     this.props.updatedAt = new Date();
     return Result.ok(true);
   }
@@ -259,6 +283,34 @@ export class Article extends AggregateRoot<string> {
       return Result.fail(new BusinessRuleViolation('Bài viết đã được lưu trữ'));
     }
     this.props.status = 'archived';
+    this.props.updatedAt = new Date();
+    return Result.ok(true);
+  }
+
+  /** Đang chờ admin duyệt yêu cầu xin gỡ — xem chú thích cùng tên ở `Course`. */
+  get removalRequested(): boolean {
+    return this.props.status === 'published' && this.props.rejectionReason !== null;
+  }
+
+  /** Tác giả xin gỡ bài đang công khai của mình — xem chú thích cùng tên ở `Course`. */
+  requestRemoval(reason: string): Result<true, BusinessRuleViolation | InvalidInput> {
+    if (this.props.status !== 'published') {
+      return Result.fail(new BusinessRuleViolation('Chỉ xin gỡ được nội dung đang công khai'));
+    }
+    if (!reason.trim()) {
+      return Result.fail(new InvalidInput('Phải nêu lý do khi xin gỡ nội dung đang công khai'));
+    }
+    this.props.rejectionReason = reason.trim();
+    this.props.updatedAt = new Date();
+    return Result.ok(true);
+  }
+
+  /** Admin từ chối yêu cầu xin gỡ — bài viết không đổi gì, chỉ xoá nguyện vọng đang chờ. */
+  denyRemoval(): Result<true, BusinessRuleViolation> {
+    if (!this.removalRequested) {
+      return Result.fail(new BusinessRuleViolation('Không có yêu cầu xin gỡ nào đang chờ'));
+    }
+    this.props.rejectionReason = null;
     this.props.updatedAt = new Date();
     return Result.ok(true);
   }

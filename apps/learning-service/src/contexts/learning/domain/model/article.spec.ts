@@ -55,7 +55,7 @@ describe('Article', () => {
     expect(publishedAt).not.toBeNull();
 
     // Gỡ xuống rồi soạn lại và duyệt lần hai: KHÔNG được báo "bài viết mới" lần nữa.
-    expect(article.moderate('archive', null).isOk).toBe(true);
+    expect(article.moderate('archive', 'Ly do kiem thu').isOk).toBe(true);
     expect(article.status).toBe('archived');
     expect(article.publishedAt).toEqual(publishedAt);
   });
@@ -90,7 +90,8 @@ describe('Article', () => {
     expect(article.withdraw().isFail).toBe(true);
   });
 
-  it('sửa bài đang công khai gửi duyệt lại được, hủy thì về published chứ không phải draft', () => {
+  // Huỷ gửi duyệt KHÔNG BAO GIỜ được công khai nội dung — xem `Course.withdraw`.
+  it('sửa bài đang công khai gửi duyệt lại được, hủy thì về draft chứ không phải published', () => {
     const article = ready();
     article.submit();
     article.moderate('approve', null);
@@ -100,7 +101,9 @@ describe('Article', () => {
     expect(article.status).toBe('pending_review');
 
     expect(article.withdraw().isOk).toBe(true);
-    expect(article.status).toBe('published');
+    expect(article.status).toBe('draft');
+    // Vẫn "đã từng công khai": gửi duyệt lại và được duyệt là giữ nguyên ngày phát hành đầu.
+    expect(article.publishedAt).not.toBeNull();
   });
 
   // Slug là địa chỉ công khai, và nó đã nằm trong `actionUrl` của thông báo đã gửi.
@@ -120,7 +123,7 @@ describe('Article', () => {
     article.submit();
     article.moderate('approve', null);
     const publishedAt = article.publishedAt;
-    article.moderate('archive', null);
+    article.moderate('archive', 'Ly do kiem thu');
     expect(article.status).toBe('archived');
 
     const restored = article.moderate('restore', null);
@@ -141,11 +144,11 @@ describe('Article', () => {
   it('chỉ lưu trữ được bài đang công khai', () => {
     const article = ready();
     // Bài nháp chưa công khai thì không có gì để gỡ.
-    expect(article.moderate('archive', null).isFail).toBe(true);
+    expect(article.moderate('archive', 'Ly do kiem thu').isFail).toBe(true);
 
     article.submit();
     article.moderate('approve', null);
-    expect(article.moderate('archive', null).isOk).toBe(true);
+    expect(article.moderate('archive', 'Ly do kiem thu').isOk).toBe(true);
     expect(article.status).toBe('archived');
   });
 });

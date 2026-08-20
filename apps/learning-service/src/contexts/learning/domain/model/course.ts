@@ -166,6 +166,16 @@ export class Course extends AggregateRoot<string> {
     return this.props.status !== 'published';
   }
 
+  /**
+   * Đang chờ admin duyệt yêu cầu xin gỡ — KHÔNG phải một trạng thái riêng, mượn tạm ô
+   * `rejectionReason`: ô này luôn rỗng khi đang `published` (chỉ có giá trị ở
+   * `rejected`/`changes_requested`/`archived`), nên "published + có rejectionReason"
+   * không đụng ngữ nghĩa nào khác mà không cần thêm cột hay giá trị enum mới.
+   */
+  get removalRequested(): boolean {
+    return this.props.status === 'published' && this.props.rejectionReason !== null;
+  }
+
   edit(edit: CourseEdit): Result<true, InvalidInput | BusinessRuleViolation> {
     if (this.isLockedForReview) {
       return Result.fail(
@@ -284,18 +294,53 @@ export class Course extends AggregateRoot<string> {
    * `content_status` không có `hidden`, nên tác giả tự gỡ cũng đi qua `archived`.
    */
   moderate(
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore' | 'revert',
     reason: string | null,
   ): Result<true, BusinessRuleViolation | InvalidInput> {
+    /**
+     * Hoàn tác một quyết định vừa lỡ tay — đưa nội dung TRỞ LẠI hàng chờ, không xoá gì.
+     *
+     * Ba đường vào, và cả ba đều là "tôi bấm nhầm nút":
+     *   rejected / changes_requested → pending_review   (lỡ từ chối)
+     *   published                    → pending_review   (lỡ duyệt)
+     *
+     * KHÔNG dùng `archived`: gỡ một nội dung đang công khai là một quyết định vận hành có
+     * lý do bắt buộc và có thông báo gửi tác giả, còn đây là sửa một cú nhấn. Đường ra
+     * khỏi `archived` vẫn là `restore`.
+     *
+     * `rejectionReason` bị xoá: lý do cũ gắn với quyết định vừa được rút lại, để nó ở lại
+     * thì tác giả mở ra vẫn đọc thấy một lời chê không còn hiệu lực. Dấu vết của cả hai
+     * lần bấm nằm ở `audit_logs`, nơi không bao giờ bị ghi đè.
+     *
+     * `publishedAt` giữ nguyên — xem `withdraw`.
+     */
+    if (decision === 'revert') {
+      const revertible: ContentStatus[] = ['rejected', 'changes_requested', 'published'];
+      if (!revertible.includes(this.props.status)) {
+        return Result.fail(
+          new BusinessRuleViolation(
+            `Không hoàn tác được từ trạng thái ${this.props.status} — chỉ hoàn tác được quyết định duyệt, từ chối hoặc yêu cầu sửa`,
+          ),
+        );
+      }
+      this.props.status = 'pending_review';
+      this.props.rejectionReason = null;
+      this.props.updatedAt = new Date();
+      return Result.ok(true);
+    }
+
     if (decision === 'archive') {
       if (this.props.status !== 'published') {
         return Result.fail(new BusinessRuleViolation('Chỉ gỡ được nội dung đang công khai'));
       }
+      // Bắt buộc nêu lý do, cùng luật với reject/request_changes bên dưới: đây luôn là
+      // admin chủ động thu hồi — kể cả khi duyệt một yêu cầu xin gỡ của tác giả, ô này chỉ
+      // trống nếu gọi sai chỗ (`requestRemoval` mới là đường tác giả tự xin gỡ).
+      if (!reason?.trim()) {
+        return Result.fail(new InvalidInput('Phải nêu lý do khi gỡ nội dung đang công khai'));
+      }
       this.props.status = 'archived';
-      // Lý do gỡ dùng chung ô với lý do từ chối: tác giả chỉ có MỘT chỗ để đọc "vì sao
-      // nội dung của tôi không còn công khai". Gỡ mà không nêu lý do thì xoá câu cũ đi —
-      // để lại lý do của lần từ chối trước là nói về một chuyện khác.
-      this.props.rejectionReason = reason?.trim() || null;
+      this.props.rejectionReason = reason.trim();
       this.props.updatedAt = new Date();
       return Result.ok(true);
     }
@@ -364,13 +409,55 @@ export class Course extends AggregateRoot<string> {
     return Result.ok(true);
   }
 
+  /**
+   * Tác giả xin gỡ khóa học đang công khai của mình — KHÔNG tự gỡ được nữa, chỉ ghi lại
+   * nguyện vọng kèm lý do. Trạng thái giữ nguyên `published`, học viên vẫn học bình
+   * thường cho tới khi admin quyết (`moderate('archive', ...)` để duyệt, `denyRemoval()`
+   * để từ chối) — xem `removalRequested`.
+   */
+  requestRemoval(reason: string): Result<true, BusinessRuleViolation | InvalidInput> {
+    if (this.props.status !== 'published') {
+      return Result.fail(new BusinessRuleViolation('Chỉ xin gỡ được nội dung đang công khai'));
+    }
+    if (!reason.trim()) {
+      return Result.fail(new InvalidInput('Phải nêu lý do khi xin gỡ nội dung đang công khai'));
+    }
+    this.props.rejectionReason = reason.trim();
+    this.props.updatedAt = new Date();
+    return Result.ok(true);
+  }
+
+  /** Admin từ chối yêu cầu xin gỡ — khóa học không đổi gì, chỉ xoá nguyện vọng đang chờ. */
+  denyRemoval(): Result<true, BusinessRuleViolation> {
+    if (!this.removalRequested) {
+      return Result.fail(new BusinessRuleViolation('Không có yêu cầu xin gỡ nào đang chờ'));
+    }
+    this.props.rejectionReason = null;
+    this.props.updatedAt = new Date();
+    return Result.ok(true);
+  }
+
+  /**
+   * Huỷ gửi duyệt — LUÔN về `draft`, không bao giờ về `published`.
+   *
+   * Trước đây dòng này là `publishedAt !== null ? 'published' : 'draft'`, với ý "huỷ một
+   * lần gửi lại thì trả khoá đang sống về chỗ cũ". Hai chỗ hỏng:
+   *
+   * 1. `publishedAt` là mốc công khai LẦN ĐẦU và không bao giờ bị xoá — `moderate('archive')`
+   *    rồi `moderate('restore')` giữ nguyên nó. Nên một khoá đã bị gỡ, đưa về nháp, sửa,
+   *    gửi duyệt rồi huỷ gửi sẽ TỰ CÔNG KHAI TRỞ LẠI. Không ai duyệt gì cả.
+   * 2. Ngay cả đường "sửa khoá đang sống" cũng sai: `edit()` ghi thẳng lên hàng đang
+   *    published, nên quay về `published` là đẩy bản vừa sửa ra cho học viên mà không qua
+   *    một lượt duyệt nào — đúng thứ mà bước gửi duyệt sinh ra để chặn.
+   *
+   * `publishedAt` giữ nguyên nên khoá vẫn "đã từng công khai": gửi duyệt lại và được duyệt
+   * là nó trở lại danh mục với đúng ngày phát hành đầu tiên.
+   */
   withdraw(): Result<true, BusinessRuleViolation> {
     if (this.props.status !== 'pending_review') {
       return Result.fail(new BusinessRuleViolation('Khóa học không ở trạng thái chờ duyệt'));
     }
-    // Đã công khai trước đó thì huỷ gửi duyệt đưa VỀ published, không phải draft — đây là
-    // huỷ một lần gửi lại (sửa xong khoá đang sống), không phải gỡ khoá đang sống xuống.
-    this.props.status = this.props.publishedAt !== null ? 'published' : 'draft';
+    this.props.status = 'draft';
     this.props.updatedAt = new Date();
     return Result.ok(true);
   }

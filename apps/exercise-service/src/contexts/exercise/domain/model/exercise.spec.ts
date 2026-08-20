@@ -112,7 +112,8 @@ describe('Exercise — vòng đời', () => {
     expect(published.status).toBe('pending_review');
   });
 
-  it('hủy gửi duyệt lại một bài đã từng công khai thì về published, không phải draft', () => {
+  // Huỷ gửi duyệt KHÔNG BAO GIỜ được công khai nội dung — xem `Course.withdraw`.
+  it('hủy gửi duyệt lại một bài đã từng công khai thì về draft, không phải published', () => {
     const exercise = make();
     exercise.attachContent('mongo-id');
     exercise.submit();
@@ -122,7 +123,8 @@ describe('Exercise — vòng đời', () => {
       publishedAt: new Date(),
     });
     expect(resubmitted.withdraw().isOk).toBe(true);
-    expect(resubmitted.status).toBe('published');
+    expect(resubmitted.status).toBe('draft');
+    expect(resubmitted.publishedAt).not.toBeNull();
   });
 });
 
@@ -323,16 +325,16 @@ describe('validateForSubmission', () => {
     };
 
     it('chỉ gỡ được bài đang công khai', () => {
-      expect(make().moderate('archive', null).isFail).toBe(true);
+      expect(make().moderate('archive', 'Ly do kiem thu').isFail).toBe(true);
       const exercise = published();
-      expect(exercise.moderate('archive', null).isOk).toBe(true);
+      expect(exercise.moderate('archive', 'Ly do kiem thu').isOk).toBe(true);
       expect(exercise.status).toBe('archived');
     });
 
     it('khôi phục đưa về draft rồi đi lại vòng duyệt, giữ ngày phát hành đầu tiên', () => {
       const exercise = published();
       const firstPublishedAt = exercise.publishedAt;
-      exercise.moderate('archive', null);
+      exercise.moderate('archive', 'Ly do kiem thu');
 
       expect(exercise.moderate('restore', null).isOk).toBe(true);
       expect(exercise.status).toBe('draft');

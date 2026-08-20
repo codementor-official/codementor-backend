@@ -204,16 +204,16 @@ describe('validateCurriculum', () => {
     };
 
     it('chỉ gỡ được khóa học đang công khai', () => {
-      expect(make().moderate('archive', null).isFail).toBe(true);
+      expect(make().moderate('archive', 'Ly do kiem thu').isFail).toBe(true);
       const course = published();
-      expect(course.moderate('archive', null).isOk).toBe(true);
+      expect(course.moderate('archive', 'Ly do kiem thu').isOk).toBe(true);
       expect(course.status).toBe('archived');
     });
 
     it('khôi phục đưa về draft rồi đi lại vòng duyệt, giữ ngày phát hành đầu tiên', () => {
       const course = published();
       const firstPublishedAt = course.publishedAt;
-      course.moderate('archive', null);
+      course.moderate('archive', 'Ly do kiem thu');
 
       expect(course.moderate('restore', null).isOk).toBe(true);
       expect(course.status).toBe('draft');
@@ -253,11 +253,75 @@ describe('validateCurriculum', () => {
       expect(course.status).toBe('pending_review');
     });
 
-    it('hủy gửi duyệt lại thì về published, không phải draft', () => {
+    // Huỷ gửi duyệt KHÔNG BAO GIỜ được công khai nội dung — xem `Course.withdraw`.
+    it('hủy gửi duyệt lại thì về draft, không phải published', () => {
       const course = published();
       course.submit(submittable);
       expect(course.withdraw().isOk).toBe(true);
+      expect(course.status).toBe('draft');
+      expect(course.publishedAt).not.toBeNull();
+    });
+
+    // Đường sinh ra bug gốc: `publishedAt` sống sót qua archive → restore, nên suy trạng
+    // thái trước khi gửi từ nó sẽ tự công khai lại một khoá vừa bị gỡ.
+    it('khoá đã bị gỡ rồi khôi phục, gửi duyệt xong huỷ, vẫn phải là draft', () => {
+      const course = published();
+      expect(course.moderate('archive', 'Nội dung sai').isOk).toBe(true);
+      expect(course.moderate('restore', null).isOk).toBe(true);
+      expect(course.status).toBe('draft');
+
+      course.submit(submittable);
+      expect(course.withdraw().isOk).toBe(true);
+      expect(course.status).toBe('draft');
+    });
+  });
+
+  describe('xin gỡ khóa học đang công khai', () => {
+    const submittable = { chapters: [{ lessonCount: 2 }], lessonsMissingContent: 0, exercisesNotUsable: 0 };
+    const published = () => {
+      const course = make();
+      course.edit({ description: 'Mô tả khóa học' });
+      course.submit(submittable);
+      course.moderate('approve', null);
+      return course;
+    };
+
+    it('xin gỡ giữ nguyên published, chỉ đánh dấu đang chờ', () => {
+      const course = published();
+      expect(course.removalRequested).toBe(false);
+
+      expect(course.requestRemoval('Cần sửa lại nội dung chương 3').isOk).toBe(true);
       expect(course.status).toBe('published');
+      expect(course.removalRequested).toBe(true);
+      expect(course.rejectionReason).toBe('Cần sửa lại nội dung chương 3');
+    });
+
+    it('bắt buộc nêu lý do khi xin gỡ, và chỉ xin gỡ được nội dung đang công khai', () => {
+      const course = published();
+      expect(course.requestRemoval('  ').isFail).toBe(true);
+      expect(make().requestRemoval('vì lý do gì đó').isFail).toBe(true);
+    });
+
+    it('admin duyệt yêu cầu xin gỡ thì đi qua đúng đường archive như mọi lần thu hồi khác', () => {
+      const course = published();
+      course.requestRemoval('Vi phạm bản quyền ảnh minh hoạ');
+      expect(course.moderate('archive', 'Vi phạm bản quyền ảnh minh hoạ').isOk).toBe(true);
+      expect(course.status).toBe('archived');
+      expect(course.removalRequested).toBe(false);
+    });
+
+    it('admin từ chối yêu cầu xin gỡ thì khóa học không đổi gì, nguyện vọng bị xoá', () => {
+      const course = published();
+      course.requestRemoval('Cần sửa lại nội dung chương 3');
+
+      expect(course.denyRemoval().isOk).toBe(true);
+      expect(course.status).toBe('published');
+      expect(course.removalRequested).toBe(false);
+      expect(course.rejectionReason).toBeNull();
+    });
+
+    it('không có gì để từ chối khi chưa ai xin gỡ', () => {
+      expect(published().denyRemoval().isFail).toBe(true);
     });
   });
 

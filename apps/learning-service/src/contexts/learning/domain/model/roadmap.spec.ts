@@ -168,15 +168,15 @@ describe('đổi slug', () => {
     };
 
     it('chỉ gỡ được nội dung đang công khai', () => {
-      expect(make().moderate('archive', null).isFail).toBe(true);
+      expect(make().moderate('archive', 'Ly do kiem thu').isFail).toBe(true);
       const roadmap = published();
-      expect(roadmap.moderate('archive', null).isOk).toBe(true);
+      expect(roadmap.moderate('archive', 'Ly do kiem thu').isOk).toBe(true);
       expect(roadmap.status).toBe('archived');
     });
 
     it('khôi phục đưa về draft, không phải thẳng published', () => {
       const roadmap = published();
-      roadmap.moderate('archive', null);
+      roadmap.moderate('archive', 'Ly do kiem thu');
 
       expect(roadmap.moderate('restore', null).isOk).toBe(true);
       expect(roadmap.status).toBe('draft');
@@ -185,7 +185,7 @@ describe('đổi slug', () => {
     it('khôi phục xong đi lại đúng vòng duyệt', () => {
       const roadmap = published();
       const firstPublishedAt = roadmap.publishedAt;
-      roadmap.moderate('archive', null);
+      roadmap.moderate('archive', 'Ly do kiem thu');
       roadmap.moderate('restore', null);
 
       expect(roadmap.submit([course('published'), course('published')]).isOk).toBe(true);
@@ -223,11 +223,13 @@ describe('đổi slug', () => {
       expect(roadmap.status).toBe('pending_review');
     });
 
-    it('hủy gửi duyệt lại thì về published, không phải draft', () => {
+    // Huỷ gửi duyệt KHÔNG BAO GIỜ được công khai nội dung — xem `Course.withdraw`.
+    it('hủy gửi duyệt lại thì về draft, không phải published', () => {
       const roadmap = published();
       roadmap.submit([course('published'), course('published')]);
       expect(roadmap.withdraw().isOk).toBe(true);
-      expect(roadmap.status).toBe('published');
+      expect(roadmap.status).toBe('draft');
+      expect(roadmap.publishedAt).not.toBeNull();
     });
   });
 
