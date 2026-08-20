@@ -9,6 +9,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUrl,
   IsUUID,
   MaxLength,
   Min,
@@ -16,7 +17,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { PageQuery } from '@codementor/platform';
+import { PageQuery, VIDEO_CONTENT_TYPES } from '@codementor/platform';
 import { LESSON_TYPES } from '../../domain/model/curriculum';
 import { CONTENT_STATUSES, LEVELS, MODES } from './roadmap.dto';
 
@@ -91,6 +92,24 @@ export class UpdateCourseDto {
   progressionMode?: (typeof MODES)[number];
 }
 
+const PREREQUISITE_RULES = ['ALL', 'ANY'] as const;
+
+/**
+ * Điều kiện mở một bài. `ALL` = phải xong hết, `ANY` = xong một bài bất kỳ trong danh
+ * sách là đủ. Xem `LessonPrerequisites` bên domain để biết nó lưu xuống DNF thế nào.
+ */
+class LessonPrerequisitesDto {
+  @ApiProperty({ enum: PREREQUISITE_RULES })
+  @IsIn(PREREQUISITE_RULES)
+  rule!: (typeof PREREQUISITE_RULES)[number];
+
+  @ApiProperty({ type: [String], format: 'uuid', description: 'Rỗng = bỏ mọi điều kiện' })
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  lessonIds!: string[];
+}
+
 class LessonDraftDto {
   @ApiPropertyOptional({ format: 'uuid', description: 'Có = bài đã tồn tại, giữ nguyên tiến độ' })
   @IsOptional()
@@ -129,6 +148,13 @@ class LessonDraftDto {
   @ValidateIf((_, value) => value !== null)
   @IsUUID()
   exerciseId?: string | null;
+
+  /** Vắng mặt = giữ nguyên điều kiện đang có; gửi `{ lessonIds: [] }` mới là xoá hết. */
+  @ApiPropertyOptional({ type: LessonPrerequisitesDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LessonPrerequisitesDto)
+  prerequisites?: LessonPrerequisitesDto;
 }
 
 class ChapterDraftDto {
@@ -173,6 +199,44 @@ export class SaveCurriculumDto {
   chapters!: ChapterDraftDto[];
 }
 
+/** Video của bài học. Xem `LessonContent.media` để biết vì sao không có `provider`. */
+class LessonMediaDto {
+  @ApiProperty({ description: 'URL video: tệp trực tiếp, YouTube hoặc Vimeo' })
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(2048)
+  url!: string;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  durationSeconds?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(2048)
+  captionsUrl?: string;
+}
+
+/** Xin một URL ký sẵn để trình duyệt `PUT` thẳng video lên kho — xem `ObjectStorageService`. */
+export class VideoUploadUrlDto {
+  @ApiProperty({ description: 'Chỉ phần đuôi được giữ lại làm tên đối tượng' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  filename!: string;
+
+  @ApiProperty({ enum: VIDEO_CONTENT_TYPES })
+  @IsIn(VIDEO_CONTENT_TYPES)
+  contentType!: (typeof VIDEO_CONTENT_TYPES)[number];
+
+  @ApiProperty({ minimum: 1, description: 'Nằm trong chữ ký, nên phải khớp tệp thật' })
+  @IsInt()
+  @Min(1)
+  sizeBytes!: number;
+}
+
 export class SaveLessonContentDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -196,6 +260,12 @@ export class SaveLessonContentDto {
   @IsArray()
   @IsString({ each: true })
   exerciseBrief?: string[];
+
+  @ApiPropertyOptional({ type: LessonMediaDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LessonMediaDto)
+  media?: LessonMediaDto;
 }
 
 export class ListCoursesQueryDto extends PageQuery {

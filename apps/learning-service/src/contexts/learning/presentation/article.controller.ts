@@ -12,7 +12,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Roles } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { ArticleUseCases } from '../application/article.usecases';
@@ -23,6 +23,7 @@ import {
   SaveArticleContentDto,
   UpdateArticleDto,
 } from './dto/article.dto';
+import { ArchiveMineDto } from './dto/moderate.dto';
 
 /**
  * Bài viết biên tập. Hai nhóm đường dẫn trong cùng một controller:
@@ -141,11 +142,23 @@ export class ArticleController {
     return this.articles.moderate(user, id, dto.decision, dto.reason ?? null);
   }
 
-  @Post(':id/archive')
-  @Roles('admin', 'lecturer')
-  @ApiOperation({ summary: 'Lưu trữ bài viết' })
-  archive(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.articles.archive(user, id);
+  @Post(':id/request-removal')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Tác giả xin gỡ bài đang công khai của mình — admin phải duyệt' })
+  @ApiResponse({ status: 400, description: 'Chưa nêu lý do' })
+  requestRemoval(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ArchiveMineDto,
+  ) {
+    return this.articles.requestRemoval(user, id, dto.reason);
+  }
+
+  @Post(':id/deny-removal')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Admin từ chối yêu cầu xin gỡ — bài viết vẫn công khai' })
+  denyRemoval(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.articles.denyRemoval(user, id);
   }
 
   @Post(':id/restore')

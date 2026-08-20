@@ -266,6 +266,7 @@ class EvaluationDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(100_000)
   customCheckerCode?: string;
 
   @ApiPropertyOptional()
@@ -278,6 +279,7 @@ class TheoryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   summary?: string;
 
   @ApiPropertyOptional({ type: [String] })
@@ -289,6 +291,7 @@ class TheoryDto {
   @ApiPropertyOptional({ description: 'HTML từ TipTap' })
   @IsOptional()
   @IsString()
+  @MaxLength(200_000)
   contentHtml?: string;
 }
 
@@ -296,6 +299,7 @@ export class SaveContentDto {
   @ApiPropertyOptional({ description: 'Đề bài, Markdown' })
   @IsOptional()
   @IsString()
+  @MaxLength(200_000)
   statement?: string;
 
   // Vắng mặt = `stdin_stdout`. Bài soạn trước khi có chế độ hàm không mang trường này và
@@ -358,7 +362,18 @@ export class SaveContentDto {
   theory?: TheoryDto;
 }
 
-export const DECISIONS = ['approve', 'request_changes', 'reject', 'archive', 'restore'] as const;
+/**
+ * `revert` là đường LÙI cho một quyết định vừa lỡ tay: đưa bài trở lại hàng chờ để xem
+ * lại, không xoá gì. Xem `Course.moderate` bên learning-service.
+ */
+export const DECISIONS = [
+  'approve',
+  'request_changes',
+  'reject',
+  'archive',
+  'restore',
+  'revert',
+] as const;
 
 export class ModerateDto {
   @ApiProperty({ enum: DECISIONS })
@@ -371,4 +386,13 @@ export class ModerateDto {
   @IsString()
   @MaxLength(2000)
   reason?: string | null;
+}
+
+/** Tác giả tự gỡ bài đang công khai của mình — lý do bắt buộc, admin đọc được vì sao. */
+export class ArchiveMineDto {
+  @ApiProperty({ description: 'Vì sao gỡ bài đang công khai — admin sẽ đọc được câu này' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  reason!: string;
 }

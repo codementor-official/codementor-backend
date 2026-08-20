@@ -80,7 +80,8 @@ export class PrismaArticleRepository implements ArticleRepository {
     return this.prisma.$queryRaw<ArticleListItem[]>`
       SELECT a.id, a.slug::text AS slug, a.title, a.excerpt, a.status::text AS status,
              a.read_minutes AS "readMinutes", a.author_id AS "authorId",
-             u.display_name AS "authorName", t.name AS "tagName",
+             u.display_name AS "authorName", (a.status = 'published' AND a.rejection_reason IS NOT NULL) AS "removalRequested",
+             t.name AS "tagName",
              a.published_at AS "publishedAt", a.created_at AS "createdAt",
              a.updated_at AS "updatedAt", a.rejection_reason AS "rejectionReason"
       FROM articles a

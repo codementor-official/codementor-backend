@@ -2,9 +2,28 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
 import { PageQuery } from '@codementor/platform';
+import { DECISIONS } from './moderate.dto';
 
-/** Ba trạng thái bài viết thực sự dùng — xem ghi chú ở `Article`. */
-export const ARTICLE_STATUSES = ['draft', 'published', 'archived'] as const;
+/**
+ * Đủ SÁU giá trị của `content_status`, không phải ba.
+ *
+ * Danh sách này từng là `['draft', 'published', 'archived']`, đúng vào thời điểm bài viết
+ * do admin tự soạn tự đăng và không đi qua hàng chờ duyệt nào. Điều đó đã đổi — `Article`
+ * giờ có `submit()`, `moderate()` và đủ máy trạng thái như khoá học — nhưng danh sách ở
+ * tầng DTO thì không đổi theo, nên `?status=rejected` bị chặn ngay ở validator với 400.
+ *
+ * Hệ quả nhìn thấy được: khay "Đã từ chối" bên hàng chờ duyệt tải được bài code, khoá học,
+ * lộ trình, và báo "Không tải được: Bài viết" — một loại nội dung hỏng giữa bốn loại giống
+ * hệt nhau, vì đúng một danh sách hằng bị bỏ quên lại phía sau.
+ */
+export const ARTICLE_STATUSES = [
+  'draft',
+  'pending_review',
+  'changes_requested',
+  'rejected',
+  'published',
+  'archived',
+] as const;
 
 export class ListArticlesQueryDto extends PageQuery {
   @ApiPropertyOptional({ enum: ARTICLE_STATUSES })
@@ -83,19 +102,22 @@ export class SaveArticleContentDto {
   contentHtml!: string;
 }
 
-/** Năm nhánh giống hệt kiểm duyệt khoá học và lộ trình. */
-export const MODERATION_DECISIONS = [
-  'approve',
-  'request_changes',
-  'reject',
-  'archive',
-  'restore',
-] as const;
+/**
+ * Cùng danh sách mà khoá học và lộ trình dùng — LẤY LẠI, không chép.
+ *
+ * Đây từng là một mảng riêng nằm ngay tại đây, và nó đã bỏ lỡ nhánh `revert`: bài viết là
+ * loại nội dung duy nhất trong bốn loại không hoàn tác được, vì đúng một hằng số bị chép
+ * ra thành hai bản rồi hai bản trôi khỏi nhau. Cùng đúng hình dạng lỗi mà danh sách kiểu
+ * bài học đã gây ra ("Tạo khóa học không có VIDEO nhưng Sửa thì có").
+ *
+ * Giữ lại tên cũ để không phải sửa nơi gọi, nhưng giá trị chỉ có một nguồn.
+ */
+export { DECISIONS as MODERATION_DECISIONS } from './moderate.dto';
 
 export class ModerateArticleDto {
-  @ApiProperty({ enum: MODERATION_DECISIONS })
-  @IsIn([...MODERATION_DECISIONS])
-  decision!: (typeof MODERATION_DECISIONS)[number];
+  @ApiProperty({ enum: DECISIONS })
+  @IsIn([...DECISIONS])
+  decision!: (typeof DECISIONS)[number];
 
   @ApiPropertyOptional({ description: 'Bắt buộc khi từ chối hoặc yêu cầu sửa' })
   @IsOptional()

@@ -90,7 +90,8 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
       SELECT r.id, r.slug::text AS slug, r.title, r.field::text AS field, r.level::text AS level,
              r.status::text AS status, r.estimated_hours AS "estimatedHours",
              (SELECT count(*)::int FROM roadmap_courses rc WHERE rc.roadmap_id = r.id) AS "courseCount",
-             r.created_by AS "createdBy", u.display_name AS "authorName", r.updated_at AS "updatedAt"
+             r.created_by AS "createdBy", u.display_name AS "authorName",
+             (r.status = 'published' AND r.rejection_reason IS NOT NULL) AS "removalRequested", r.updated_at AS "updatedAt"
       FROM roadmaps r
       LEFT JOIN users u ON u.id = r.created_by
       ${clause}

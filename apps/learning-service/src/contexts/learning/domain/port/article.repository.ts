@@ -25,6 +25,16 @@ export interface ArticleListItem {
   authorId: string | null;
   /** Lấy kèm bằng LEFT JOIN `users`, cùng cách `findMany` của khóa học đang làm. */
   authorName: string | null;
+  /**
+   * Tác giả đang XIN GỠ nội dung này và chờ admin quyết.
+   *
+   * Không phải một trạng thái riêng: nội dung vẫn `published` và học viên vẫn dùng bình
+   * thường. Dấu hiệu là `published` + có `rejection_reason` — xem `removalRequested` ở
+   * aggregate. Có mặt trong danh sách (không chỉ ở chi tiết) vì hàng chờ duyệt phải LỌC
+   * ra được chúng: thiếu nó thì một yêu cầu xin gỡ chỉ tồn tại trong thông báo, và bấm
+   * vào thông báo sẽ dẫn tới một màn hình không có gì.
+   */
+  removalRequested: boolean;
   tagName: string | null;
   publishedAt: Date | null;
   createdAt: Date;

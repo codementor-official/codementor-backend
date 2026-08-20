@@ -22,7 +22,7 @@ import {
   ReplaceRoadmapCoursesDto,
   UpdateRoadmapDto,
 } from './dto/roadmap.dto';
-import { ModerateDto } from './dto/moderate.dto';
+import { ArchiveMineDto, ModerateDto } from './dto/moderate.dto';
 
 @ApiTags('roadmaps')
 @ApiBearerAuth('access-token')
@@ -125,11 +125,23 @@ export class RoadmapController {
     return this.roadmaps.withdraw(user, id);
   }
 
-  @Post(':id/archive')
+  @Post(':id/request-removal')
   @Roles('lecturer')
-  @ApiOperation({ summary: 'Tác giả tự gỡ lộ trình đang công khai của mình' })
-  archiveMine(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.roadmaps.archiveMine(user, id);
+  @ApiOperation({ summary: 'Tác giả xin gỡ lộ trình đang công khai của mình — admin phải duyệt' })
+  @ApiResponse({ status: 400, description: 'Chưa nêu lý do' })
+  requestRemoval(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ArchiveMineDto,
+  ) {
+    return this.roadmaps.requestRemoval(user, id, dto.reason);
+  }
+
+  @Post(':id/deny-removal')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Admin từ chối yêu cầu xin gỡ — lộ trình vẫn công khai' })
+  denyRemoval(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.roadmaps.denyRemoval(user, id);
   }
 
   @Post(':id/restore')

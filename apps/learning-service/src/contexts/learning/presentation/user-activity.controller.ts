@@ -29,6 +29,12 @@ export class ActivityQueryDto {
 export class UserActivityController {
   constructor(private readonly activity: UserActivityUseCases) {}
 
+  @Get('me')
+  @ApiOperation({ summary: 'Dòng thời gian học tập của chính tôi' })
+  mine(@CurrentUser() actor: AuthenticatedUser, @Query() query: ActivityQueryDto) {
+    return this.activity.mine(actor, query.limit);
+  }
+
   @Get('users/:id')
   @Roles('admin')
   @ApiOperation({ summary: 'Dòng thời gian học tập của một tài khoản' })

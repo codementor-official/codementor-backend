@@ -103,6 +103,7 @@ export class PrismaExerciseRepository implements ExerciseRepository {
              e.difficulty::text AS difficulty, e.status::text AS status,
              e.visibility::text AS visibility,
              e.author_id AS "authorId", u.display_name AS "authorName",
+             (e.status = 'published' AND e.rejection_reason IS NOT NULL) AS "removalRequested",
              e.forked_from_id AS "forkedFromId", e.updated_at AS "updatedAt"
       FROM exercises e
       LEFT JOIN users u ON u.id = e.author_id

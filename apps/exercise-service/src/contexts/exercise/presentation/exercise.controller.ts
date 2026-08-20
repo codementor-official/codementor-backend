@@ -25,6 +25,7 @@ import { ReviewTransitionUseCase } from '../application/review-transition.usecas
 import { SaveContentUseCase } from '../application/save-content.usecase';
 import { UpdateExerciseUseCase } from '../application/update-exercise.usecase';
 import {
+  ArchiveMineDto,
   CreateExerciseDto,
   ModerateDto,
   SaveContentDto,
@@ -168,11 +169,23 @@ export class ExerciseController {
     return this.review.withdraw(user, id);
   }
 
-  @Post(':id/archive')
+  @Post(':id/request-removal')
   @Roles('lecturer')
-  @ApiOperation({ summary: 'Tác giả tự gỡ bài đang công khai của mình' })
-  archiveMine(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.review.archiveMine(user, id);
+  @ApiOperation({ summary: 'Tác giả xin gỡ bài đang công khai của mình — admin phải duyệt' })
+  @ApiResponse({ status: 400, description: 'Chưa nêu lý do' })
+  requestRemoval(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ArchiveMineDto,
+  ) {
+    return this.review.requestRemoval(user, id, dto.reason);
+  }
+
+  @Post(':id/deny-removal')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Admin từ chối yêu cầu xin gỡ — bài vẫn công khai' })
+  denyRemoval(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.moderate.denyRemoval(user, id);
   }
 
   @Post(':id/restore')

@@ -23,8 +23,9 @@ import {
   SaveCurriculumDto,
   SaveLessonContentDto,
   UpdateCourseDto,
+  VideoUploadUrlDto,
 } from './dto/course.dto';
-import { ModerateDto } from './dto/moderate.dto';
+import { ArchiveMineDto, ModerateDto } from './dto/moderate.dto';
 import { EnrollDto, RecordProgressDto } from './dto/enrollment.dto';
 
 @ApiTags('courses')
@@ -63,6 +64,12 @@ export class CourseController {
   })
   manage(@Query() query: ListCoursesQueryDto) {
     return this.courses.list({ adminAll: true }, query);
+  }
+
+  @Get('enrollments/mine')
+  @ApiOperation({ summary: 'Khóa học tôi đã ghi danh, mới hoạt động trước' })
+  myEnrollments(@CurrentUser() user: AuthenticatedUser) {
+    return this.enrollments.myCourses(user);
   }
 
   @Get(':id')
@@ -153,6 +160,9 @@ export class CourseController {
           isPreview: lesson.isPreview ?? false,
           isOptional: lesson.isOptional ?? false,
           exerciseId: lesson.exerciseId ?? null,
+          // `undefined` chứ không `?? NO_PREREQUISITES`: client không gửi trường này thì
+          // điều kiện đang có phải giữ nguyên, không phải bị xoá.
+          prerequisites: lesson.prerequisites,
         })),
       })),
     );
@@ -166,6 +176,27 @@ export class CourseController {
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
   ) {
     return this.courses.getLessonContent(user, id, lessonId);
+  }
+
+  @Get('video-upload/config')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Kho video đã cấu hình chưa, và trần dung lượng là bao nhiêu' })
+  videoUploadConfig() {
+    return this.courses.videoUploadConfig();
+  }
+
+  @Post(':id/lessons/:lessonId/video-upload-url')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'URL ký sẵn để trình duyệt PUT thẳng video lên kho' })
+  @ApiResponse({ status: 422, description: 'Chưa cấu hình kho lưu trữ video' })
+  @ApiResponse({ status: 400, description: 'Định dạng không hỗ trợ, hoặc tệp quá lớn' })
+  videoUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Body() dto: VideoUploadUrlDto,
+  ) {
+    return this.courses.presignLessonVideo(user, id, lessonId, dto);
   }
 
   @Put(':id/lessons/:lessonId/content')
@@ -206,11 +237,23 @@ export class CourseController {
     return this.courses.withdraw(user, id);
   }
 
-  @Post(':id/archive')
+  @Post(':id/request-removal')
   @Roles('lecturer')
-  @ApiOperation({ summary: 'Tác giả tự gỡ khóa học đang công khai của mình' })
-  archiveMine(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.courses.archiveMine(user, id);
+  @ApiOperation({ summary: 'Tác giả xin gỡ khóa học đang công khai của mình — admin phải duyệt' })
+  @ApiResponse({ status: 400, description: 'Chưa nêu lý do' })
+  requestRemoval(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ArchiveMineDto,
+  ) {
+    return this.courses.requestRemoval(user, id, dto.reason);
+  }
+
+  @Post(':id/deny-removal')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Admin từ chối yêu cầu xin gỡ — khóa học vẫn công khai' })
+  denyRemoval(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.courses.denyRemoval(user, id);
   }
 
   @Post(':id/restore')
