@@ -71,16 +71,32 @@ export class ReviewTransitionUseCase {
   }
 
   /**
-   * Tác giả tự gỡ bài đang công khai của mình — cùng chuyển trạng thái với
-   * `ModerateExerciseUseCase`'s `archive`, chỉ khác chỗ kiểm quyền: chủ sở hữu, không
-   * phải vai trò admin. Không phát thông báo, đây là tác giả tự quyết.
+   * Tác giả XIN gỡ bài đang công khai của mình — không tự gỡ được nữa, chỉ ghi lại
+   * nguyện vọng kèm lý do bắt buộc. Bài vẫn `published` cho tới khi admin quyết
+   * (`ModerateExerciseUseCase.execute('archive', ...)` để duyệt, `denyRemoval` để từ chối).
    */
-  async archiveMine(user: AuthenticatedUser, id: string): Promise<ExerciseView> {
+  async requestRemoval(user: AuthenticatedUser, id: string, reason: string): Promise<ExerciseView> {
     const exercise = await this.load(user, id);
-    const archived = exercise.moderate('archive', null);
-    if (archived.isFail) throw archived.error;
+    const requested = exercise.requestRemoval(reason);
+    if (requested.isFail) throw requested.error;
 
     await this.exercises.save(exercise);
+    // Người nhận là ADMIN — xem chú thích đầy đủ ở `CourseUseCases.requestRemoval`.
+    try {
+      await this.eventBus.publish(TOPICS.CONTENT_REMOVAL_REQUESTED, {
+        kind: 'EXERCISE',
+        contentId: exercise.id,
+        slug: exercise.slug.value,
+        title: exercise.title,
+        reason: reason.trim(),
+        authorName: user.displayName,
+      });
+    } catch (error) {
+      this.logger.error(
+        `không phát được ${TOPICS.CONTENT_REMOVAL_REQUESTED} cho ${exercise.id}`,
+        error as Error,
+      );
+    }
     return toExerciseView(exercise);
   }
 

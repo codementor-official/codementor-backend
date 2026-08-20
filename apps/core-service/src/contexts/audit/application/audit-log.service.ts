@@ -1,6 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@codementor/platform';
-import type { AuthenticatedUser } from '@codementor/platform';
+
+/**
+ * Ai đã làm. Hai trường, không phải cả `AuthenticatedUser`: người thao tác không phải lúc
+ * nào cũng đến từ một request HTTP. Quyết định kiểm duyệt tới đây qua Kafka
+ * (`ModerationAuditConsumer`), nơi chỉ có ảnh chụp danh tính trong payload — và ảnh chụp
+ * mới là thứ đúng để lưu, vì một dòng nhật ký phải giữ nguyên dù tài khoản đó về sau đổi
+ * tên hay bị khoá.
+ */
+export interface AuditActor {
+  /** `sub` của Keycloak. Dùng để tra ngược ra `users.id` lúc ghi. */
+  externalId: string;
+  email?: string;
+}
 
 export interface AuditEntry {
   /** Động từ nghiệp vụ quá khứ, chấm phân cấp: `user.role_changed`. */
@@ -41,7 +53,7 @@ export class AuditLogService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async record(actor: AuthenticatedUser, entry: AuditEntry): Promise<void> {
+  async record(actor: AuditActor, entry: AuditEntry): Promise<void> {
     try {
       await this.prisma.$executeRaw`
         INSERT INTO audit_logs (actor_id, actor_email, action, target_type, target_id, summary, metadata)

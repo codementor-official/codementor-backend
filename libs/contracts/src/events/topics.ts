@@ -59,6 +59,15 @@ export const TOPICS = {
    */
   CONTENT_REVIEW_REQUESTED: 'evt.content.review_requested.v1',
   /**
+   * Tác giả xin gỡ một nội dung ĐANG CÔNG KHAI. Người nhận là ADMIN.
+   *
+   * Không gộp vào `CONTENT_REVIEW_REQUESTED` dù cùng người nhận và cùng chỗ bấm: hai
+   * việc này ngược chiều nhau. Một cái xin đưa nội dung LÊN, cái kia xin gỡ nội dung
+   * đang sống XUỐNG, và cái sau luôn kèm lý do bắt buộc mà admin phải đọc trước khi
+   * quyết. Trộn chung thì admin không lọc ra được nhóm nào đang chờ mình.
+   */
+  CONTENT_REMOVAL_REQUESTED: 'evt.content.removal_requested.v1',
+  /**
    * Admin đã ra quyết định. Người nhận là TÁC GIẢ của nội dung đó, không phải cả hệ thống.
    *
    * Tách khỏi `*_PUBLISHED`: hai sự kiện nói hai chuyện với hai nhóm người khác nhau.
@@ -128,6 +137,7 @@ export const PARTITION_KEY: Record<TopicName, string> = {
   [TOPICS.ARTICLE_PUBLISHED]: 'articleId',
   // Khoá theo chính nội dung: hai quyết định liên tiếp trên cùng một bài phải tới đúng thứ tự.
   [TOPICS.CONTENT_REVIEW_REQUESTED]: 'contentId',
+  [TOPICS.CONTENT_REMOVAL_REQUESTED]: 'contentId',
   [TOPICS.CONTENT_MODERATED]: 'contentId',
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: 'announcementId',
   [TOPICS.NOTIFICATION_CREATED]: 'notificationId',

@@ -15,6 +15,7 @@ import {
   fromAdminAnnouncement,
   fromArticlePublished,
   fromContentModerated,
+  fromContentRemovalRequested,
   fromContentReviewRequested,
   fromCoursePublished,
   fromExercisePublished,
@@ -70,6 +71,9 @@ export class NotificationModule implements OnModuleInit {
       )
       .on(TOPICS.CONTENT_REVIEW_REQUESTED, (payload, envelope) =>
         this.record.record(envelope, fromContentReviewRequested(payload)),
+      )
+      .on(TOPICS.CONTENT_REMOVAL_REQUESTED, (payload, envelope) =>
+        this.record.record(envelope, fromContentRemovalRequested(payload)),
       )
       .on(TOPICS.CONTENT_MODERATED, (payload, envelope) =>
         this.record.record(envelope, fromContentModerated(payload)),

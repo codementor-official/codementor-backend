@@ -3,6 +3,7 @@ import type {
   AdminAnnouncementCreatedV1,
   ArticlePublishedV1,
   ContentModeratedV1,
+  ContentRemovalRequestedV1,
   ContentReviewRequestedV1,
   CoursePublishedV1,
   ExercisePublishedV1,
@@ -161,14 +162,50 @@ export function fromContentReviewRequested(payload: ContentReviewRequestedV1): D
 }
 
 /**
- * Gửi riêng cho TÁC GIẢ. Ba quyết định, ba câu khác nhau — người bị trả lại cần đọc được
- * lý do ngay trên thông báo, vì đó là thứ quyết định họ phải làm gì tiếp theo.
+ * Gửi cho ADMIN. Ngược chiều với `fromContentReviewRequested`: nội dung này ĐANG công
+ * khai và tác giả xin gỡ nó xuống.
  *
- * `archive` không sinh thông báo: gỡ một nội dung đã đăng là việc vận hành của admin,
- * không phải phán quyết về bài của tác giả.
+ * Lý do nằm ngay trong câu chứ không chỉ trong `metadata`: đó là thứ quyết định admin bấm
+ * duyệt hay từ chối, và bắt họ mở nội dung ra mới đọc được lý do là bắt thêm một bước cho
+ * mọi yêu cầu, kể cả những yêu cầu hiển nhiên.
+ */
+export function fromContentRemovalRequested(payload: ContentRemovalRequestedV1): Draft {
+  const author = payload.authorName?.trim();
+  const who = author ? `Giảng viên ${author}` : 'Một giảng viên';
+
+  return NotificationContent.create({
+    type: 'CONTENT_REMOVAL_REQUESTED',
+    audienceType: 'ROLE',
+    audienceKey: 'admin',
+    title: '🗑️ Có yêu cầu gỡ nội dung đang công khai',
+    message: `${who} xin gỡ ${KIND_LABEL[payload.kind]} ${quoted(payload.title)}. Lý do: ${payload.reason.trim()}`,
+    referenceType: REFERENCE_BY_KIND[payload.kind],
+    referenceId: payload.contentId,
+    actionLabel: 'Mở hàng chờ duyệt',
+    actionUrl: '/moderation',
+    metadata: {
+      kind: payload.kind,
+      slug: payload.slug,
+      authorName: payload.authorName,
+      reason: payload.reason.trim(),
+    },
+  });
+}
+
+/**
+ * Gửi riêng cho TÁC GIẢ. Năm quyết định, năm câu khác nhau — người nhận cần đọc được lý
+ * do ngay trên thông báo, vì đó là thứ quyết định họ phải làm gì tiếp theo.
+ *
+ * `archive` giờ CÓ báo — trước đây bị bỏ vì nghĩ "gỡ là việc vận hành của admin", nhưng
+ * tác giả không có cách nào khác biết nội dung đang sống của họ vừa bị gỡ và vì sao, kể
+ * cả khi việc gỡ đó là duyệt một yêu cầu chính họ vừa xin.
  */
 export function fromContentModerated(payload: ContentModeratedV1): Draft | null {
-  if (payload.decision === 'archive') return null;
+  // Hai nhánh phát sự kiện chỉ để ghi nhật ký kiểm toán, không có gì để báo cho tác giả:
+  // `restore` đưa nội dung đã gỡ về nháp, `revert` rút lại một quyết định vừa lỡ tay.
+  // Báo "nội dung của bạn vừa được duyệt" rồi vài giây sau "vừa bị rút lại" là kể cho
+  // tác giả nghe một cú nhấn nhầm của người khác.
+  if (payload.decision === 'restore' || payload.decision === 'revert') return null;
 
   const label = KIND_LABEL[payload.kind];
   const name = quoted(payload.title);
@@ -192,6 +229,16 @@ export function fromContentModerated(payload: ContentModeratedV1): Draft | null 
       type: 'CONTENT_REJECTED' as const,
       title: '❌ Nội dung của bạn bị từ chối',
       message: `${moderator} từ chối ${label} ${name} của bạn. Lý do: ${reason ?? 'không nêu'}`,
+    },
+    archive: {
+      type: 'CONTENT_ARCHIVED' as const,
+      title: '📦 Nội dung của bạn đã bị gỡ',
+      message: `${moderator} đã gỡ ${label} ${name} của bạn khỏi danh mục công khai. Lý do: ${reason ?? 'không nêu'}`,
+    },
+    deny_removal: {
+      type: 'REMOVAL_REQUEST_DENIED' as const,
+      title: 'ℹ️ Yêu cầu xin gỡ của bạn không được chấp nhận',
+      message: `${moderator} từ chối yêu cầu gỡ ${label} ${name} của bạn — nội dung vẫn đang công khai.`,
     },
   }[payload.decision];
 

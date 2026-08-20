@@ -3,6 +3,7 @@ import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
 import { NotAuthorized, NotFound } from '@codementor/kernel';
 import { ContentAuthorLookup, type AuthenticatedUser } from '@codementor/platform';
+import type { Exercise } from '../domain/model/exercise';
 import { EXERCISE_REPOSITORY, type ExerciseRepository } from '../domain/port/exercise.repository';
 import { toExerciseView, type ExerciseView } from './exercise-view';
 
@@ -11,7 +12,11 @@ export type ModerationDecision =
   | 'request_changes'
   | 'reject'
   | 'archive'
-  | 'restore';
+  | 'restore'
+  /** Đường lùi cho một quyết định vừa lỡ tay — xem `Course.moderate` bên learning-service. */
+  | 'revert';
+
+type NotifiableDecision = ModerationDecision | 'deny_removal';
 
 /**
  * Quyết định của admin trên một bài.
@@ -67,28 +72,52 @@ export class ModerateExerciseUseCase {
     // Người nhận khác hẳn `EXERCISE_PUBLISHED` ở trên: cái kia nói với người học "có bài
     // mới", cái này nói riêng với tác giả rằng bài của họ vừa được quyết — kể cả khi bài
     // bị trả lại, và kể cả bài của một nhóm học tập vốn không broadcast cho ai.
-    if (decision !== 'restore') {
-      const author = await this.authors.find(exercise.authorId);
-      if (author?.externalId) {
-        try {
-          await this.eventBus.publish(TOPICS.CONTENT_MODERATED, {
-            kind: 'EXERCISE',
-            contentId: id,
-            slug: exercise.slug.value,
-            title: exercise.title,
-            decision,
-            reason,
-            authorExternalId: author.externalId,
-            moderatorName: user.displayName,
-          });
-        } catch (error) {
-          this.logger.error(
-            `không phát được ${TOPICS.CONTENT_MODERATED} cho ${id}`,
-            error as Error,
-          );
-        }
-      }
-    }
+    // `restore` và `revert` không sinh thông báo nào, nhưng VẪN phát sự kiện: đó là nguồn
+    // dữ liệu duy nhất của nhật ký kiểm toán. Việc lọc nằm ở `fromContentModerated`.
+    await this.notifyAuthor(exercise, decision, reason, user);
     return toExerciseView(exercise);
+  }
+
+  /** Admin từ chối yêu cầu xin gỡ của tác giả — bài vẫn giữ nguyên `published`. */
+  async denyRemoval(user: AuthenticatedUser, id: string): Promise<ExerciseView> {
+    if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');
+
+    const exercise = await this.exercises.findById(id);
+    if (exercise === null) throw new NotFound('Bài tập', id);
+
+    const denied = exercise.denyRemoval();
+    if (denied.isFail) throw denied.error;
+
+    await this.exercises.save(exercise);
+    await this.notifyAuthor(exercise, 'deny_removal', null, user);
+    return toExerciseView(exercise);
+  }
+
+  private async notifyAuthor(
+    exercise: Exercise,
+    decision: NotifiableDecision,
+    reason: string | null,
+    moderator: { displayName: string; externalId: string },
+  ): Promise<void> {
+    const author = await this.authors.find(exercise.authorId);
+    if (!author?.externalId) return;
+    try {
+      await this.eventBus.publish(TOPICS.CONTENT_MODERATED, {
+        kind: 'EXERCISE',
+        contentId: exercise.id,
+        slug: exercise.slug.value,
+        title: exercise.title,
+        decision,
+        reason,
+        authorExternalId: author.externalId,
+        moderatorName: moderator.displayName,
+        moderatorExternalId: moderator.externalId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `không phát được ${TOPICS.CONTENT_MODERATED} cho ${exercise.id}`,
+        error as Error,
+      );
+    }
   }
 }

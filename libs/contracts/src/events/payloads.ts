@@ -281,6 +281,22 @@ export interface ContentReviewRequestedV1 {
 }
 
 /**
+ * Giảng viên bấm "Xin gỡ" một nội dung đang công khai. Người nhận là ADMIN.
+ *
+ * `reason` KHÔNG nullable, khác `ContentModeratedV1`: domain bắt buộc nêu lý do mới xin
+ * gỡ được (`requestRemoval` trả `InvalidInput` khi rỗng), và lý do chính là thứ admin
+ * đọc để quyết. Một yêu cầu xin gỡ không có lý do thì không có gì để duyệt.
+ */
+export interface ContentRemovalRequestedV1 {
+  kind: ReviewableKind;
+  contentId: string;
+  slug: string | null;
+  title: string;
+  reason: string;
+  authorName: string | null;
+}
+
+/**
  * Admin đã quyết. Gửi riêng cho tác giả, nên payload mang `authorExternalId`.
  *
  * `sub` của Keycloak chứ không phải `users.id`: realtime-service chỉ biết danh tính từ
@@ -292,12 +308,38 @@ export interface ContentModeratedV1 {
   contentId: string;
   slug: string | null;
   title: string;
-  decision: 'approve' | 'request_changes' | 'reject' | 'archive';
+  /**
+   * `deny_removal` không phải một nhánh của `moderate()` — nó là admin từ chối yêu cầu
+   * XIN GỠ mà tác giả tự gửi (xem `requestRemoval`/`denyRemoval` ở domain model). Dùng
+   * chung sự kiện này thay vì mở một topic riêng vì hình dạng thông báo giống hệt: gửi
+   * riêng cho tác giả, kèm lý do, kèm tên người quyết.
+   */
+  decision:
+    | 'approve'
+    | 'request_changes'
+    | 'reject'
+    | 'archive'
+    | 'deny_removal'
+    /**
+     * Hai nhánh KHÔNG sinh thông báo — `fromContentModerated` trả `null` cho chúng — mà
+     * vẫn phải phát sự kiện, vì đây là nguồn dữ liệu duy nhất của nhật ký kiểm toán.
+     * `restore` đưa nội dung đã gỡ về nháp, `revert` rút lại một quyết định lỡ tay; cả
+     * hai đều chưa phải phán quyết để báo cho tác giả, nhưng cả hai đều là việc một quản
+     * trị viên đã làm và phải trả lời được "ai, lúc nào".
+     */
+    | 'restore'
+    | 'revert';
   /** Bắt buộc có khi từ chối hoặc yêu cầu sửa — đó là câu tác giả sẽ đọc. */
   reason: string | null;
   authorExternalId: string;
   /** Tên người vừa ra quyết định — lấy thẳng từ token của họ, không cần tra bảng. */
   moderatorName: string;
+  /**
+   * `sub` Keycloak của người vừa quyết. Nhật ký kiểm toán cần một danh tính tra ngược
+   * được, không chỉ một cái tên hiển thị — hai quản trị viên trùng tên là chuyện có thật,
+   * và một dòng nhật ký không chỉ đúng được một người thì không phải nhật ký kiểm toán.
+   */
+  moderatorExternalId: string;
 }
 
 /* ------------------------------------------------------------- Notification */
@@ -390,6 +432,7 @@ export interface TopicPayloadMap {
   [TOPICS.ARTICLE_PUBLISHED]: ArticlePublishedV1;
 
   [TOPICS.CONTENT_REVIEW_REQUESTED]: ContentReviewRequestedV1;
+  [TOPICS.CONTENT_REMOVAL_REQUESTED]: ContentRemovalRequestedV1;
   [TOPICS.CONTENT_MODERATED]: ContentModeratedV1;
 
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: AdminAnnouncementCreatedV1;

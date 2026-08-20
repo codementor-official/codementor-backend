@@ -144,6 +144,7 @@ describe('dựng nội dung từ sự kiện', () => {
       reason: 'Thiếu bài học',
       authorExternalId: 'sub-123',
       moderatorName: 'Admin Test',
+      moderatorExternalId: 'sub-admin',
     });
     expect(changes?.value.audienceType).toBe('USER');
     expect(changes?.value.audienceKey).toBe('sub-123');
@@ -151,18 +152,37 @@ describe('dựng nội dung từ sự kiện', () => {
     expect(changes?.value.message).toContain('Admin Test');
   });
 
-  it('lưu trữ không sinh thông báo — đó là việc vận hành, không phải phán quyết về bài', () => {
-    expect(
-      fromContentModerated({
-        kind: 'COURSE',
-        contentId: 'c1',
-        slug: 'khoa-hoc',
-        title: 'Khoá học',
-        decision: 'archive',
-        reason: null,
-        authorExternalId: 'sub-123',
-        moderatorName: 'Admin Test',
-      }),
-    ).toBeNull();
+  it('lưu trữ báo cho tác giả biết nội dung của họ vừa bị gỡ và vì sao', () => {
+    const archived = fromContentModerated({
+      kind: 'COURSE',
+      contentId: 'c1',
+      slug: 'khoa-hoc',
+      title: 'Khoá học',
+      decision: 'archive',
+      reason: 'Vi phạm bản quyền ảnh minh hoạ',
+      authorExternalId: 'sub-123',
+      moderatorName: 'Admin Test',
+      moderatorExternalId: 'sub-admin',
+    });
+    expect(archived?.value.type).toBe('CONTENT_ARCHIVED');
+    expect(archived?.value.audienceType).toBe('USER');
+    expect(archived?.value.audienceKey).toBe('sub-123');
+    expect(archived?.value.message).toContain('Vi phạm bản quyền ảnh minh hoạ');
+  });
+
+  it('từ chối yêu cầu xin gỡ báo cho tác giả biết nội dung vẫn đang công khai', () => {
+    const denied = fromContentModerated({
+      kind: 'COURSE',
+      contentId: 'c1',
+      slug: 'khoa-hoc',
+      title: 'Khoá học',
+      decision: 'deny_removal',
+      reason: null,
+      authorExternalId: 'sub-123',
+      moderatorName: 'Admin Test',
+      moderatorExternalId: 'sub-admin',
+    });
+    expect(denied?.value.type).toBe('REMOVAL_REQUEST_DENIED');
+    expect(denied?.value.audienceKey).toBe('sub-123');
   });
 });

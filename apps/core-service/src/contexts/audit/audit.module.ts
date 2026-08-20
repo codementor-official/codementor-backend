@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { AuditLogService } from './application/audit-log.service';
+import { ModerationAuditConsumer } from './application/moderation-audit.consumer';
 import { AuditLogController } from './presentation/audit-log.controller';
 
 /**
@@ -10,7 +11,7 @@ import { AuditLogController } from './presentation/audit-log.controller';
 @Global()
 @Module({
   controllers: [AuditLogController],
-  providers: [AuditLogService],
+  providers: [AuditLogService, ModerationAuditConsumer],
   exports: [AuditLogService],
 })
 export class AuditModule {}

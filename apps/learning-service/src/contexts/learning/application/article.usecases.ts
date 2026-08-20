@@ -40,6 +40,7 @@ export interface ArticleView {
   readMinutes: number | null;
   status: string;
   rejectionReason: string | null;
+  removalRequested: boolean;
   authorName: string | null;
   tagName: string | null;
   publishedAt: string | null;
@@ -238,7 +239,11 @@ export class ArticleUseCases {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
     const rows = await this.articles.list({
       publishedOnly: false,
-      pendingOnly: true,
+      // `?status=` để xem lại những gì ĐÃ quyết, không chỉ những gì đang chờ. Không có nó
+      // thì một lần bấm nhầm Từ chối là không có đường tìm lại bài đó để hoàn tác — cùng
+      // hình dạng mà khoá học, lộ trình và bài code đã dùng ở `list()`.
+      pendingOnly: query.status === undefined,
+      status: query.status,
       limit,
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,
     });
@@ -252,7 +257,7 @@ export class ArticleUseCases {
   async moderate(
     user: AuthenticatedUser,
     id: string,
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore' | 'revert',
     reason: string | null,
   ): Promise<ArticleView> {
     if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');
@@ -276,45 +281,87 @@ export class ArticleUseCases {
       );
     }
 
-    // `restore` không báo: nó chỉ đưa bài đã lưu trữ về bản nháp, chưa phải phán quyết.
-    if (decision === 'restore') return this.toView(article);
-
-    // Sự kiện thứ hai, người nhận khác hẳn: `ARTICLE_PUBLISHED` báo cho người học rằng
-    // có bài mới, còn cái này báo riêng cho tác giả rằng bài của họ vừa được quyết. Một
-    // lần duyệt sinh cả hai; gộp lại thì một trong hai nhóm nhận nhầm thông báo.
-    const author = await this.authors.find(article.authorId);
-    if (author?.externalId) {
-      await this.announce(
-        () =>
-          this.eventBus.publish(TOPICS.CONTENT_MODERATED, {
-            kind: 'POST',
-            contentId: article.id,
-            slug: article.slug,
-            title: article.title,
-            decision,
-            reason,
-            authorExternalId: author.externalId as string,
-            moderatorName: user.displayName,
-          }),
-        `${TOPICS.CONTENT_MODERATED} cho ${article.id}`,
-      );
-    }
+    // `restore` và `revert` không sinh thông báo nào, nhưng VẪN phát sự kiện: đó là nguồn
+    // dữ liệu duy nhất của nhật ký kiểm toán. Việc lọc nằm ở `fromContentModerated`.
+    await this.notifyAuthor(article, decision, reason, user);
     return this.toView(article);
   }
 
   /**
-   * Tác giả tự gỡ bài đang công khai của mình — cùng chuyển trạng thái với
-   * `moderate('archive')` của admin, chỉ khác chỗ kiểm quyền: chủ sở hữu (qua `mustEdit`),
-   * không phải vai trò. Không phát thông báo, đây là tác giả tự quyết chứ không phải một
-   * phán quyết. (Trước đây gọi thẳng `moderate()`, nhưng `moderate()` chặn cứng non-admin
-   * nên route này chưa từng thực sự dùng được cho giảng viên.)
+   * Sự kiện thứ hai, người nhận khác hẳn `ARTICLE_PUBLISHED`: cái kia báo cho người học
+   * rằng có bài mới, cái này báo riêng cho tác giả rằng bài của họ vừa được quyết — kể cả
+   * khi quyết định đó là từ chối một yêu cầu XIN GỠ (`deny_removal`), thứ không đi qua
+   * `moderate()`. Một lần duyệt sinh cả hai sự kiện; gộp lại thì một trong hai nhóm nhận
+   * nhầm thông báo.
    */
-  async archive(user: AuthenticatedUser, id: string): Promise<ArticleView> {
+  private async notifyAuthor(
+    article: Article,
+    decision:
+      | 'approve'
+      | 'request_changes'
+      | 'reject'
+      | 'archive'
+      | 'restore'
+      | 'revert'
+      | 'deny_removal',
+    reason: string | null,
+    moderator: { displayName: string; externalId: string },
+  ): Promise<void> {
+    const author = await this.authors.find(article.authorId);
+    if (!author?.externalId) return;
+    await this.announce(
+      () =>
+        this.eventBus.publish(TOPICS.CONTENT_MODERATED, {
+          kind: 'POST',
+          contentId: article.id,
+          slug: article.slug,
+          title: article.title,
+          decision,
+          reason,
+          authorExternalId: author.externalId as string,
+          moderatorName: moderator.displayName,
+          moderatorExternalId: moderator.externalId,
+        }),
+      `${TOPICS.CONTENT_MODERATED} cho ${article.id}`,
+    );
+  }
+
+  /**
+   * Tác giả XIN gỡ bài đang công khai của mình — không tự gỡ được nữa, chỉ ghi lại
+   * nguyện vọng kèm lý do bắt buộc. Bài vẫn `published` cho tới khi admin quyết
+   * (`moderate('archive', ...)` để duyệt, `denyRemoval` để từ chối).
+   */
+  async requestRemoval(user: AuthenticatedUser, id: string, reason: string): Promise<ArticleView> {
     const article = await this.mustEdit(user, id);
-    const archived = article.moderate('archive', null);
-    if (archived.isFail) throw archived.error;
+    const requested = article.requestRemoval(reason);
+    if (requested.isFail) throw requested.error;
 
     await this.articles.save(article);
+    // Người nhận là ADMIN — xem chú thích đầy đủ ở `CourseUseCases.requestRemoval`.
+    await this.announce(
+      () =>
+        this.eventBus.publish(TOPICS.CONTENT_REMOVAL_REQUESTED, {
+          kind: 'POST',
+          contentId: article.id,
+          slug: article.slug,
+          title: article.title,
+          reason: reason.trim(),
+          authorName: user.displayName,
+        }),
+      `${TOPICS.CONTENT_REMOVAL_REQUESTED} cho ${article.id}`,
+    );
+    return this.toView(article);
+  }
+
+  /** Admin từ chối yêu cầu xin gỡ — bài không đổi gì, chỉ báo lại cho tác giả. */
+  async denyRemoval(user: AuthenticatedUser, id: string): Promise<ArticleView> {
+    if (user.role !== 'admin') throw new NotAuthorized('xử lý yêu cầu xin gỡ');
+    const article = await this.mustFind(id);
+    const denied = article.denyRemoval();
+    if (denied.isFail) throw denied.error;
+
+    await this.articles.save(article);
+    await this.notifyAuthor(article, 'deny_removal', null, user);
     return this.toView(article);
   }
 
@@ -372,6 +419,7 @@ export class ArticleUseCases {
       readMinutes: article.readMinutes,
       status: article.status,
       rejectionReason: article.rejectionReason,
+      removalRequested: article.removalRequested,
       authorName: described.authorName,
       tagName: described.tagName,
       publishedAt: article.publishedAt?.toISOString() ?? null,

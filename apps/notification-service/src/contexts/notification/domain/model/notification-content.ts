@@ -17,10 +17,14 @@ export type NotificationType =
   | 'ADMIN_ANNOUNCEMENT'
   /** Giảng viên vừa gửi một nội dung đi duyệt — chỉ admin nhận. */
   | 'CONTENT_REVIEW_REQUESTED'
-  /** Ba kết cục của một lần duyệt — chỉ tác giả nhận. */
+  /** Giảng viên xin gỡ một nội dung đang công khai — chỉ admin nhận. */
+  | 'CONTENT_REMOVAL_REQUESTED'
+  /** Kết cục của một lần duyệt, hoặc admin thu hồi/từ chối yêu cầu xin gỡ — chỉ tác giả nhận. */
   | 'CONTENT_APPROVED'
   | 'CONTENT_CHANGES_REQUESTED'
-  | 'CONTENT_REJECTED';
+  | 'CONTENT_REJECTED'
+  | 'CONTENT_ARCHIVED'
+  | 'REMOVAL_REQUEST_DENIED';
 
 /**
  * `POST` chứ không phải `ARTICLE`: đây là từ vựng hướng ra ngoài, và yêu cầu nghiệp vụ

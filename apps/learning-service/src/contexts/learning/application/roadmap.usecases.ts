@@ -199,13 +199,41 @@ export class RoadmapUseCases {
     return toRoadmapView(roadmap, await this.roadmaps.listCourses(id));
   }
 
-  /** Tác giả tự gỡ lộ trình đang công khai của mình — xem chú thích cùng tên ở `CourseUseCases`. */
-  async archiveMine(user: AuthenticatedUser, id: string): Promise<RoadmapView> {
+  /** Tác giả XIN gỡ lộ trình đang công khai của mình — xem chú thích cùng tên ở `CourseUseCases`. */
+  async requestRemoval(user: AuthenticatedUser, id: string, reason: string): Promise<RoadmapView> {
     const roadmap = await this.mustOwn(user, id);
-    const archived = roadmap.moderate('archive', null);
-    if (archived.isFail) throw archived.error;
+    const requested = roadmap.requestRemoval(reason);
+    if (requested.isFail) throw requested.error;
 
     await this.roadmaps.save(roadmap);
+    // Người nhận là ADMIN — xem chú thích đầy đủ ở `CourseUseCases.requestRemoval`.
+    try {
+      await this.eventBus.publish(TOPICS.CONTENT_REMOVAL_REQUESTED, {
+        kind: 'ROADMAP',
+        contentId: roadmap.id,
+        slug: roadmap.slug,
+        title: roadmap.title,
+        reason: reason.trim(),
+        authorName: user.displayName,
+      });
+    } catch (error) {
+      this.logger.error(
+        `không phát được ${TOPICS.CONTENT_REMOVAL_REQUESTED} cho ${roadmap.id}`,
+        error as Error,
+      );
+    }
+    return toRoadmapView(roadmap, await this.roadmaps.listCourses(id));
+  }
+
+  /** Admin từ chối yêu cầu xin gỡ — lộ trình không đổi gì. */
+  async denyRemoval(user: AuthenticatedUser, id: string): Promise<RoadmapView> {
+    if (user.role !== 'admin') throw new NotAuthorized('xử lý yêu cầu xin gỡ');
+    const roadmap = await this.mustFind(id);
+    const denied = roadmap.denyRemoval();
+    if (denied.isFail) throw denied.error;
+
+    await this.roadmaps.save(roadmap);
+    await this.announceModerated(roadmap, 'deny_removal', null, { displayName: user.displayName, externalId: user.externalId });
     return toRoadmapView(roadmap, await this.roadmaps.listCourses(id));
   }
 
@@ -236,7 +264,7 @@ export class RoadmapUseCases {
   async moderate(
     user: AuthenticatedUser,
     id: string,
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore' | 'revert',
     reason: string | null,
   ) {
     if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');
@@ -262,18 +290,24 @@ export class RoadmapUseCases {
         );
       }
     }
-    await this.announceModerated(entity, decision, reason, user.displayName);
+    await this.announceModerated(entity, decision, reason, { displayName: user.displayName, externalId: user.externalId });
     return toRoadmapView(entity, await this.roadmaps.listCourses(id));
   }
 
   /** Báo riêng cho tác giả — xem ghi chú cùng tên ở `CourseUseCases`. */
   private async announceModerated(
     roadmap: Roadmap,
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
+    decision:
+      | 'approve'
+      | 'request_changes'
+      | 'reject'
+      | 'archive'
+      | 'restore'
+      | 'revert'
+      | 'deny_removal',
     reason: string | null,
-    moderatorName: string,
+    moderator: { displayName: string; externalId: string },
   ): Promise<void> {
-    if (decision === 'restore') return;
     const author = await this.authors.find(roadmap.createdBy);
     if (!author?.externalId) return;
 
@@ -286,7 +320,8 @@ export class RoadmapUseCases {
         decision,
         reason,
         authorExternalId: author.externalId,
-        moderatorName,
+        moderatorName: moderator.displayName,
+        moderatorExternalId: moderator.externalId,
       });
     } catch (error) {
       this.logger.error(

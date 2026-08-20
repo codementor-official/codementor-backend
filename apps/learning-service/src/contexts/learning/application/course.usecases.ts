@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
-import { DEFAULT_PAGE_LIMIT, canEditCourse, decodeCursor, requireHumanId, toPage, ContentAuthorLookup, type AuthenticatedUser, type Page } from '@codementor/platform';
+import { DEFAULT_PAGE_LIMIT, canEditCourse, decodeCursor, requireHumanId, toPage, ContentAuthorLookup, ObjectStorageService, VIDEO_CONTENT_TYPES, type AuthenticatedUser, type Page, type PresignedUpload } from '@codementor/platform';
 import { Course } from '../domain/model/course';
 import type { CourseEdit } from '../domain/model/course';
 import { validateCurriculum, type ChapterDraft } from '../domain/model/curriculum';
@@ -43,6 +43,7 @@ export interface CourseView {
   status: string;
   createdBy: string | null;
   rejectionReason: string | null;
+  removalRequested: boolean;
   publishedAt: string | null;
   totalChapters: number;
   totalLessons: number;
@@ -65,6 +66,7 @@ function toView(course: Course, chapters?: StoredChapter[]): CourseView {
     status: course.status,
     createdBy: course.createdBy,
     rejectionReason: course.rejectionReason,
+    removalRequested: course.removalRequested,
     publishedAt: course.publishedAt?.toISOString() ?? null,
     totalChapters: course.totalChapters,
     totalLessons: course.totalLessons,
@@ -95,6 +97,7 @@ export class CourseUseCases {
     @Inject(LESSON_CONTENT_REPOSITORY) private readonly contents: LessonContentRepository,
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
     private readonly authors: ContentAuthorLookup,
+    private readonly storage: ObjectStorageService,
   ) {}
 
   async list(
@@ -240,6 +243,56 @@ export class CourseUseCases {
     return this.contents.findByLessonId(lessonId);
   }
 
+  /**
+   * Studio hỏi trước khi vẽ: kho lưu trữ đã sẵn sàng chưa, và trần dung lượng là bao nhiêu.
+   *
+   * Có endpoint riêng cho việc này thay vì để frontend đọc biến môi trường: khoá S3 là bí
+   * mật phía máy chủ, và "đã cấu hình hay chưa" là thứ chỉ máy chủ biết chắc. Chưa cấu
+   * hình thì studio tắt riêng ô tải lên và vẫn cho dán URL — không phải một màn hình lỗi.
+   */
+  videoUploadConfig(): { enabled: boolean; maxBytes: number; acceptedTypes: string[] } {
+    return {
+      enabled: this.storage.isConfigured,
+      maxBytes: this.storage.maxUploadBytes,
+      acceptedTypes: [...VIDEO_CONTENT_TYPES],
+    };
+  }
+
+  /**
+   * Ký một lệnh ghi cho đúng một video của đúng một bài.
+   *
+   * Kiểm quyền sở hữu Ở ĐÂY chứ không chỉ ở guard: URL ký sẵn là quyền ghi thật vào
+   * bucket, nên đường sinh ra nó phải chặt bằng đường sửa nội dung. Bài cũng phải thuộc
+   * đúng khóa học trong URL — thiếu bước đó thì ai sở hữu một khóa học bất kỳ là ký được
+   * URL mang tiền tố của khóa học khác, chỉ cần đoán đúng id.
+   */
+  async presignLessonVideo(
+    user: AuthenticatedUser,
+    courseId: string,
+    lessonId: string,
+    input: { filename: string; contentType: string; sizeBytes: number },
+  ): Promise<PresignedUpload> {
+    const course = await this.mustOwn(user, courseId);
+    if (course.isLockedForReview) {
+      throw new BusinessRuleViolation('Khóa học đang chờ duyệt. Hủy gửi duyệt trước khi sửa.');
+    }
+
+    const curriculum = await this.courses.findCurriculum(courseId);
+    const lesson = curriculum
+      .flatMap((chapter) => chapter.lessons)
+      .find((candidate) => candidate.id === lessonId);
+    if (!lesson) throw new NotFound('Bài học', lessonId);
+
+    const signed = await this.storage.presignUpload({
+      prefix: `courses/${courseId}/lessons/${lessonId}`,
+      filename: input.filename,
+      contentType: input.contentType,
+      sizeBytes: input.sizeBytes,
+    });
+    if (signed.isFail) throw signed.error;
+    return signed.value;
+  }
+
   async submit(user: AuthenticatedUser, id: string): Promise<CourseView> {
     const course = await this.mustOwn(user, id);
     const curriculum = await this.courses.findCurriculum(id);
@@ -294,16 +347,50 @@ export class CourseUseCases {
   }
 
   /**
-   * Tác giả tự gỡ khóa học đang công khai của mình — cùng chuyển trạng thái với
-   * `moderate('archive')` của admin, chỉ khác chỗ kiểm quyền: chủ sở hữu, không phải vai
-   * trò. Không phát thông báo, đây là tác giả tự quyết chứ không phải một phán quyết.
+   * Tác giả XIN gỡ khóa học đang công khai của mình — không tự gỡ được nữa, chỉ ghi lại
+   * nguyện vọng kèm lý do bắt buộc. Khóa học vẫn `published` cho tới khi admin quyết
+   * (`moderate('archive', ...)` để duyệt, `denyRemoval` để từ chối).
    */
-  async archiveMine(user: AuthenticatedUser, id: string): Promise<CourseView> {
+  async requestRemoval(user: AuthenticatedUser, id: string, reason: string): Promise<CourseView> {
     const course = await this.mustOwn(user, id);
-    const archived = course.moderate('archive', null);
-    if (archived.isFail) throw archived.error;
+    const requested = course.requestRemoval(reason);
+    if (requested.isFail) throw requested.error;
 
     await this.courses.save(course);
+    // Người nhận là ADMIN. Không có bước này thì yêu cầu xin gỡ nằm im trong CSDL: khoá
+    // học vẫn `published` nên nó không rơi vào hàng chờ duyệt, và không ai được báo — tác
+    // giả tưởng đã xin, admin không biết có gì để xử lý. Lỗi Kafka chỉ ghi log, cùng lý do
+    // đã ghi ở `submit`: nguyện vọng đã lưu rồi, báo lỗi lên đây là nói dối người gửi.
+    try {
+      await this.eventBus.publish(TOPICS.CONTENT_REMOVAL_REQUESTED, {
+        kind: 'COURSE',
+        contentId: course.id,
+        slug: course.slug,
+        title: course.title,
+        reason: reason.trim(),
+        authorName: user.displayName,
+      });
+    } catch (error) {
+      this.logger.error(
+        `không phát được ${TOPICS.CONTENT_REMOVAL_REQUESTED} cho ${course.id}`,
+        error as Error,
+      );
+    }
+    return toView(course, await this.courses.findCurriculum(id));
+  }
+
+  /**
+   * Admin từ chối yêu cầu xin gỡ — khóa học không đổi gì, chỉ báo lại cho tác giả rằng
+   * nội dung của họ vẫn đang công khai.
+   */
+  async denyRemoval(user: AuthenticatedUser, id: string): Promise<CourseView> {
+    if (user.role !== 'admin') throw new NotAuthorized('xử lý yêu cầu xin gỡ');
+    const course = await this.mustFind(id);
+    const denied = course.denyRemoval();
+    if (denied.isFail) throw denied.error;
+
+    await this.courses.save(course);
+    await this.announceModerated(course, 'deny_removal', null, { displayName: user.displayName, externalId: user.externalId });
     return toView(course, await this.courses.findCurriculum(id));
   }
 
@@ -334,7 +421,7 @@ export class CourseUseCases {
   async moderate(
     user: AuthenticatedUser,
     id: string,
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
+    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore' | 'revert',
     reason: string | null,
   ) {
     if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');
@@ -346,12 +433,12 @@ export class CourseUseCases {
     await this.courses.save(entity);
 
     // Phát SAU khi ghi thành công, và chỉ khi khoá học thực sự vừa mở cho người học.
-    // `request_changes`/`reject`/`archive` không sinh thông báo: người học không cần
-    // biết về bản nháp bị trả lại, và `archive` là gỡ xuống chứ không phải ra mắt.
+    // `announcePublished` là báo cho NGƯỜI HỌC "có khoá mới"; `announceModerated` ngay
+    // dưới đây báo riêng cho TÁC GIẢ, ở mọi quyết định trừ `restore`.
     if (decision === 'approve') {
       await this.announcePublished(entity);
     }
-    await this.announceModerated(entity, decision, reason, user.displayName);
+    await this.announceModerated(entity, decision, reason, { displayName: user.displayName, externalId: user.externalId });
     return toView(entity, await this.courses.findCurriculum(id));
   }
 
@@ -383,15 +470,24 @@ export class CourseUseCases {
    * với giảng viên "bài của bạn đã được quyết". Cùng một cú bấm duyệt sinh cả hai, và
    * gộp chúng lại nghĩa là một trong hai nhóm nhận nhầm.
    *
-   * `restore` không báo: nó chỉ đưa nội dung đã lưu trữ về bản nháp, chưa phải phán quyết.
+   * `restore` và `revert` VẪN phát sự kiện dù không sinh thông báo nào — chúng chưa phải
+   * phán quyết để báo cho tác giả, nhưng đây là nguồn dữ liệu duy nhất của nhật ký kiểm
+   * toán, và "ai đã rút lại quyết định này, lúc nào" là đúng thứ nhật ký đó tồn tại để
+   * trả lời. Việc lọc ra nằm ở `fromContentModerated` bên notification-service.
    */
   private async announceModerated(
     course: Course,
-    decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore',
+    decision:
+      | 'approve'
+      | 'request_changes'
+      | 'reject'
+      | 'archive'
+      | 'restore'
+      | 'revert'
+      | 'deny_removal',
     reason: string | null,
-    moderatorName: string,
+    moderator: { displayName: string; externalId: string },
   ): Promise<void> {
-    if (decision === 'restore') return;
     const author = await this.authors.find(course.createdBy);
     if (!author?.externalId) return;
 
@@ -404,7 +500,8 @@ export class CourseUseCases {
         decision,
         reason,
         authorExternalId: author.externalId,
-        moderatorName,
+        moderatorName: moderator.displayName,
+        moderatorExternalId: moderator.externalId,
       });
     } catch (error) {
       this.logger.error(
