@@ -24,7 +24,7 @@ const SERVICES = [
   ["workspace", 3004],
   ["document", 3005],
   ["submission", 3006],
-  ["judge", 3007], // Python, chạy qua docker compose — start_one sẽ báo "CHƯA BUILD" và bỏ qua, không chặn service khác.
+  ["judge", 3007], // Python/FastAPI — startOne() spawn riêng qua `uv run uvicorn`, xem nhánh JUDGE bên dưới.
   ["ai", 3008],
   ["realtime", 3009],
   // 3010/3011 là apps/lecturer và apps/admin bên frontend, nên dải backend nhảy qua.
@@ -82,29 +82,50 @@ function stopOne(name, port) {
   console.log(`  ${name.padEnd(12)} đã dừng (pid ${pid})`);
 }
 
-async function startOne(name, port) {
-  const entry = join(repoRoot, "dist", "apps", `${name}-service`, "apps", `${name}-service`, "src", "main.js");
+// Judge là Python/FastAPI, bị loại khỏi `nest-cli.json`/`build:all` (xem judge-service/README).
+// Nó KHÔNG có `dist/apps/judge-service` — trước đây `startOne` vẫn tìm đường Nest chung, và
+// một bản build Nest bỏ sót từ trước lần migrate vẫn nằm đó thì nó cứ khởi động nhầm bản đó
+// (UnknownDependenciesException, vì bản dist đó cũ hơn cả `MessagingModule` hiện tại). Tách
+// hẳn nhánh riêng để không bao giờ còn phụ thuộc vào một thư mục dist có tồn tại hay không.
+function judgeCommand() {
+  const cwd = join(repoRoot, "apps", "judge-service");
+  return isWindows
+    ? { cmd: "cmd.exe", args: ["/c", "uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3007"], cwd }
+    : { cmd: "uv", args: ["run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3007"], cwd };
+}
 
+async function startOne(name, port) {
   if (pidOnPort(port)) {
     console.log(`  ${name.padEnd(12)} đang chạy sẵn ở :${port} — bỏ qua`);
     return true;
   }
-  if (!existsSync(entry)) {
-    console.log(`  ${name.padEnd(12)} CHƯA BUILD (${entry})`);
-    return false;
+
+  let command;
+  if (name === "judge") {
+    command = judgeCommand();
+  } else {
+    const entry = join(repoRoot, "dist", "apps", `${name}-service`, "apps", `${name}-service`, "src", "main.js");
+    if (!existsSync(entry)) {
+      console.log(`  ${name.padEnd(12)} CHƯA BUILD (${entry})`);
+      return false;
+    }
+    command = { cmd: "node", args: [entry], cwd: repoRoot };
   }
 
   mkdirSync(logDir, { recursive: true });
   const out = openSync(join(logDir, `${name}.log`), "w");
   const err = openSync(join(logDir, `${name}.log`), "a");
-  const child = spawn("node", [entry], {
-    cwd: repoRoot,
+  const child = spawn(command.cmd, command.args, {
+    cwd: command.cwd,
     detached: true,
     stdio: ["ignore", out, err],
   });
   child.unref();
 
-  const bound = await waitUntil(() => pidOnPort(port), 60, 500);
+  // Judge chờ lâu hơn: `uv run` tạo venv lần đầu, và consumer Kafka phải join group +
+  // được gán partition trước khi app coi là "đã lên" — đo thực tế mất khoảng 30s, ngay
+  // sát ngưỡng 30s chung, nên dễ báo lỗi giả dù service rồi cũng lên được.
+  const bound = await waitUntil(() => pidOnPort(port), name === "judge" ? 180 : 60, 500);
   if (bound) {
     console.log(`  ${name.padEnd(12)} :${port}`);
     return true;

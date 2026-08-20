@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { NotAuthorized } from '@codementor/kernel';
-import { PrismaService } from '@codementor/platform';
+import { PrismaService, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 
 /** Một việc người học đã làm, đủ chữ để hiển thị mà không phải tra thêm bảng nào. */
@@ -29,7 +29,15 @@ export class UserActivityUseCases {
     // Chỉ quản trị viên xem được lịch sử của NGƯỜI KHÁC. Kiểm ở use case chứ không chỉ ở
     // guard: mọi lối gọi khác về sau cũng đi qua đây.
     if (actor.role !== 'admin') throw new NotAuthorized('xem hoạt động của tài khoản khác');
+    return this.timeline(userId, limit);
+  }
 
+  /** Chính chủ xem lịch sử của mình — không cần kiểm vai trò, `userId` luôn là actor. */
+  async mine(actor: AuthenticatedUser, limit = 50): Promise<ActivityEntry[]> {
+    return this.timeline(requireHumanId(actor), limit);
+  }
+
+  private async timeline(userId: string, limit: number): Promise<ActivityEntry[]> {
     const capped = Math.min(Math.max(limit, 1), 200);
 
     // UNION ALL rồi sắp một lần, thay vì bốn truy vấn rồi trộn trong JavaScript: giới hạn

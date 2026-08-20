@@ -16,6 +16,7 @@ export interface RoadmapView {
   status: string;
   createdBy: string | null;
   rejectionReason: string | null;
+  removalRequested: boolean;
   publishedAt: string | null;
   updatedAt: string;
   courses?: RoadmapCourseItem[];
@@ -37,6 +38,7 @@ export function toRoadmapView(roadmap: Roadmap, courses?: RoadmapCourseItem[]): 
     status: roadmap.status,
     createdBy: roadmap.createdBy,
     rejectionReason: roadmap.rejectionReason,
+    removalRequested: roadmap.removalRequested,
     publishedAt: roadmap.publishedAt?.toISOString() ?? null,
     updatedAt: roadmap.updatedAt.toISOString(),
     ...(courses !== undefined ? { courses } : {}),

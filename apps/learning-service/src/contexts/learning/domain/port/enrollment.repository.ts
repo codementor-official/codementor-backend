@@ -47,8 +47,22 @@ export interface RecordProgressInput {
   lastPositionSeconds?: number | null;
 }
 
+/** Một khoá đã ghi danh, đủ để vẽ thẻ trong "Khoá học của tôi" mà không phải gọi thêm. */
+export interface EnrolledCourseView extends CourseEnrollment {
+  title: string;
+  slug: string;
+  level: string;
+  coverImageUrl: string | null;
+  durationHours: number | null;
+  totalChapters: number;
+  totalLessons: number;
+}
+
 export interface EnrollmentRepository {
   findCourseEnrollment(userId: string, courseId: string): Promise<CourseEnrollment | null>;
+
+  /** Mọi khoá đã ghi danh của một người, mới hoạt động trước — "Khoá học của tôi". */
+  listMine(userId: string): Promise<EnrolledCourseView[]>;
 
   /**
    * Ghi danh, hoặc kích hoạt lại nếu người học từng bỏ.

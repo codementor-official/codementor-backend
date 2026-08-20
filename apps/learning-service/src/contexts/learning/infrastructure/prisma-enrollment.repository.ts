@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService, mapDatabaseError } from '@codementor/platform';
 import type {
   CourseEnrollment,
+  EnrolledCourseView,
   EnrollmentRepository,
   LessonProgress,
   LessonProgressView,
@@ -19,6 +20,16 @@ interface EnrollmentRow {
   startedAt: Date;
   completedAt: Date | null;
   lastActivityAt: Date | null;
+}
+
+interface EnrolledCourseRow extends EnrollmentRow {
+  title: string;
+  slug: string;
+  level: string;
+  coverImageUrl: string | null;
+  durationHours: number | null;
+  totalChapters: number;
+  totalLessons: number;
 }
 
 interface ProgressRow {
@@ -49,6 +60,26 @@ export class PrismaEnrollmentRepository implements EnrollmentRepository {
       FROM course_enrollments
       WHERE user_id = ${userId}::uuid AND course_id = ${courseId}::uuid`;
     return rows[0] ? toEnrollment(rows[0]) : null;
+  }
+
+  async listMine(userId: string): Promise<EnrolledCourseView[]> {
+    // `dropped` không hiện ở đây — "khoá học của tôi" là những khoá đang học hoặc đã
+    // xong, không phải nhật ký mọi khoá từng đụng vào. Bỏ học rồi ghi danh lại thì
+    // `enroll()` đã đưa `status` về `active`, nên khoá đó tự quay lại danh sách.
+    const rows = await this.prisma.$queryRaw<EnrolledCourseRow[]>`
+      SELECT ce.id, ce.user_id AS "userId", ce.course_id AS "courseId",
+             ce.via_roadmap_id AS "viaRoadmapId", ce.status::text AS status,
+             ce.completed_lessons AS "completedLessons",
+             ce.progress_percent AS "progressPercent", ce.started_at AS "startedAt",
+             ce.completed_at AS "completedAt", ce.last_activity_at AS "lastActivityAt",
+             c.title, c.slug::text AS slug, c.level::text AS level,
+             c.cover_image_url AS "coverImageUrl", c.duration_hours AS "durationHours",
+             c.total_chapters AS "totalChapters", c.total_lessons AS "totalLessons"
+      FROM course_enrollments ce
+      JOIN courses c ON c.id = ce.course_id
+      WHERE ce.user_id = ${userId}::uuid AND ce.status <> 'dropped'
+      ORDER BY ce.last_activity_at DESC NULLS LAST, ce.started_at DESC`;
+    return rows.map((row) => ({ ...row, progressPercent: Number(row.progressPercent) }));
   }
 
   async enroll(

@@ -18,6 +18,7 @@ export interface ExerciseView {
   authorId: string | null;
   forkedFromId: string | null;
   rejectionReason: string | null;
+  removalRequested: boolean;
   publishedAt: string | null;
   updatedAt: string;
   /** Chỉ có ở endpoint chi tiết; danh sách không kéo theo thân bài. */
@@ -41,6 +42,7 @@ export function toExerciseView(exercise: Exercise, content?: ExerciseContent | n
     authorId: exercise.authorId,
     forkedFromId: exercise.forkedFromId,
     rejectionReason: exercise.rejectionReason,
+    removalRequested: exercise.removalRequested,
     publishedAt: exercise.publishedAt?.toISOString() ?? null,
     updatedAt: exercise.updatedAt.toISOString(),
     ...(content !== undefined ? { content } : {}),

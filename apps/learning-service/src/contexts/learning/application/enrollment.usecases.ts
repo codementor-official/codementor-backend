@@ -5,6 +5,7 @@ import { COURSE_REPOSITORY, type CourseRepository } from '../domain/port/course.
 import {
   ENROLLMENT_REPOSITORY,
   type CourseEnrollment,
+  type EnrolledCourseView,
   type EnrollmentRepository,
   type LessonProgressView,
   type RecordProgressInput,
@@ -45,6 +46,11 @@ export class EnrollmentUseCases {
 
   async drop(user: AuthenticatedUser, courseId: string): Promise<void> {
     await this.enrollments.drop(requireHumanId(user), courseId);
+  }
+
+  /** "Khoá học của tôi" — mọi khoá đang học hoặc đã xong, mới hoạt động trước. */
+  async myCourses(user: AuthenticatedUser): Promise<EnrolledCourseView[]> {
+    return this.enrollments.listMine(requireHumanId(user));
   }
 
   /**
