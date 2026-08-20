@@ -25,7 +25,7 @@ import {
   UpdateCourseDto,
   VideoUploadUrlDto,
 } from './dto/course.dto';
-import { ArchiveMineDto, ModerateDto } from './dto/moderate.dto';
+import { ArchiveMineDto, ModerateDto, SubmitDto } from './dto/moderate.dto';
 import { EnrollDto, RecordProgressDto } from './dto/enrollment.dto';
 
 @ApiTags('courses')
@@ -214,8 +214,13 @@ export class CourseController {
   @Post(':id/submit')
   @Roles('lecturer')
   @ApiOperation({ summary: 'Gửi duyệt' })
-  submit(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.courses.submit(user, id);
+  @ApiResponse({ status: 400, description: 'Gửi duyệt lại mà không kèm ghi chú' })
+  submit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SubmitDto,
+  ) {
+    return this.courses.submit(user, id, dto.note ?? null);
   }
 
   @Post(':id/moderate')

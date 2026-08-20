@@ -35,3 +35,18 @@ export class ArchiveMineDto {
   @MaxLength(2000)
   reason!: string;
 }
+
+/**
+ * Ghi chú tác giả gửi kèm khi bấm gửi duyệt.
+ *
+ * Tuỳ chọn ở tầng HTTP, BẮT BUỘC ở tầng domain khi đây là lần gửi LẠI — luật "gửi lại thì
+ * phải nói đã sửa gì" phụ thuộc vào trạng thái hiện tại của nội dung, thứ mà DTO không
+ * nhìn thấy. Xem `Course.requiresSubmitNote`.
+ */
+export class SubmitDto {
+  @ApiPropertyOptional({ description: 'Bắt buộc khi gửi duyệt lại' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string;
+}

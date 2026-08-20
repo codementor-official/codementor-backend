@@ -44,6 +44,10 @@ export interface CourseView {
   createdBy: string | null;
   rejectionReason: string | null;
   removalRequested: boolean;
+  /** Ghi chú tác giả gửi kèm lần duyệt đang chờ. Xem `Course.submitNote`. */
+  submitNote: string | null;
+  /** `true` khi lần gửi duyệt tới sẽ là gửi LẠI, tức là bắt buộc có ghi chú. */
+  requiresSubmitNote: boolean;
   publishedAt: string | null;
   totalChapters: number;
   totalLessons: number;
@@ -67,6 +71,8 @@ function toView(course: Course, chapters?: StoredChapter[]): CourseView {
     createdBy: course.createdBy,
     rejectionReason: course.rejectionReason,
     removalRequested: course.removalRequested,
+    submitNote: course.submitNote,
+    requiresSubmitNote: course.requiresSubmitNote,
     publishedAt: course.publishedAt?.toISOString() ?? null,
     totalChapters: course.totalChapters,
     totalLessons: course.totalLessons,
@@ -198,6 +204,26 @@ export class CourseUseCases {
     course.recalculateDurationHours(
       saved.flatMap((chapter) => chapter.lessons.map((lesson) => lesson.durationMinutes)),
     );
+
+    /**
+     * Soạn điều kiện mở khoá mà khoá học vẫn ở `linear` thì cạnh phụ thuộc nằm im:
+     * `fn_lesson_available` bỏ qua chúng hoàn toàn và gác bằng thứ tự. Người soạn cấu
+     * hình xong, mở bằng tài khoản học viên và thấy vẫn tuần tự — không có gì báo rằng
+     * thứ họ vừa làm không chạy.
+     *
+     * Đặt cạnh = tuyên bố ý định, nên chuyển chế độ theo. Chỉ chuyển từ `linear`: đó là
+     * giá trị MẶC ĐỊNH lúc tạo khoá, không ai chọn nó. `free` thì để nguyên — mở hết là
+     * một lựa chọn có chủ ý, và ghi đè nó sẽ khoá bài của học viên đang học.
+     */
+    const hasEdges = saved.some((chapter) =>
+      chapter.lessons.some((lesson) => lesson.prerequisites.lessonIds.length > 0),
+    );
+    if (hasEdges && course.progressionMode === 'linear') {
+      const switched = course.edit({ progressionMode: 'graph' });
+      if (switched.isFail) throw switched.error;
+      this.logger.log(`khoá ${id}: có điều kiện mở khoá, chuyển chế độ linear → graph`);
+    }
+
     await this.courses.save(course);
 
     // Đọc lại thay vì trả bản trong bộ nhớ: `total_chapters` và `total_lessons` do
@@ -293,7 +319,7 @@ export class CourseUseCases {
     return signed.value;
   }
 
-  async submit(user: AuthenticatedUser, id: string): Promise<CourseView> {
+  async submit(user: AuthenticatedUser, id: string, note?: string | null): Promise<CourseView> {
     const course = await this.mustOwn(user, id);
     const curriculum = await this.courses.findCurriculum(id);
 
@@ -310,11 +336,14 @@ export class CourseUseCases {
         lesson.exerciseAuthorId !== course.createdBy,
     ).length;
 
-    const submitted = course.submit({
-      chapters: curriculum.map((chapter) => ({ lessonCount: chapter.lessons.length })),
-      lessonsMissingContent,
-      exercisesNotUsable,
-    });
+    const submitted = course.submit(
+      {
+        chapters: curriculum.map((chapter) => ({ lessonCount: chapter.lessons.length })),
+        lessonsMissingContent,
+        exercisesNotUsable,
+      },
+      note,
+    );
     if (submitted.isFail) throw submitted.error;
 
     await this.courses.save(course);
@@ -327,6 +356,7 @@ export class CourseUseCases {
         slug: course.slug,
         title: course.title,
         authorName: user.displayName,
+        note: course.submitNote,
       });
     } catch (error) {
       this.logger.error(

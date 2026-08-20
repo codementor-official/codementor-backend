@@ -241,11 +241,15 @@ export class Course extends AggregateRoot<string> {
     this.props.updatedAt = new Date();
   }
 
-  submit(curriculum: {
-    chapters: { lessonCount: number }[];
-    lessonsMissingContent: number;
-    exercisesNotUsable: number;
-  }): Result<true, BusinessRuleViolation> {
+  submit(
+    curriculum: {
+      chapters: { lessonCount: number }[];
+      lessonsMissingContent: number;
+      exercisesNotUsable: number;
+    },
+    /** Ghi chú gửi người duyệt — bắt buộc ở lần gửi LẠI, xem `requiresSubmitNote`. */
+    note?: string | null,
+  ): Result<true, BusinessRuleViolation | InvalidInput> {
     // `published` nằm trong danh sách này để một khoá đã lên sóng vẫn sửa được: tác giả
     // lưu bản chỉnh, rồi gửi duyệt lại — bản cũ ẩn khỏi danh mục cho tới khi admin duyệt
     // bản mới, không lặng lẽ thay nội dung một khoá học đang công khai mà không ai xem lại.
@@ -283,10 +287,35 @@ export class Course extends AggregateRoot<string> {
       );
     }
 
+    const trimmed = note?.trim() || null;
+    if (this.requiresSubmitNote && trimmed === null) {
+      return Result.fail(
+        new InvalidInput('Gửi duyệt lại phải kèm ghi chú cho người duyệt biết bạn đã sửa gì'),
+      );
+    }
+
     this.props.status = 'pending_review';
-    this.props.rejectionReason = null;
+    // Ô `rejection_reason` mang nghĩa thứ ba ở đây: trong lúc `pending_review` nó là GHI
+    // CHÚ CỦA TÁC GIẢ, không phải lời chê của admin. Ba nghĩa trên một cột là cái giá để
+    // không phải thêm cột, và nó an toàn vì ba nghĩa không bao giờ cùng tồn tại: mỗi nghĩa
+    // gắn với đúng một trạng thái (`pending_review`, `rejected`/`changes_requested`,
+    // `published` + xin gỡ). Đọc qua `submitNote` chứ đừng đọc thẳng.
+    this.props.rejectionReason = trimmed;
     this.props.updatedAt = new Date();
     return Result.ok(true);
+  }
+
+  /**
+   * Gửi LẠI thì phải nói đã sửa gì. Lần gửi đầu từ bản nháp thì không — lúc đó chưa có
+   * quyết định nào để giải thích, và bắt viết ghi chú chỉ là một ô trống phải điền.
+   */
+  get requiresSubmitNote(): boolean {
+    return this.props.status !== 'draft';
+  }
+
+  /** Ghi chú tác giả gửi kèm lần duyệt này. Chỉ có nghĩa khi đang chờ duyệt. */
+  get submitNote(): string | null {
+    return this.props.status === 'pending_review' ? this.props.rejectionReason : null;
   }
 
   /**

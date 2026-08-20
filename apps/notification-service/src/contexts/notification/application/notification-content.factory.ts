@@ -152,12 +152,21 @@ export function fromContentReviewRequested(payload: ContentReviewRequestedV1): D
     audienceType: 'ROLE',
     audienceKey: 'admin',
     title: '🔔 Có nội dung chờ bạn duyệt',
-    message: `${who} vừa gửi ${KIND_LABEL[payload.kind]} ${quoted(payload.title)} đi duyệt.`,
+    // Ghi chú đi thẳng vào câu thông báo: người duyệt đọc chuông là biết ngay đây là lần
+    // gửi lại và tác giả đã sửa gì, không phải mở nội dung ra rồi tự so với trí nhớ.
+    message:
+      `${who} vừa gửi ${KIND_LABEL[payload.kind]} ${quoted(payload.title)} đi duyệt.` +
+      (payload.note?.trim() ? ` Ghi chú: ${payload.note.trim()}` : ''),
     referenceType: REFERENCE_BY_KIND[payload.kind],
     referenceId: payload.contentId,
     actionLabel: 'Mở hàng chờ duyệt',
     actionUrl: '/moderation',
-    metadata: { kind: payload.kind, slug: payload.slug, authorName: payload.authorName },
+    metadata: {
+      kind: payload.kind,
+      slug: payload.slug,
+      authorName: payload.authorName,
+      note: payload.note?.trim() || null,
+    },
   });
 }
 

@@ -278,6 +278,13 @@ export interface ContentReviewRequestedV1 {
   slug: string | null;
   title: string;
   authorName: string | null;
+  /**
+   * Ghi chú tác giả viết khi bấm gửi duyệt. `null` ở lần gửi ĐẦU (chưa có quyết định nào
+   * để giải thích); bắt buộc ở những lần gửi LẠI, vì đó là câu trả lời cho "tôi vừa từ
+   * chối bài này tuần trước, giờ có gì khác?" — không có nó thì người duyệt phải tự đọc
+   * lại toàn bộ nội dung để đoán.
+   */
+  note?: string | null;
 }
 
 /**

@@ -249,14 +249,30 @@ describe('validateCurriculum', () => {
 
     it('gửi duyệt lại được — sửa khóa đang sống thì phải qua duyệt lại', () => {
       const course = published();
-      expect(course.submit(submittable).isOk).toBe(true);
+      expect(course.submit(submittable, 'Đã sửa lại chương 2').isOk).toBe(true);
       expect(course.status).toBe('pending_review');
+      expect(course.submitNote).toBe('Đã sửa lại chương 2');
+    });
+
+    // Người duyệt đã đọc bản trước; không có ghi chú thì họ phải tự đoán đã đổi chỗ nào.
+    it('gửi duyệt LẠI mà không kèm ghi chú thì bị từ chối', () => {
+      const course = published();
+      expect(course.submit(submittable).isFail).toBe(true);
+      expect(course.status).toBe('published');
+    });
+
+    // Lần gửi ĐẦU từ bản nháp thì không hỏi — chưa có quyết định nào để giải thích.
+    it('gửi duyệt lần đầu từ nháp không cần ghi chú', () => {
+      const course = make();
+      course.edit({ description: 'Mô tả khóa học' });
+      expect(course.submit(submittable).isOk).toBe(true);
+      expect(course.submitNote).toBeNull();
     });
 
     // Huỷ gửi duyệt KHÔNG BAO GIỜ được công khai nội dung — xem `Course.withdraw`.
     it('hủy gửi duyệt lại thì về draft, không phải published', () => {
       const course = published();
-      course.submit(submittable);
+      course.submit(submittable, 'Đã sửa lại chương 2');
       expect(course.withdraw().isOk).toBe(true);
       expect(course.status).toBe('draft');
       expect(course.publishedAt).not.toBeNull();
