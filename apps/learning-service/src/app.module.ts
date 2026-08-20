@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AuthModule, RemoteIdentityModule, ConfigModule, HealthModule, HttpModule, LoggingModule, MongoModule, PrismaModule } from '@codementor/platform';
+import { AuthModule, RemoteIdentityModule, ConfigModule, HealthModule, HttpModule, LoggingModule, MongoModule, PrismaModule, StorageModule } from '@codementor/platform';
 import { MessagingModule } from '@codementor/messaging';
 import { LearningModule } from './contexts/learning/learning.module';
 
@@ -24,6 +24,9 @@ import { LearningModule } from './contexts/learning/learning.module';
     LoggingModule,
     MongoModule,
     PrismaModule,
+    // Video bài học nằm ở kho đối tượng, không ở CSDL. Chưa cấu hình S3 thì module vẫn
+    // nạp và chỉ tắt riêng nút tải lên — xem `ObjectStorageService`.
+    StorageModule,
     MessagingModule.forRoot({ serviceName: 'learning-service' }),
     LearningModule,
   ],

@@ -56,6 +56,39 @@ export const envSchema = z.object({
     .string()
     .default('http://localhost:3000')
     .transform((v) => v.split(',').map((s) => s.trim())),
+
+  /**
+   * Kho đối tượng S3 (hoặc tương thích S3) — nơi video bài học được tải lên.
+   *
+   * TOÀN BỘ nhóm này là tuỳ chọn, và đó là điều kiện bắt buộc chứ không phải sự dễ dãi:
+   * chưa cấu hình thì ứng dụng phải chạy bình thường và chỉ tắt riêng nút tải lên. Bắt
+   * buộc ở đây nghĩa là mọi service — kể cả những service không đụng gì tới video — chết
+   * lúc khởi động trên một máy chưa có khoá S3. Xem `ObjectStorageService.isConfigured`.
+   *
+   * Tên biến theo quy ước AWS chuẩn (`AWS_ACCESS_KEY_ID`, `AWS_REGION`…) chứ không phải
+   * một bộ tên riêng: đây là những tên mà AWS CLI, SDK và mọi hướng dẫn ngoài kia dùng,
+   * nên khoá copy từ bảng điều khiển AWS dán thẳng vào được mà không phải đổi tên.
+   */
+  AWS_REGION: z.string().default('ap-southeast-1'),
+  AWS_S3_BUCKET: z.string().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  /** Thư mục gốc của video trong bucket. Khoá đối tượng = prefix này + đường của bài. */
+  AWS_S3_VIDEO_PREFIX: z.string().default('public/videos'),
+  /** Đường ĐỌC lại. Bỏ trống = suy từ bucket/region; điền khi có CDN đứng trước. */
+  AWS_S3_PUBLIC_URL: z.string().url().optional(),
+  /** Hạn của một URL ký sẵn, tính bằng giây. Đủ lâu để tải xong, đủ ngắn để không thành
+   * quyền ghi vĩnh viễn nếu URL lọt ra ngoài. */
+  AWS_S3_PRESIGNED_EXPIRES: z.coerce.number().int().positive().default(900),
+  /** Bỏ trống = AWS S3 thật. Điền vào khi dùng MinIO, R2, Spaces… */
+  AWS_S3_ENDPOINT: z.string().url().optional(),
+  /** MinIO và phần lớn kho tương thích S3 cần path-style; AWS thật thì không. */
+  AWS_S3_FORCE_PATH_STYLE: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  /** Trần dung lượng một video, tính bằng MB. Chặn ở cả hai đầu client và server. */
+  VIDEO_MAX_UPLOAD_MB: z.coerce.number().int().positive().default(500),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -21,5 +21,7 @@ export * from './auth/identity-provisioning.port';
 export * from './auth/remote-identity.provisioning';
 export * from './auth/remote-identity.module';
 export * from './auth/user-role';
+export * from './storage/storage.module';
+export * from './storage/object-storage.service';
 export * from './health/health.module';
 export * from './bootstrap';
