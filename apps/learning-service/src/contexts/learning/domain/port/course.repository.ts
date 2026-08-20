@@ -1,5 +1,5 @@
 import type { Course } from '../model/course';
-import type { ChapterDraft, LessonType } from '../model/curriculum';
+import type { ChapterDraft, LessonPrerequisites, LessonType } from '../model/curriculum';
 
 export interface CourseListFilter {
   createdBy: string | null;
@@ -30,6 +30,16 @@ export interface CourseListItem {
   totalLessons: number;
   createdBy: string | null;
   authorName: string | null;
+  /**
+   * Tác giả đang XIN GỠ nội dung này và chờ admin quyết.
+   *
+   * Không phải một trạng thái riêng: nội dung vẫn `published` và học viên vẫn dùng bình
+   * thường. Dấu hiệu là `published` + có `rejection_reason` — xem `removalRequested` ở
+   * aggregate. Có mặt trong danh sách (không chỉ ở chi tiết) vì hàng chờ duyệt phải LỌC
+   * ra được chúng: thiếu nó thì một yêu cầu xin gỡ chỉ tồn tại trong thông báo, và bấm
+   * vào thông báo sẽ dẫn tới một màn hình không có gì.
+   */
+  removalRequested: boolean;
   updatedAt: Date;
 }
 
@@ -58,6 +68,8 @@ export interface StoredLesson {
   exerciseTitle: string | null;
   exerciseStatus: string | null;
   exerciseAuthorId: string | null;
+  /** Điều kiện mở bài này. Chỉ có tác dụng khi khoá học ở chế độ `graph`. */
+  prerequisites: LessonPrerequisites;
 }
 
 export interface StoredChapter {
@@ -100,6 +112,19 @@ export interface LessonContent {
   objectives?: string[];
   contentHtml?: string;
   exerciseBrief?: string[];
+  /**
+   * Video của bài học. Khớp `media` trong validator của collection `lesson_contents`.
+   *
+   * KHÔNG lưu `provider`: bản thân URL đã nói ra nó là YouTube, Vimeo hay một tệp trực
+   * tiếp, và giữ thêm một trường nữa là dựng ra hai chỗ có thể mâu thuẫn — đổi URL mà
+   * quên đổi provider thì trình phát chọn sai kiểu nhúng. Frontend nhận diện bằng
+   * `resolveVideo` ở `@codementor/utils`, dùng chung cho cả studio lẫn màn học viên.
+   */
+  media?: {
+    url: string;
+    durationSeconds?: number;
+    captionsUrl?: string;
+  };
 }
 
 export interface LessonContentRepository {
