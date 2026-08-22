@@ -58,13 +58,7 @@ def js_starter(spec: DriverSpec) -> str:
 def ts_starter(spec: DriverSpec) -> str:
     args = ", ".join(f"{p.name}: {ts_type(p.type)}" for p in spec.parameters)
     returns = ts_type(spec.return_type)
-    body = (
-        "    // Viết code của bạn ở đây\n"
-        if returns == "void"
-        # Hàm khai kiểu trả về mà không return thì tsc từ chối biên dịch — mã khởi tạo phải
-        # dịch được, nếu không học viên bấm "Chạy" lần đầu đã thấy lỗi của chúng ta.
-        else '    // Viết code của bạn ở đây\n    throw new Error("Chưa cài đặt");\n'
-    )
+    body = "    // Viết code của bạn ở đây\n"
     return f"function {camel(spec.function_name)}({args}): {returns} {{\n{body}}}\n"
 
 

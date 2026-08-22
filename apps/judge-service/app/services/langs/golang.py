@@ -47,13 +47,7 @@ def starter(spec: DriverSpec) -> str:
     args = ", ".join(f"{p.name} {type_of(p.type)}" for p in spec.parameters)
     void = spec.return_type.get("kind") == "void"
     returns = "" if void else f" {type_of(spec.return_type)}"
-    body = (
-        "\t// Viết code của bạn ở đây\n"
-        if void
-        # Go bắt buộc nhánh cuối phải return hoặc panic; mã khởi tạo không dịch được thì lần
-        # bấm "Chạy" đầu tiên báo lỗi của chúng ta chứ không phải của học viên.
-        else '\t// Viết code của bạn ở đây\n\tpanic("chưa cài đặt")\n'
-    )
+    body = "\t// Viết code của bạn ở đây\n"
     return f"package main\n\nfunc {camel(spec.function_name)}({args}){returns} {{\n{body}}}\n"
 
 

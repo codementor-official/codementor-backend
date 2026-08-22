@@ -78,17 +78,7 @@ def _gson_target(node: dict) -> str:
 def starter(spec: DriverSpec) -> str:
     args = ", ".join(f"{type_of(p.type)} {p.name}" for p in spec.parameters)
     returns = type_of(spec.return_type)
-    body = (
-        "        // Viết code của bạn ở đây\n"
-        if returns == "void"
-        # `javac` từ chối một phương thức có kiểu trả về mà không return. Mã khởi tạo phải
-        # dịch được, nếu không lần bấm "Chạy" đầu tiên báo lỗi của chúng ta chứ không phải
-        # của học viên.
-        else (
-            "        // Viết code của bạn ở đây\n"
-            '        throw new UnsupportedOperationException("Chưa cài đặt");\n'
-        )
-    )
+    body = "        // Viết code của bạn ở đây\n"
     return (
         "import java.util.*;\n\n"
         "class Solution {\n"

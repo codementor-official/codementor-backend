@@ -48,11 +48,7 @@ def type_of(node: dict | None) -> str:
 def starter(spec: DriverSpec) -> str:
     args = ", ".join(f"{type_of(p.type)} {p.name}" for p in spec.parameters)
     returns = type_of(spec.return_type)
-    body = (
-        "    // Viết code của bạn ở đây\n"
-        if returns == "void"
-        else '    // Viết code của bạn ở đây\n    throw std::runtime_error("Chưa cài đặt");\n'
-    )
+    body = "    // Viết code của bạn ở đây\n"
     return (
         "#include <map>\n#include <stdexcept>\n#include <string>\n#include <vector>\n\n"
         f"{returns} {spec.function_name}({args}) {{\n{body}}}\n"

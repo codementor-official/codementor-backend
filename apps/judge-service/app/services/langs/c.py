@@ -93,14 +93,7 @@ def starter(spec: DriverSpec) -> str:
         notes.append(" * Trả về mảng cấp phát bằng malloc và đặt *returnSize là số phần tử.")
 
     header = f"/**\n{chr(10).join(notes)}\n */\n" if notes else ""
-    # C bắt buộc phải return một giá trị; để trống thì mã khởi tạo không dịch được.
-    placeholder = {
-        "list": "    *returnSize = 0;\n    return NULL;\n",
-        "string": "    return NULL;\n",
-        "bool": "    return false;\n",
-        "void": "",
-    }.get(kind, "    return 0;\n")
-    body = "    // Viết code của bạn ở đây\n" + placeholder
+    body = "    // Viết code của bạn ở đây\n"
 
     return (
         "#include <stdbool.h>\n#include <stdlib.h>\n#include <string.h>\n\n"

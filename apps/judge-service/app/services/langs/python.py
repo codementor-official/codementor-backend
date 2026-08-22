@@ -44,7 +44,6 @@ def starter(spec: DriverSpec) -> str:
     return (
         f"{header}def {spec.function_name}({args}) -> {type_of(spec.return_type)}:\n"
         f"    # Viết code của bạn ở đây\n"
-        f"    pass\n"
     )
 
 
