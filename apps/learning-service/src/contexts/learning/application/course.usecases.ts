@@ -216,22 +216,15 @@ export class CourseUseCases {
     );
 
     /**
-     * Soạn điều kiện mở khoá mà khoá học vẫn ở `linear` thì cạnh phụ thuộc nằm im:
-     * `fn_lesson_available` bỏ qua chúng hoàn toàn và gác bằng thứ tự. Người soạn cấu
-     * hình xong, mở bằng tài khoản học viên và thấy vẫn tuần tự — không có gì báo rằng
-     * thứ họ vừa làm không chạy.
-     *
-     * Đặt cạnh = tuyên bố ý định, nên chuyển chế độ theo. Chỉ chuyển từ `linear`: đó là
-     * giá trị MẶC ĐỊNH lúc tạo khoá, không ai chọn nó. `free` thì để nguyên — mở hết là
-     * một lựa chọn có chủ ý, và ghi đè nó sẽ khoá bài của học viên đang học.
+     * `saveCurriculum` (repository) vừa suy VÀ ghi lại cạnh phụ thuộc cho mọi bài — xem
+     * `deriveLessonSources`. Cạnh đó chỉ có tác dụng ở chế độ `graph`
+     * (`fn_lesson_available` bỏ qua chúng hoàn toàn ở `linear`/gác bằng thứ tự thay), nên
+     * khoá luôn phải ở `graph` để "cho học trước" thật sự chạy. Trừ `free`: mở hết là một
+     * lựa chọn có chủ ý, ghi đè nó sẽ khoá bài của học viên đang học.
      */
-    const hasEdges = saved.some((chapter) =>
-      chapter.lessons.some((lesson) => lesson.prerequisites.lessonIds.length > 0),
-    );
-    if (hasEdges && course.progressionMode === 'linear') {
+    if (course.progressionMode !== 'free' && course.progressionMode !== 'graph') {
       const switched = course.edit({ progressionMode: 'graph' });
       if (switched.isFail) throw switched.error;
-      this.logger.log(`khoá ${id}: có điều kiện mở khoá, chuyển chế độ linear → graph`);
     }
 
     await this.courses.save(course);

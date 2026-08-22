@@ -1,5 +1,5 @@
 import type { Course } from '../model/course';
-import type { ChapterDraft, LessonPrerequisites, LessonType } from '../model/curriculum';
+import type { ChapterDraft, LessonType } from '../model/curriculum';
 
 export interface CourseListFilter {
   createdBy: string | null;
@@ -68,8 +68,6 @@ export interface StoredLesson {
   exerciseTitle: string | null;
   exerciseStatus: string | null;
   exerciseAuthorId: string | null;
-  /** Điều kiện mở bài này. Chỉ có tác dụng khi khoá học ở chế độ `graph`. */
-  prerequisites: LessonPrerequisites;
 }
 
 export interface StoredChapter {

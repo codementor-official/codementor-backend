@@ -167,9 +167,6 @@ export class CourseController {
           isPreview: lesson.isPreview ?? false,
           isOptional: lesson.isOptional ?? false,
           exerciseId: lesson.exerciseId ?? null,
-          // `undefined` chứ không `?? NO_PREREQUISITES`: client không gửi trường này thì
-          // điều kiện đang có phải giữ nguyên, không phải bị xoá.
-          prerequisites: lesson.prerequisites,
         })),
       })),
     );

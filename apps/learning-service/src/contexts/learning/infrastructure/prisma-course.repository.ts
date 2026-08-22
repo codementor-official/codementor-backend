@@ -4,7 +4,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService, mapDatabaseError } from '@codementor/platform';
 import { Course } from '../domain/model/course';
 import type { ContentStatus, CurrentLevel, ProgressionMode } from '../domain/model/roadmap';
-import type { ChapterDraft, LessonPrerequisites } from '../domain/model/curriculum';
+import { deriveLessonSources } from '../domain/model/curriculum';
+import type { ChapterDraft } from '../domain/model/curriculum';
 import type {
   CourseListFilter,
   CourseListItem,
@@ -41,33 +42,8 @@ interface ChapterRow {
   position: number;
 }
 
-interface LessonRow extends Omit<StoredLesson, 'prerequisites'> {
+interface LessonRow extends StoredLesson {
   chapterId: string;
-}
-
-interface PrerequisiteRow {
-  targetLessonId: string;
-  sourceLessonId: string;
-  groupIndex: number;
-}
-
-/**
- * DNF trong CSDL → `{ rule, lessonIds }` cho giao diện. Xem `LessonPrerequisites` để
- * biết vì sao hai dạng này quy về nhau được.
- *
- * Một nhóm duy nhất = AND toàn bộ = `ALL`. Nhiều nhóm thì mỗi nhóm là một lựa chọn, và
- * vì đường ghi duy nhất (`saveCurriculum` bên dưới) chỉ tạo nhóm một-phần-tử cho `ANY`,
- * "nhiều nhóm" ở đây luôn đúng là `ANY`. Nếu một ngày có dữ liệu DNF trộn từ nơi khác,
- * gom phẳng thành `ANY` là phía an toàn: nó chỉ nới lỏng điều kiện chứ không khoá nhầm
- * một bài mà học viên đã đủ điều kiện mở.
- */
-function toPrerequisites(rows: PrerequisiteRow[]): LessonPrerequisites {
-  if (rows.length === 0) return { rule: 'ALL', lessonIds: [] };
-  const groups = new Set(rows.map((row) => row.groupIndex));
-  return {
-    rule: groups.size === 1 ? 'ALL' : 'ANY',
-    lessonIds: [...new Set(rows.map((row) => row.sourceLessonId))],
-  };
 }
 
 @Injectable()
@@ -158,19 +134,6 @@ export class PrismaCourseRepository implements CourseRepository {
       WHERE l.course_id = ${courseId}::uuid
       ORDER BY l.position`;
 
-    const prerequisites = await this.prisma.$queryRaw<PrerequisiteRow[]>`
-      SELECT target_lesson_id AS "targetLessonId", source_lesson_id AS "sourceLessonId",
-             group_index AS "groupIndex"
-      FROM lesson_prerequisites
-      WHERE course_id = ${courseId}::uuid`;
-
-    const byTarget = new Map<string, PrerequisiteRow[]>();
-    for (const row of prerequisites) {
-      const bucket = byTarget.get(row.targetLessonId);
-      if (bucket) bucket.push(row);
-      else byTarget.set(row.targetLessonId, [row]);
-    }
-
     return chapters.map((chapter) => ({
       id: chapter.id,
       title: chapter.title,
@@ -179,10 +142,7 @@ export class PrismaCourseRepository implements CourseRepository {
       position: chapter.position,
       lessons: lessons
         .filter((lesson) => lesson.chapterId === chapter.id)
-        .map(({ chapterId: _chapterId, ...lesson }) => ({
-          ...lesson,
-          prerequisites: toPrerequisites(byTarget.get(lesson.id) ?? []),
-        })),
+        .map(({ chapterId: _chapterId, ...lesson }) => lesson),
     }));
   }
 
@@ -200,8 +160,10 @@ export class PrismaCourseRepository implements CourseRepository {
    *
    * Điều kiện mở khoá ghi Ở CUỐI, sau khi mọi bài đã có hàng trong CSDL: cạnh có khoá
    * ngoại ghép vào `(course_id, id)` của cả hai đầu, nên chèn sớm một cạnh trỏ tới bài
-   * chưa kịp tạo sẽ hỏng. Chúng cũng chỉ được đụng tới khi client thực sự gửi trường
-   * `prerequisites` — xem `LessonDraft.prerequisites`.
+   * chưa kịp tạo sẽ hỏng. Server tự suy toàn bộ cạnh từ thứ tự chương/bài — xem
+   * `deriveLessonSources` — nên ghi lại cho MỌI bài, không còn "chỉ bài client gửi" như
+   * trước: id của bài mới (`randomUUID()` ở vòng lặp dưới) đã có sẵn ngay trong lượt này,
+   * không cần một lượt lưu thứ hai chỉ để có id thật trước khi đặt điều kiện.
    */
   async saveCurriculum(courseId: string, chapters: ChapterDraft[]): Promise<void> {
     const keptChapterIds = chapters.map((chapter) => chapter.id).filter((id): id is string => !!id);
@@ -228,6 +190,10 @@ export class PrismaCourseRepository implements CourseRepository {
         : this.prisma.$executeRaw`DELETE FROM chapters WHERE course_id = ${courseId}::uuid`,
     ];
 
+    // Id thật của mọi bài, theo đúng thứ tự chương/bài cuối cùng — dùng để suy cạnh phụ
+    // thuộc ngay dưới đây, không cần đọc lại từ CSDL.
+    const orderedChapters: { lessons: { id: string; skipOrder: boolean }[] }[] = [];
+
     for (const [chapterIndex, chapter] of chapters.entries()) {
       const chapterId = chapter.id ?? randomUUID();
       statements.push(this.prisma.$executeRaw`
@@ -241,8 +207,13 @@ export class PrismaCourseRepository implements CourseRepository {
           is_optional = EXCLUDED.is_optional,
           updated_at  = now()`);
 
+      const orderedLessons: { id: string; skipOrder: boolean }[] = [];
+
       for (const [lessonIndex, lesson] of chapter.lessons.entries()) {
         const lessonId = lesson.id ?? randomUUID();
+        // `isPreview` giờ mang cả hai nghĩa: mở cho người chưa ghi danh VÀ bỏ qua thứ tự
+        // (hai cái đi cùng nhau, xem `LessonDraft.isPreview`).
+        orderedLessons.push({ id: lessonId, skipOrder: lesson.isPreview });
         statements.push(this.prisma.$executeRaw`
           INSERT INTO lessons (id, chapter_id, course_id, title, type, duration_minutes,
                                is_preview, is_optional, position, exercise_id)
@@ -260,30 +231,25 @@ export class PrismaCourseRepository implements CourseRepository {
             exercise_id      = EXCLUDED.exercise_id,
             updated_at       = now()`);
       }
+
+      orderedChapters.push({ lessons: orderedLessons });
     }
 
-    // Chỉ những bài client thực sự gửi `prerequisites` mới bị ghi lại. Bài không gửi giữ
-    // nguyên cạnh đang có — nếu không, một studio chưa cập nhật sẽ xoá sạch điều kiện mở
-    // khoá của cả khoá học ở lần bấm Lưu đầu tiên.
-    const authored = chapters
-      .flatMap((chapter) => chapter.lessons)
-      .filter((lesson) => lesson.id !== undefined && lesson.prerequisites !== undefined) as {
-      id: string;
-      prerequisites: NonNullable<ChapterDraft['lessons'][number]['prerequisites']>;
-    }[];
+    // Ghi lại toàn bộ cạnh phụ thuộc từ đầu — mô hình mới không còn "giữ nguyên cạnh cũ
+    // của bài không gửi", vì không còn khái niệm bài không gửi: mọi bài luôn mang cờ
+    // `isPreview`, và cạnh luôn được suy lại từ thứ tự hiện tại.
+    statements.push(
+      this.prisma.$executeRaw`DELETE FROM lesson_prerequisites WHERE course_id = ${courseId}::uuid`,
+    );
 
-    for (const lesson of authored) {
-      statements.push(this.prisma.$executeRaw`
-        DELETE FROM lesson_prerequisites WHERE target_lesson_id = ${lesson.id}::uuid`);
-
-      const sources = [...new Set(lesson.prerequisites.lessonIds)];
-      for (const [index, source] of sources.entries()) {
-        // `ALL` = một nhóm duy nhất (AND), `ANY` = mỗi nguồn một nhóm (OR).
-        // Xem `fn_lesson_available` ở migration 0011 và `LessonPrerequisites`.
-        const groupIndex = lesson.prerequisites.rule === 'ALL' ? 0 : index;
+    const sourcesByTarget = deriveLessonSources(orderedChapters);
+    for (const [targetId, sourceIds] of sourcesByTarget) {
+      for (const sourceId of sourceIds) {
+        // Luôn một nhóm (AND) — xem `deriveLessonSources`. `fn_lesson_available` (migration
+        // 0011) đọc mọi nguồn cùng `group_index` như một điều kiện AND.
         statements.push(this.prisma.$executeRaw`
           INSERT INTO lesson_prerequisites (course_id, target_lesson_id, source_lesson_id, group_index)
-          VALUES (${courseId}::uuid, ${lesson.id}::uuid, ${source}::uuid, ${groupIndex})
+          VALUES (${courseId}::uuid, ${targetId}::uuid, ${sourceId}::uuid, 0)
           ON CONFLICT DO NOTHING`);
       }
     }
