@@ -6,7 +6,7 @@ import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@
 import { DEFAULT_PAGE_LIMIT, canEditCourse, decodeCursor, requireHumanId, toPage, ContentAuthorLookup, ObjectStorageService, VIDEO_CONTENT_TYPES, type AuthenticatedUser, type Page, type PresignedUpload } from '@codementor/platform';
 import { Course } from '../domain/model/course';
 import type { CourseEdit } from '../domain/model/course';
-import { deriveEarlyAccessFlags, validateCurriculum, type ChapterDraft } from '../domain/model/curriculum';
+import { validateCurriculum, type ChapterDraft } from '../domain/model/curriculum';
 import type { CurrentLevel } from '../domain/model/roadmap';
 import {
   COURSE_REPOSITORY,
@@ -52,31 +52,10 @@ export interface CourseView {
   totalChapters: number;
   totalLessons: number;
   updatedAt: string;
-  chapters?: CourseChapterView[];
+  chapters?: StoredChapter[];
 }
 
-/** Bài như studio thấy: cờ "cho học trước" thay cho cạnh phụ thuộc thô. */
-export type CourseLessonView = Omit<StoredChapter['lessons'][number], 'prerequisites'> & {
-  earlyAccess: boolean;
-};
-export type CourseChapterView = Omit<StoredChapter, 'lessons'> & { lessons: CourseLessonView[] };
-
-/**
- * `StoredChapter[]` (cạnh phụ thuộc thô, đúng hình dạng CSDL) → `CourseChapterView[]`
- * (cờ "cho học trước", đúng hình dạng studio muốn hiển thị). Xem `deriveEarlyAccessFlags`.
- */
-function withEarlyAccess(chapters: StoredChapter[], progressionMode: string): CourseChapterView[] {
-  const flags = deriveEarlyAccessFlags(chapters, progressionMode);
-  return chapters.map((chapter) => ({
-    ...chapter,
-    lessons: chapter.lessons.map(({ prerequisites: _prerequisites, ...lesson }) => ({
-      ...lesson,
-      earlyAccess: flags.get(lesson.id) ?? false,
-    })),
-  }));
-}
-
-function toView(course: Course, chapters?: CourseChapterView[]): CourseView {
+function toView(course: Course, chapters?: StoredChapter[]): CourseView {
   return {
     id: course.id,
     slug: course.slug,
@@ -163,7 +142,7 @@ export class CourseUseCases {
     if (course.status !== 'published' && !canEditCourse(user, { created_by: course.createdBy })) {
       throw new NotFound('Khóa học', id);
     }
-    return toView(course, withEarlyAccess(await this.courses.findCurriculum(id), course.progressionMode));
+    return toView(course, await this.courses.findCurriculum(id));
   }
 
   async getReferences(user: AuthenticatedUser, id: string): Promise<{ roadmaps: { id: string; title: string; slug: string }[] }> {
@@ -207,7 +186,7 @@ export class CourseUseCases {
     if (updated.isFail) throw updated.error;
 
     await this.courses.save(course);
-    return toView(course, withEarlyAccess(await this.courses.findCurriculum(id), course.progressionMode));
+    return toView(course, await this.courses.findCurriculum(id));
   }
 
   /**
@@ -254,7 +233,7 @@ export class CourseUseCases {
     // trigger giữ, nên aggregate nạp TRƯỚC lệnh ghi vẫn mang số cũ. Trả nó về là nói
     // với studio rằng khóa học không có chương nào, ngay sau khi vừa lưu hai chương.
     const refreshed = await this.mustFind(id);
-    return toView(refreshed, withEarlyAccess(saved, course.progressionMode));
+    return toView(refreshed, saved);
   }
 
   async saveLessonContent(
@@ -388,7 +367,7 @@ export class CourseUseCases {
         error as Error,
       );
     }
-    return toView(course, withEarlyAccess(curriculum, course.progressionMode));
+    return toView(course, curriculum);
   }
 
   async withdraw(user: AuthenticatedUser, id: string): Promise<CourseView> {
@@ -397,7 +376,7 @@ export class CourseUseCases {
     if (withdrawn.isFail) throw withdrawn.error;
 
     await this.courses.save(course);
-    return toView(course, withEarlyAccess(await this.courses.findCurriculum(id), course.progressionMode));
+    return toView(course, await this.courses.findCurriculum(id));
   }
 
   /**
@@ -430,7 +409,7 @@ export class CourseUseCases {
         error as Error,
       );
     }
-    return toView(course, withEarlyAccess(await this.courses.findCurriculum(id), course.progressionMode));
+    return toView(course, await this.courses.findCurriculum(id));
   }
 
   /**
@@ -445,7 +424,7 @@ export class CourseUseCases {
 
     await this.courses.save(course);
     await this.announceModerated(course, 'deny_removal', null, { displayName: user.displayName, externalId: user.externalId });
-    return toView(course, withEarlyAccess(await this.courses.findCurriculum(id), course.progressionMode));
+    return toView(course, await this.courses.findCurriculum(id));
   }
 
   /** Tác giả tự khôi phục khóa học đã gỡ của mình — về draft, đi lại vòng duyệt. */
@@ -455,7 +434,7 @@ export class CourseUseCases {
     if (restored.isFail) throw restored.error;
 
     await this.courses.save(course);
-    return toView(course, withEarlyAccess(await this.courses.findCurriculum(id), course.progressionMode));
+    return toView(course, await this.courses.findCurriculum(id));
   }
 
   async remove(user: AuthenticatedUser, id: string): Promise<void> {
@@ -493,7 +472,7 @@ export class CourseUseCases {
       await this.announcePublished(entity);
     }
     await this.announceModerated(entity, decision, reason, { displayName: user.displayName, externalId: user.externalId });
-    return toView(entity, withEarlyAccess(await this.courses.findCurriculum(id), entity.progressionMode));
+    return toView(entity, await this.courses.findCurriculum(id));
   }
 
   /**

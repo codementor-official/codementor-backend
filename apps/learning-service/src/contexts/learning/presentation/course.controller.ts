@@ -167,7 +167,6 @@ export class CourseController {
           isPreview: lesson.isPreview ?? false,
           isOptional: lesson.isOptional ?? false,
           exerciseId: lesson.exerciseId ?? null,
-          earlyAccess: lesson.earlyAccess ?? false,
         })),
       })),
     );

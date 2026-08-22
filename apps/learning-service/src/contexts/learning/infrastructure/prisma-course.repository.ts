@@ -5,7 +5,7 @@ import { PrismaService, mapDatabaseError } from '@codementor/platform';
 import { Course } from '../domain/model/course';
 import type { ContentStatus, CurrentLevel, ProgressionMode } from '../domain/model/roadmap';
 import { deriveLessonSources } from '../domain/model/curriculum';
-import type { ChapterDraft, LessonPrerequisites } from '../domain/model/curriculum';
+import type { ChapterDraft } from '../domain/model/curriculum';
 import type {
   CourseListFilter,
   CourseListItem,
@@ -42,33 +42,8 @@ interface ChapterRow {
   position: number;
 }
 
-interface LessonRow extends Omit<StoredLesson, 'prerequisites'> {
+interface LessonRow extends StoredLesson {
   chapterId: string;
-}
-
-interface PrerequisiteRow {
-  targetLessonId: string;
-  sourceLessonId: string;
-  groupIndex: number;
-}
-
-/**
- * DNF trong CSDL → `{ rule, lessonIds }` cho giao diện. Xem `LessonPrerequisites` để
- * biết vì sao hai dạng này quy về nhau được.
- *
- * Một nhóm duy nhất = AND toàn bộ = `ALL`. Nhiều nhóm thì mỗi nhóm là một lựa chọn, và
- * vì đường ghi duy nhất (`saveCurriculum` bên dưới) chỉ tạo nhóm một-phần-tử cho `ANY`,
- * "nhiều nhóm" ở đây luôn đúng là `ANY`. Nếu một ngày có dữ liệu DNF trộn từ nơi khác,
- * gom phẳng thành `ANY` là phía an toàn: nó chỉ nới lỏng điều kiện chứ không khoá nhầm
- * một bài mà học viên đã đủ điều kiện mở.
- */
-function toPrerequisites(rows: PrerequisiteRow[]): LessonPrerequisites {
-  if (rows.length === 0) return { rule: 'ALL', lessonIds: [] };
-  const groups = new Set(rows.map((row) => row.groupIndex));
-  return {
-    rule: groups.size === 1 ? 'ALL' : 'ANY',
-    lessonIds: [...new Set(rows.map((row) => row.sourceLessonId))],
-  };
 }
 
 @Injectable()
@@ -159,19 +134,6 @@ export class PrismaCourseRepository implements CourseRepository {
       WHERE l.course_id = ${courseId}::uuid
       ORDER BY l.position`;
 
-    const prerequisites = await this.prisma.$queryRaw<PrerequisiteRow[]>`
-      SELECT target_lesson_id AS "targetLessonId", source_lesson_id AS "sourceLessonId",
-             group_index AS "groupIndex"
-      FROM lesson_prerequisites
-      WHERE course_id = ${courseId}::uuid`;
-
-    const byTarget = new Map<string, PrerequisiteRow[]>();
-    for (const row of prerequisites) {
-      const bucket = byTarget.get(row.targetLessonId);
-      if (bucket) bucket.push(row);
-      else byTarget.set(row.targetLessonId, [row]);
-    }
-
     return chapters.map((chapter) => ({
       id: chapter.id,
       title: chapter.title,
@@ -180,10 +142,7 @@ export class PrismaCourseRepository implements CourseRepository {
       position: chapter.position,
       lessons: lessons
         .filter((lesson) => lesson.chapterId === chapter.id)
-        .map(({ chapterId: _chapterId, ...lesson }) => ({
-          ...lesson,
-          prerequisites: toPrerequisites(byTarget.get(lesson.id) ?? []),
-        })),
+        .map(({ chapterId: _chapterId, ...lesson }) => lesson),
     }));
   }
 
@@ -233,7 +192,7 @@ export class PrismaCourseRepository implements CourseRepository {
 
     // Id thật của mọi bài, theo đúng thứ tự chương/bài cuối cùng — dùng để suy cạnh phụ
     // thuộc ngay dưới đây, không cần đọc lại từ CSDL.
-    const orderedChapters: { lessons: { id: string; earlyAccess: boolean }[] }[] = [];
+    const orderedChapters: { lessons: { id: string; skipOrder: boolean }[] }[] = [];
 
     for (const [chapterIndex, chapter] of chapters.entries()) {
       const chapterId = chapter.id ?? randomUUID();
@@ -248,11 +207,13 @@ export class PrismaCourseRepository implements CourseRepository {
           is_optional = EXCLUDED.is_optional,
           updated_at  = now()`);
 
-      const orderedLessons: { id: string; earlyAccess: boolean }[] = [];
+      const orderedLessons: { id: string; skipOrder: boolean }[] = [];
 
       for (const [lessonIndex, lesson] of chapter.lessons.entries()) {
         const lessonId = lesson.id ?? randomUUID();
-        orderedLessons.push({ id: lessonId, earlyAccess: lesson.earlyAccess });
+        // `isPreview` giờ mang cả hai nghĩa: mở cho người chưa ghi danh VÀ bỏ qua thứ tự
+        // (hai cái đi cùng nhau, xem `LessonDraft.isPreview`).
+        orderedLessons.push({ id: lessonId, skipOrder: lesson.isPreview });
         statements.push(this.prisma.$executeRaw`
           INSERT INTO lessons (id, chapter_id, course_id, title, type, duration_minutes,
                                is_preview, is_optional, position, exercise_id)
@@ -276,7 +237,7 @@ export class PrismaCourseRepository implements CourseRepository {
 
     // Ghi lại toàn bộ cạnh phụ thuộc từ đầu — mô hình mới không còn "giữ nguyên cạnh cũ
     // của bài không gửi", vì không còn khái niệm bài không gửi: mọi bài luôn mang cờ
-    // `earlyAccess`, và cạnh luôn được suy lại từ thứ tự hiện tại.
+    // `isPreview`, và cạnh luôn được suy lại từ thứ tự hiện tại.
     statements.push(
       this.prisma.$executeRaw`DELETE FROM lesson_prerequisites WHERE course_id = ${courseId}::uuid`,
     );

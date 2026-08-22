@@ -1,13 +1,6 @@
-import {
-  deriveEarlyAccessFlags,
-  deriveLessonSources,
-  validateCurriculum,
-  type ChapterDraft,
-  type OrderedChapter,
-  type StoredChapterEdges,
-} from './curriculum';
+import { deriveLessonSources, validateCurriculum, type ChapterDraft, type OrderedChapter } from './curriculum';
 
-function lesson(id: string, title: string, earlyAccess = false): ChapterDraft['lessons'][number] {
+function lesson(id: string, title: string): ChapterDraft['lessons'][number] {
   return {
     id,
     title,
@@ -16,7 +9,6 @@ function lesson(id: string, title: string, earlyAccess = false): ChapterDraft['l
     isPreview: false,
     isOptional: false,
     exerciseId: null,
-    earlyAccess,
   };
 }
 
@@ -50,78 +42,41 @@ describe('validateCurriculum', () => {
 
 describe('deriveLessonSources — suy cạnh phụ thuộc từ thứ tự', () => {
   it('bài đầu khóa học không có điều kiện', () => {
-    const chapters: OrderedChapter[] = [{ lessons: [{ id: A, earlyAccess: false }] }];
+    const chapters: OrderedChapter[] = [{ lessons: [{ id: A, skipOrder: false }] }];
     expect(deriveLessonSources(chapters).has(A)).toBe(false);
   });
 
   it('bài N cần bài N-1 cùng chương', () => {
     const chapters: OrderedChapter[] = [
-      { lessons: [{ id: A, earlyAccess: false }, { id: B, earlyAccess: false }] },
+      { lessons: [{ id: A, skipOrder: false }, { id: B, skipOrder: false }] },
     ];
     expect(deriveLessonSources(chapters).get(B)).toEqual([A]);
   });
 
   it('bài đầu một chương (không phải chương đầu) cần TOÀN BỘ bài chương trước', () => {
     const chapters: OrderedChapter[] = [
-      { lessons: [{ id: A, earlyAccess: false }, { id: B, earlyAccess: false }] },
-      { lessons: [{ id: C, earlyAccess: false }] },
+      { lessons: [{ id: A, skipOrder: false }, { id: B, skipOrder: false }] },
+      { lessons: [{ id: C, skipOrder: false }] },
     ];
     expect(deriveLessonSources(chapters).get(C)).toEqual([A, B]);
   });
 
-  it('"cho học trước" bỏ hẳn điều kiện của bài đó, không ảnh hưởng bài sau nó', () => {
+  it('"cho học trước" (isPreview) bỏ hẳn điều kiện của bài đó, không ảnh hưởng bài sau nó', () => {
     const D = '44444444-4444-4444-8444-444444444444';
     const chapters: OrderedChapter[] = [
       {
         lessons: [
-          { id: A, earlyAccess: false },
-          { id: B, earlyAccess: true },
-          { id: C, earlyAccess: false },
+          { id: A, skipOrder: false },
+          { id: B, skipOrder: true },
+          { id: C, skipOrder: false },
         ],
       },
-      { lessons: [{ id: D, earlyAccess: false }] },
+      { lessons: [{ id: D, skipOrder: false }] },
     ];
     const sources = deriveLessonSources(chapters);
     expect(sources.has(B)).toBe(false);
     // Bài C vẫn cần bài B (liền trước nó), dù B tự nó mở ngay không cần A.
     expect(sources.get(C)).toEqual([B]);
     expect(sources.get(D)).toEqual([A, B, C]);
-  });
-});
-
-describe('deriveEarlyAccessFlags — chiều ngược, đọc lại cho studio', () => {
-  it('khóa ở chế độ linear/free: mọi bài đều false, bất kể cạnh lưu gì', () => {
-    const chapters: StoredChapterEdges[] = [
-      { lessons: [{ id: A, prerequisites: { rule: 'ALL', lessonIds: [] } }] },
-    ];
-    expect(deriveEarlyAccessFlags(chapters, 'linear').get(A)).toBe(false);
-    expect(deriveEarlyAccessFlags(chapters, 'free').get(A)).toBe(false);
-  });
-
-  it('khóa ở graph: bài không có cạnh và không phải bài đầu khóa → true', () => {
-    const chapters: StoredChapterEdges[] = [
-      {
-        lessons: [
-          { id: A, prerequisites: { rule: 'ALL', lessonIds: [] } },
-          { id: B, prerequisites: { rule: 'ALL', lessonIds: [] } },
-        ],
-      },
-    ];
-    const flags = deriveEarlyAccessFlags(chapters, 'graph');
-    // Bài đầu khóa luôn false dù không có cạnh — nó vốn dĩ đã mở ngay theo lẽ tự nhiên.
-    expect(flags.get(A)).toBe(false);
-    expect(flags.get(B)).toBe(true);
-  });
-
-  it('khóa ở graph: bài có cạnh → false', () => {
-    const chapters: StoredChapterEdges[] = [
-      {
-        lessons: [
-          { id: A, prerequisites: { rule: 'ALL', lessonIds: [] } },
-          { id: B, prerequisites: { rule: 'ALL', lessonIds: [A] } },
-        ],
-      },
-    ];
-    expect(deriveEarlyAccessFlags(chapters, 'graph').get(B)).toBe(false);
   });
 });

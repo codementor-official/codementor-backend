@@ -15,33 +15,30 @@ export function bearsExercise(type: LessonType): boolean {
   return EXERCISE_BEARING.includes(type);
 }
 
-/**
- * Dạng CSDL của điều kiện mở một bài — bảng `lesson_prerequisites` là DNF, `group_index`
- * gom các cạnh (cùng nhóm là AND, khác nhóm là OR). Máy suy tự động ở dưới đây chỉ bao giờ
- * viết MỘT nhóm cho mỗi bài (toàn AND), nên `rule` luôn là hằng `'ALL'` — giữ lại type này
- * chỉ để đọc lại đúng hình dạng bảng, không còn ai CHỌN luật nữa.
- */
-export interface LessonPrerequisites {
-  rule: 'ALL' | 'ANY';
-  lessonIds: string[];
-}
-
 export interface LessonDraft {
   /** Có id = bài đang tồn tại, giữ nguyên hàng. Không có = bài mới. */
   id?: string;
   title: string;
   type: LessonType;
   durationMinutes: number | null;
+  /**
+   * "Cho học trước": bài này mở cho MỌI người, kể cả chưa ghi danh khóa học, và không cần
+   * bài liền trước (cùng chương) hay cả chương liền trước (nếu là bài đầu chương) hoàn
+   * thành.
+   *
+   * Từng là hai cờ riêng ("cho học thử" bỏ qua ghi danh, "cho học trước" bỏ qua thứ tự) —
+   * gộp lại vì cờ thứ hai luôn kéo theo cờ nhất: người chưa ghi danh không có `lesson_
+   * progress` nào cả, nên MỘT bài mở cho họ thì đương nhiên không thể còn đòi "đã xong bài
+   * trước" — điều kiện đó với họ luôn sai. "Cho học thử" mà vẫn gác thứ tự chỉ có tác dụng
+   * đúng với bài đầu tiên của khóa, vô nghĩa như một tính năng chọn-bài-bất-kỳ.
+   *
+   * Vẫn là cột `lessons.is_preview` phía CSDL — tên cột không đổi, chỉ đổi Ý NGHĨA áp cho
+   * nó ở tầng ứng dụng. Server tự suy cạnh phụ thuộc từ thứ tự chương/bài cho các bài
+   * KHÔNG mang cờ này, xem `deriveLessonSources`.
+   */
   isPreview: boolean;
   isOptional: boolean;
   exerciseId: string | null;
-  /**
-   * "Cho học trước": bài này mở ngay, không cần bài liền trước (cùng chương) hay cả
-   * chương liền trước (nếu là bài đầu chương) hoàn thành. Thay hẳn cho việc tác giả tự
-   * chọn từng bài làm điều kiện — server tự suy cạnh phụ thuộc từ thứ tự chương/bài, xem
-   * `deriveLessonSources`.
-   */
-  earlyAccess: boolean;
 }
 
 export interface ChapterDraft {
@@ -122,10 +119,10 @@ export function validateCurriculum(
 }
 
 /** Bài đủ để tính thứ tự — id thật (server tự sinh cho bài mới trước khi gọi hàm này) và
- * có "cho học trước" hay không. */
+ * có "cho học trước" hay không (`isPreview` — xem `LessonDraft.isPreview`). */
 export interface OrderedLesson {
   id: string;
-  earlyAccess: boolean;
+  skipOrder: boolean;
 }
 
 export interface OrderedChapter {
@@ -149,7 +146,7 @@ export function deriveLessonSources(chapters: OrderedChapter[]): Map<string, str
 
   for (const [chapterIndex, chapter] of chapters.entries()) {
     for (const [lessonIndex, lesson] of chapter.lessons.entries()) {
-      if (lesson.earlyAccess) continue;
+      if (lesson.skipOrder) continue;
 
       if (lessonIndex > 0) {
         sources.set(lesson.id, [chapter.lessons[lessonIndex - 1].id]);
@@ -164,49 +161,4 @@ export function deriveLessonSources(chapters: OrderedChapter[]): Map<string, str
   }
 
   return sources;
-}
-
-/** Bài như đọc lại từ CSDL — id thật và cạnh phụ thuộc đang lưu. */
-export interface StoredLessonEdges {
-  id: string;
-  prerequisites: LessonPrerequisites;
-}
-
-export interface StoredChapterEdges {
-  lessons: StoredLessonEdges[];
-}
-
-/**
- * Chiều ngược của `deriveLessonSources`: từ cạnh đang lưu, suy xem bài nào đang "cho học
- * trước" — để hiển thị lại đúng trạng thái checkbox trong studio.
- *
- * Chỉ áp dụng khi khóa học đang ở chế độ `graph`: `linear`/`free` không có khái niệm
- * "cho học trước" — mọi bài coi như bình thường (`false`), vì đó là những khóa CHƯA từng
- * đi qua studio mới (đa số khóa hiện có), không phải khóa cố ý cho phép ngoại lệ.
- *
- * Một khóa ở `graph` với cạnh KHÔNG khớp hình dạng suy được (đồ thị tự tay soạn từ studio
- * cũ) không phân biệt được chính xác — coi bài có cạnh (bất kỳ hình dạng nào) là bình
- * thường, bài không có cạnh (và không phải bài đầu khóa) là "cho học trước". Lần lưu kế
- * tiếp qua studio mới sẽ ghi đè về đúng mô hình đơn giản này.
- */
-export function deriveEarlyAccessFlags(
-  chapters: StoredChapterEdges[],
-  progressionMode: string,
-): Map<string, boolean> {
-  const flags = new Map<string, boolean>();
-  if (progressionMode !== 'graph') {
-    for (const chapter of chapters) {
-      for (const lesson of chapter.lessons) flags.set(lesson.id, false);
-    }
-    return flags;
-  }
-
-  const firstLessonId = chapters.find((chapter) => chapter.lessons.length > 0)?.lessons[0]?.id;
-  for (const chapter of chapters) {
-    for (const lesson of chapter.lessons) {
-      const isFirst = lesson.id === firstLessonId;
-      flags.set(lesson.id, !isFirst && lesson.prerequisites.lessonIds.length === 0);
-    }
-  }
-  return flags;
 }

@@ -115,6 +115,11 @@ class LessonDraftDto {
   @Min(1)
   durationMinutes?: number | null;
 
+  /**
+   * "Cho học trước": mở cho MỌI người kể cả chưa ghi danh, và bỏ qua yêu cầu bài/chương
+   * liền trước. Server tự suy cạnh phụ thuộc từ thứ tự chương/bài cho các bài không mang
+   * cờ này — xem `deriveLessonSources`.
+   */
   @ApiPropertyOptional({ default: false })
   @IsOptional()
   @IsBoolean()
@@ -130,13 +135,6 @@ class LessonDraftDto {
   @ValidateIf((_, value) => value !== null)
   @IsUUID()
   exerciseId?: string | null;
-
-  /** "Cho học trước": bỏ qua yêu cầu bài/chương liền trước. Server tự suy cạnh phụ thuộc
-   * từ thứ tự chương/bài — xem `deriveLessonSources`. */
-  @ApiPropertyOptional({ default: false })
-  @IsOptional()
-  @IsBoolean()
-  earlyAccess?: boolean;
 }
 
 class ChapterDraftDto {
