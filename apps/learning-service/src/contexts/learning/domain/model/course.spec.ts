@@ -20,6 +20,7 @@ const lesson = (over: Partial<ChapterDraft['lessons'][number]> = {}) => ({
   isPreview: false,
   isOptional: false,
   exerciseId: null,
+  earlyAccess: false,
   ...over,
 });
 

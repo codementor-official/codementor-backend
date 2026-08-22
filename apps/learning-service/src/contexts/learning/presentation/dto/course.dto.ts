@@ -92,24 +92,6 @@ export class UpdateCourseDto {
   progressionMode?: (typeof MODES)[number];
 }
 
-const PREREQUISITE_RULES = ['ALL', 'ANY'] as const;
-
-/**
- * Điều kiện mở một bài. `ALL` = phải xong hết, `ANY` = xong một bài bất kỳ trong danh
- * sách là đủ. Xem `LessonPrerequisites` bên domain để biết nó lưu xuống DNF thế nào.
- */
-class LessonPrerequisitesDto {
-  @ApiProperty({ enum: PREREQUISITE_RULES })
-  @IsIn(PREREQUISITE_RULES)
-  rule!: (typeof PREREQUISITE_RULES)[number];
-
-  @ApiProperty({ type: [String], format: 'uuid', description: 'Rỗng = bỏ mọi điều kiện' })
-  @IsArray()
-  @ArrayMaxSize(50)
-  @IsUUID('4', { each: true })
-  lessonIds!: string[];
-}
-
 class LessonDraftDto {
   @ApiPropertyOptional({ format: 'uuid', description: 'Có = bài đã tồn tại, giữ nguyên tiến độ' })
   @IsOptional()
@@ -149,12 +131,12 @@ class LessonDraftDto {
   @IsUUID()
   exerciseId?: string | null;
 
-  /** Vắng mặt = giữ nguyên điều kiện đang có; gửi `{ lessonIds: [] }` mới là xoá hết. */
-  @ApiPropertyOptional({ type: LessonPrerequisitesDto })
+  /** "Cho học trước": bỏ qua yêu cầu bài/chương liền trước. Server tự suy cạnh phụ thuộc
+   * từ thứ tự chương/bài — xem `deriveLessonSources`. */
+  @ApiPropertyOptional({ default: false })
   @IsOptional()
-  @ValidateNested()
-  @Type(() => LessonPrerequisitesDto)
-  prerequisites?: LessonPrerequisitesDto;
+  @IsBoolean()
+  earlyAccess?: boolean;
 }
 
 class ChapterDraftDto {
