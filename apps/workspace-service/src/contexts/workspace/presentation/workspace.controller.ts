@@ -17,6 +17,7 @@ import type { AuthenticatedUser } from '@codementor/platform';
 import { WorkspaceService } from '../application/workspace.service';
 import { WorkspaceOverviewService } from '../application/workspace-overview.service';
 import { WorkspaceContentService } from '../application/workspace-content.service';
+import { WorkspaceChatService } from '../application/workspace-chat.service';
 import {
   CreateWorkspaceDto,
   AttachWorkspaceExerciseDto,
@@ -37,6 +38,9 @@ import {
   UpdateWorkspaceExerciseDto,
   WorkspaceContentQueryDto,
   WorkspaceAssetUploadUrlDto,
+  CreateWorkspaceMessageDto,
+  ListWorkspaceMessagesQueryDto,
+  UpdateWorkspaceMessageDto,
 } from './dto/workspace.dto';
 
 @ApiTags('workspaces')
@@ -47,7 +51,61 @@ export class WorkspaceController {
     private readonly workspaces: WorkspaceService,
     private readonly overview: WorkspaceOverviewService,
     private readonly content: WorkspaceContentService,
+    private readonly chat: WorkspaceChatService,
   ) {}
+
+  @Get(':slug/messages')
+  @ApiOperation({ summary: 'Lịch sử chat của Workspace' })
+  messages(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Query() query: ListWorkspaceMessagesQueryDto,
+  ) {
+    return this.chat.history(requireHumanId(user), slug, query);
+  }
+
+  @Post(':slug/messages')
+  @ApiOperation({ summary: 'Gửi tin nhắn vào Workspace' })
+  createMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: CreateWorkspaceMessageDto,
+  ) {
+    return this.chat.create(requireHumanId(user), slug, dto);
+  }
+
+  @Get(':slug/messages/unread')
+  @ApiOperation({ summary: 'Số tin chat chưa đọc' })
+  unreadMessages(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.chat.unread(requireHumanId(user), slug);
+  }
+
+  @Post(':slug/messages/read')
+  @ApiOperation({ summary: 'Đánh dấu chat Workspace đã đọc' })
+  markMessagesRead(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.chat.markRead(requireHumanId(user), slug);
+  }
+
+  @Patch(':slug/messages/:messageId')
+  @ApiOperation({ summary: 'Sửa tin nhắn của chính mình' })
+  updateMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('messageId') messageId: string,
+    @Body() dto: UpdateWorkspaceMessageDto,
+  ) {
+    return this.chat.update(requireHumanId(user), slug, messageId, dto);
+  }
+
+  @Delete(':slug/messages/:messageId')
+  @ApiOperation({ summary: 'Xóa hoặc moderation tin nhắn' })
+  deleteMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return this.chat.remove(requireHumanId(user), slug, messageId);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Nhóm học tập của tôi' })

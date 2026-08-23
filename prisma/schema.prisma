@@ -381,6 +381,7 @@ model group_members {
   group_member_permissions group_member_permissions[]
   study_groups             study_groups               @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users                    users                      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workspace_message_read   workspace_message_reads?
 
   @@unique([group_id, user_id])
   @@unique([group_id, id], map: "group_members_id_group_unique")
@@ -606,7 +607,29 @@ model study_groups {
   group_members           group_members[]
   group_role_permissions  group_role_permissions[]
   workspace_join_requests workspace_join_requests[]
+  workspace_messages      workspace_messages[]
   users                   users                     @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
+}
+
+model workspace_messages {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id     String       @db.Uuid
+  sender_id    String       @db.Uuid
+  content      String
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime     @default(now()) @db.Timestamptz(6)
+  deleted_at   DateTime?    @db.Timestamptz(6)
+  study_groups study_groups @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users        @relation(fields: [sender_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([group_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_workspace_messages_history")
+}
+
+model workspace_message_reads {
+  group_member_id String        @id @db.Uuid
+  last_read_at    DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime      @default(now()) @db.Timestamptz(6)
+  group_members   group_members @relation(fields: [group_member_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 model workspace_join_requests {
@@ -725,6 +748,7 @@ model users {
   external_id                                        String?                    @unique @db.Citext
   workspace_join_requests_requested                  workspace_join_requests[]  @relation("workspace_join_request_user")
   workspace_join_requests_reviewed                   workspace_join_requests[]  @relation("workspace_join_request_reviewer")
+  workspace_messages                                 workspace_messages[]
   articles                                           articles[]
   assignments                                        assignments[]
   course_enrollments                                 course_enrollments[]

@@ -259,3 +259,14 @@ export class UpdateWorkspaceAssignmentDto {
   @IsOptional() @IsIn(['pending', 'approved', 'needsfix']) reviewStatus?: string;
   @IsOptional() @IsString() @MaxLength(2000) feedback?: string | null;
 }
+
+export class ListWorkspaceMessagesQueryDto {
+  @IsOptional() @IsString() @MaxLength(500) before?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) limit?: number;
+}
+
+export class CreateWorkspaceMessageDto {
+  @IsString() @IsNotEmpty() @MaxLength(4000) content!: string;
+}
+
+export class UpdateWorkspaceMessageDto extends CreateWorkspaceMessageDto {}
