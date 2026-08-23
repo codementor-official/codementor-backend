@@ -15,48 +15,30 @@ export function bearsExercise(type: LessonType): boolean {
   return EXERCISE_BEARING.includes(type);
 }
 
-/**
- * Điều kiện mở một bài, ở dạng người soạn nghĩ: "phải xong TẤT CẢ" hoặc "chỉ cần MỘT".
- *
- * Bảng `lesson_prerequisites` lưu dạng tổng quát hơn — DNF, `group_index` gom các cạnh
- * lại: cùng nhóm là AND, khác nhóm là OR (xem `fn_lesson_available` ở migration 0011).
- * Hai dạng đó quy về nhau đúng như sau:
- *
- *   ALL {a,b,c}  →  một nhóm duy nhất  (a ∧ b ∧ c)
- *   ANY {a,b,c}  →  ba nhóm một phần tử  (a) ∨ (b) ∨ (c)
- *
- * Giới hạn có chủ ý: dạng này KHÔNG diễn đạt được DNF trộn, kiểu `(a ∧ b) ∨ c`. CSDL vẫn
- * chứa được, nhưng chưa có đường nào soạn ra nó và một trình soạn đồ thị đầy đủ là một
- * màn hình khác hẳn. Cần tới lúc đó thì đổi `rule` thành danh sách nhóm, tầng CSDL không
- * phải sửa gì.
- */
-export type PrerequisiteRule = 'ALL' | 'ANY';
-
-export interface LessonPrerequisites {
-  rule: PrerequisiteRule;
-  /** Rỗng = không có điều kiện, bài mở ngay. */
-  lessonIds: string[];
-}
-
-export const NO_PREREQUISITES: LessonPrerequisites = { rule: 'ALL', lessonIds: [] };
-
 export interface LessonDraft {
   /** Có id = bài đang tồn tại, giữ nguyên hàng. Không có = bài mới. */
   id?: string;
   title: string;
   type: LessonType;
   durationMinutes: number | null;
+  /**
+   * "Cho học trước": bài này mở cho MỌI người, kể cả chưa ghi danh khóa học, và không cần
+   * bài liền trước (cùng chương) hay cả chương liền trước (nếu là bài đầu chương) hoàn
+   * thành.
+   *
+   * Từng là hai cờ riêng ("cho học thử" bỏ qua ghi danh, "cho học trước" bỏ qua thứ tự) —
+   * gộp lại vì cờ thứ hai luôn kéo theo cờ nhất: người chưa ghi danh không có `lesson_
+   * progress` nào cả, nên MỘT bài mở cho họ thì đương nhiên không thể còn đòi "đã xong bài
+   * trước" — điều kiện đó với họ luôn sai. "Cho học thử" mà vẫn gác thứ tự chỉ có tác dụng
+   * đúng với bài đầu tiên của khóa, vô nghĩa như một tính năng chọn-bài-bất-kỳ.
+   *
+   * Vẫn là cột `lessons.is_preview` phía CSDL — tên cột không đổi, chỉ đổi Ý NGHĨA áp cho
+   * nó ở tầng ứng dụng. Server tự suy cạnh phụ thuộc từ thứ tự chương/bài cho các bài
+   * KHÔNG mang cờ này, xem `deriveLessonSources`.
+   */
   isPreview: boolean;
   isOptional: boolean;
   exerciseId: string | null;
-  /**
-   * Vắng mặt = giữ nguyên những gì đang có trong CSDL. `{ lessonIds: [] }` = xoá hết.
-   *
-   * Phân biệt hai thứ đó là bắt buộc: studio cũ (và mọi client chưa cập nhật) gửi cây
-   * không kèm trường này, và coi "không gửi" là "xoá hết" sẽ âm thầm xoá sạch điều kiện
-   * mở khoá của cả khoá học ở lần lưu kế tiếp.
-   */
-  prerequisites?: LessonPrerequisites;
 }
 
 export interface ChapterDraft {
@@ -133,104 +115,50 @@ export function validateCurriculum(
     }
   }
 
-  return validatePrerequisites(chapters, lessonIds);
-}
-
-/**
- * Điều kiện mở khoá: nguồn phải là bài có thật trong chính khoá này, không tự trỏ, và
- * đồ thị không được có chu trình.
- *
- * CSDL đã chặn cả ba (FK ghép `(course_id, id)`, CHECK `source <> target`, và trigger
- * `fn_prevent_dependency_cycle` ở migration 0010). Kiểm lại ở đây KHÔNG thừa: lệnh ghi
- * curriculum là một transaction dài, để CSDL bắt thì cả cây bị rollback và thứ hiện lên
- * màn hình người soạn là tên một constraint, không nói được bài nào trỏ vào bài nào.
- *
- * Chu trình là lỗi im lặng tệ nhất trong nhóm này: nó không làm hỏng gì lúc lưu, chỉ
- * khiến một nhóm bài không bao giờ mở ra được cho bất kỳ học viên nào.
- */
-function validatePrerequisites(
-  chapters: ChapterDraft[],
-  knownLessonIds: Set<string>,
-): Result<true, InvalidInput | BusinessRuleViolation> {
-  const titleOf = new Map<string, string>();
-  /** target → mọi nguồn, bất kể ALL hay ANY: chu trình không quan tâm luật gom nhóm. */
-  const edges = new Map<string, string[]>();
-
-  for (const [chapterIndex, chapter] of chapters.entries()) {
-    for (const [lessonIndex, lesson] of chapter.lessons.entries()) {
-      const at = `bài ${lessonIndex + 1} của chương ${chapterIndex + 1}`;
-      if (lesson.id) titleOf.set(lesson.id, lesson.title.trim() || at);
-
-      const sources = lesson.prerequisites?.lessonIds ?? [];
-      if (sources.length === 0) continue;
-
-      // Bài chưa lưu lần nào chưa có id, nên chưa có gì trỏ tới nó được — và nó cũng
-      // chưa trỏ đi đâu được, vì cạnh cần cả hai đầu là hàng có thật.
-      if (!lesson.id) {
-        return Result.fail(
-          new BusinessRuleViolation(
-            `Lưu ${at} trước rồi mới đặt được điều kiện mở khoá cho nó`,
-          ),
-        );
-      }
-      for (const source of sources) {
-        if (source === lesson.id) {
-          return Result.fail(new InvalidInput(`${at} không thể là điều kiện của chính nó`));
-        }
-        if (!knownLessonIds.has(source)) {
-          return Result.fail(
-            new InvalidInput(`Điều kiện của ${at} trỏ tới một bài không thuộc khóa học này`, {
-              lessonId: source,
-            }),
-          );
-        }
-      }
-      edges.set(lesson.id, [...new Set(sources)]);
-    }
-  }
-
-  const cycle = findCycle(edges);
-  if (cycle) {
-    const names = cycle.map((id) => `“${titleOf.get(id) ?? id}”`).join(' → ');
-    return Result.fail(
-      new BusinessRuleViolation(
-        `Điều kiện mở khoá tạo thành vòng lặp: ${names}. Những bài này sẽ không bao giờ mở ra được.`,
-      ),
-    );
-  }
-
   return Result.ok(true);
 }
 
+/** Bài đủ để tính thứ tự — id thật (server tự sinh cho bài mới trước khi gọi hàm này) và
+ * có "cho học trước" hay không (`isPreview` — xem `LessonDraft.isPreview`). */
+export interface OrderedLesson {
+  id: string;
+  skipOrder: boolean;
+}
+
+export interface OrderedChapter {
+  lessons: OrderedLesson[];
+}
+
 /**
- * DFS ba màu. Trả về chính vòng lặp tìm được (đã khép kín) để câu báo lỗi chỉ đúng chỗ
- * người soạn phải sửa, thay vì chỉ nói "có vòng lặp ở đâu đó".
+ * Suy cạnh phụ thuộc từ thứ tự chương/bài — tuyến tính mặc định, "cho học trước" là lối
+ * thoát riêng cho từng bài.
+ *
+ * Bài N cần bài N-1 CÙNG CHƯƠNG hoàn thành. Bài đầu một chương (trừ chương đầu) cần TOÀN
+ * BỘ bài của chương liền trước — không chỉ bài cuối, vì một bài giữa chương đó có thể tự
+ * nó đã "cho học trước" và phá chuỗi kéo theo. Bài được đánh "cho học trước" không có cạnh
+ * nào cả — mở ngay bất kể các bài trước đã xong chưa.
+ *
+ * Luôn sinh ra một đồ thị không chu trình (mỗi cạnh chỉ trỏ về phía trước theo thứ tự
+ * chương/bài), nên không cần kiểm chu trình như điều kiện tự chọn trước đây.
  */
-function findCycle(edges: Map<string, string[]>): string[] | null {
-  const VISITING = 1;
-  const DONE = 2;
-  const state = new Map<string, number>();
-  const stack: string[] = [];
+export function deriveLessonSources(chapters: OrderedChapter[]): Map<string, string[]> {
+  const sources = new Map<string, string[]>();
 
-  const walk = (node: string): string[] | null => {
-    state.set(node, VISITING);
-    stack.push(node);
-    for (const next of edges.get(node) ?? []) {
-      if (state.get(next) === DONE) continue;
-      if (state.get(next) === VISITING) return [...stack.slice(stack.indexOf(next)), next];
-      const found = walk(next);
-      if (found) return found;
-    }
-    stack.pop();
-    state.set(node, DONE);
-    return null;
-  };
+  for (const [chapterIndex, chapter] of chapters.entries()) {
+    for (const [lessonIndex, lesson] of chapter.lessons.entries()) {
+      if (lesson.skipOrder) continue;
 
-  for (const node of edges.keys()) {
-    if (state.get(node) === undefined) {
-      const found = walk(node);
-      if (found) return found;
+      if (lessonIndex > 0) {
+        sources.set(lesson.id, [chapter.lessons[lessonIndex - 1].id]);
+        continue;
+      }
+      if (chapterIndex > 0) {
+        const previous = chapters[chapterIndex - 1].lessons.map((item) => item.id);
+        if (previous.length > 0) sources.set(lesson.id, previous);
+      }
+      // Bài đầu tiên của cả khóa học: không có gì đứng trước để yêu cầu.
     }
   }
-  return null;
+
+  return sources;
 }

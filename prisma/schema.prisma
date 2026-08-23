@@ -50,36 +50,19 @@ model assignments {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model chapter_prerequisites {
-  course_id                                                            String   @db.Uuid
-  target_chapter_id                                                    String   @db.Uuid
-  source_chapter_id                                                    String   @db.Uuid
-  group_index                                                          Int      @default(0) @db.SmallInt
-  created_at                                                           DateTime @default(now()) @db.Timestamptz(6)
-  chapters_chapter_prerequisites_course_id_source_chapter_idTochapters chapters @relation("chapter_prerequisites_course_id_source_chapter_idTochapters", fields: [course_id, source_chapter_id], references: [course_id, id], onDelete: Cascade, onUpdate: NoAction, map: "chp_source_in_course")
-  chapters_chapter_prerequisites_course_id_target_chapter_idTochapters chapters @relation("chapter_prerequisites_course_id_target_chapter_idTochapters", fields: [course_id, target_chapter_id], references: [course_id, id], onDelete: Cascade, onUpdate: NoAction, map: "chp_target_in_course")
-
-  @@id([target_chapter_id, source_chapter_id, group_index])
-  @@index([course_id], map: "idx_chp_course")
-  @@index([source_chapter_id], map: "idx_chp_source")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
 model chapters {
-  id                                                                                String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  course_id                                                                         String                  @db.Uuid
-  title                                                                             String
-  description                                                                       String?
-  position                                                                          Int
-  is_optional                                                                       Boolean                 @default(false)
-  created_at                                                                        DateTime                @default(now()) @db.Timestamptz(6)
-  updated_at                                                                        DateTime                @default(now()) @db.Timestamptz(6)
-  chapter_prerequisites_chapter_prerequisites_course_id_source_chapter_idTochapters chapter_prerequisites[] @relation("chapter_prerequisites_course_id_source_chapter_idTochapters")
-  chapter_prerequisites_chapter_prerequisites_course_id_target_chapter_idTochapters chapter_prerequisites[] @relation("chapter_prerequisites_course_id_target_chapter_idTochapters")
-  courses                                                                           courses                 @relation(fields: [course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  lessons_lessons_chapter_idTochapters                                              lessons[]               @relation("lessons_chapter_idTochapters")
-  lessons_lessons_course_id_chapter_idTochapters                                    lessons[]               @relation("lessons_course_id_chapter_idTochapters")
+  id                                             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  course_id                                      String    @db.Uuid
+  title                                          String
+  description                                    String?
+  position                                       Int
+  is_optional                                    Boolean   @default(false)
+  created_at                                     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                                     DateTime  @default(now()) @db.Timestamptz(6)
+  courses                                        courses   @relation(fields: [course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  lessons_lessons_chapter_idTochapters           lessons[] @relation("lessons_chapter_idTochapters")
+  lessons_lessons_course_id_chapter_idTochapters lessons[] @relation("lessons_course_id_chapter_idTochapters")
 
   @@unique([course_id, id], map: "chapters_id_course_unique")
   @@unique([course_id, position], map: "chapters_position_unique")
@@ -129,19 +112,6 @@ model course_outcomes {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model course_prerequisites {
-  target_course_id                                       String   @db.Uuid
-  source_course_id                                       String   @db.Uuid
-  group_index                                            Int      @default(0) @db.SmallInt
-  created_at                                             DateTime @default(now()) @db.Timestamptz(6)
-  courses_course_prerequisites_source_course_idTocourses courses  @relation("course_prerequisites_source_course_idTocourses", fields: [source_course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  courses_course_prerequisites_target_course_idTocourses courses  @relation("course_prerequisites_target_course_idTocourses", fields: [target_course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@id([target_course_id, source_course_id, group_index])
-  @@index([source_course_id], map: "idx_cp_source")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model course_reviews {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   course_id  String   @db.Uuid
@@ -168,37 +138,35 @@ model course_technologies {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model courses {
-  id                                                                  String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug                                                                String                 @unique @db.Citext
-  title                                                               String
-  description                                                         String?
-  cover_image_url                                                     String?
-  level                                                               current_level
-  duration_hours                                                      Int?
-  instructor_id                                                       String?                @db.Uuid
-  prerequisite_note                                                   String?
-  progression_mode                                                    progression_mode       @default(graph)
-  status                                                              content_status         @default(draft)
-  total_chapters                                                      Int                    @default(0)
-  total_lessons                                                       Int                    @default(0)
-  rating_avg                                                          Decimal?               @db.Decimal(3, 2)
-  rating_count                                                        Int                    @default(0)
-  enrollment_count                                                    Int                    @default(0)
-  created_by                                                          String?                @db.Uuid
-  published_at                                                        DateTime?              @db.Timestamptz(6)
-  created_at                                                          DateTime               @default(now()) @db.Timestamptz(6)
-  updated_at                                                          DateTime               @default(now()) @db.Timestamptz(6)
-  rejection_reason                                                    String?
-  chapters                                                            chapters[]
-  course_enrollments                                                  course_enrollments[]
-  course_outcomes                                                     course_outcomes[]
-  course_prerequisites_course_prerequisites_source_course_idTocourses course_prerequisites[] @relation("course_prerequisites_source_course_idTocourses")
-  course_prerequisites_course_prerequisites_target_course_idTocourses course_prerequisites[] @relation("course_prerequisites_target_course_idTocourses")
-  course_reviews                                                      course_reviews[]
-  course_technologies                                                 course_technologies[]
-  users_courses_created_byTousers                                     users?                 @relation("courses_created_byTousers", fields: [created_by], references: [id], onUpdate: NoAction)
-  users_courses_instructor_idTousers                                  users?                 @relation("courses_instructor_idTousers", fields: [instructor_id], references: [id], onUpdate: NoAction)
-  roadmap_courses                                                     roadmap_courses[]
+  id                                 String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                               String                @unique @db.Citext
+  title                              String
+  description                        String?
+  cover_image_url                    String?
+  level                              current_level
+  duration_hours                     Int?
+  instructor_id                      String?               @db.Uuid
+  prerequisite_note                  String?
+  progression_mode                   progression_mode      @default(graph)
+  status                             content_status        @default(draft)
+  total_chapters                     Int                   @default(0)
+  total_lessons                      Int                   @default(0)
+  rating_avg                         Decimal?              @db.Decimal(3, 2)
+  rating_count                       Int                   @default(0)
+  enrollment_count                   Int                   @default(0)
+  created_by                         String?               @db.Uuid
+  published_at                       DateTime?             @db.Timestamptz(6)
+  created_at                         DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at                         DateTime              @default(now()) @db.Timestamptz(6)
+  rejection_reason                   String?
+  chapters                           chapters[]
+  course_enrollments                 course_enrollments[]
+  course_outcomes                    course_outcomes[]
+  course_reviews                     course_reviews[]
+  course_technologies                course_technologies[]
+  users_courses_created_byTousers    users?                @relation("courses_created_byTousers", fields: [created_by], references: [id], onUpdate: NoAction)
+  users_courses_instructor_idTousers users?                @relation("courses_instructor_idTousers", fields: [instructor_id], references: [id], onUpdate: NoAction)
+  roadmap_courses                    roadmap_courses[]
 }
 
 model exercise_companies {
@@ -209,20 +177,6 @@ model exercise_companies {
 
   @@id([exercise_id, company_id])
   @@index([company_id], map: "idx_exercise_companies_company")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model exercise_prerequisites {
-  set_id                                                                                  String             @db.Uuid
-  target_exercise_id                                                                      String             @db.Uuid
-  source_exercise_id                                                                      String             @db.Uuid
-  group_index                                                                             Int                @default(0) @db.SmallInt
-  created_at                                                                              DateTime           @default(now()) @db.Timestamptz(6)
-  exercise_set_items_exercise_prerequisites_set_id_source_exercise_idToexercise_set_items exercise_set_items @relation("exercise_prerequisites_set_id_source_exercise_idToexercise_set_items", fields: [set_id, source_exercise_id], references: [set_id, exercise_id], onDelete: Cascade, onUpdate: NoAction, map: "ep_source_in_set")
-  exercise_set_items_exercise_prerequisites_set_id_target_exercise_idToexercise_set_items exercise_set_items @relation("exercise_prerequisites_set_id_target_exercise_idToexercise_set_items", fields: [set_id, target_exercise_id], references: [set_id, exercise_id], onDelete: Cascade, onUpdate: NoAction, map: "ep_target_in_set")
-
-  @@id([set_id, target_exercise_id, source_exercise_id, group_index])
-  @@index([set_id, source_exercise_id], map: "idx_ep_source")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -259,13 +213,11 @@ model exercise_set_enrollments {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
 model exercise_set_items {
-  set_id                                                                                      String                   @db.Uuid
-  exercise_id                                                                                 String                   @db.Uuid
-  position                                                                                    Int
-  exercise_prerequisites_exercise_prerequisites_set_id_source_exercise_idToexercise_set_items exercise_prerequisites[] @relation("exercise_prerequisites_set_id_source_exercise_idToexercise_set_items")
-  exercise_prerequisites_exercise_prerequisites_set_id_target_exercise_idToexercise_set_items exercise_prerequisites[] @relation("exercise_prerequisites_set_id_target_exercise_idToexercise_set_items")
-  exercises                                                                                   exercises                @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  exercise_sets                                                                               exercise_sets            @relation(fields: [set_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  set_id        String        @db.Uuid
+  exercise_id   String        @db.Uuid
+  position      Int
+  exercises     exercises     @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  exercise_sets exercise_sets @relation(fields: [set_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([set_id, exercise_id])
   @@unique([set_id, position], map: "exercise_set_items_position_unique")
@@ -541,32 +493,16 @@ model roadmap_audiences {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model roadmap_course_prerequisites {
-  roadmap_id                                                                                        String          @db.Uuid
-  target_roadmap_course_id                                                                          String          @db.Uuid
-  source_roadmap_course_id                                                                          String          @db.Uuid
-  group_index                                                                                       Int             @default(0) @db.SmallInt
-  created_at                                                                                        DateTime        @default(now()) @db.Timestamptz(6)
-  roadmap_courses_roadmap_course_prerequisites_roadmap_id_source_roadmap_course_idToroadmap_courses roadmap_courses @relation("roadmap_course_prerequisites_roadmap_id_source_roadmap_course_idToroadmap_courses", fields: [roadmap_id, source_roadmap_course_id], references: [roadmap_id, id], onDelete: Cascade, onUpdate: NoAction, map: "rcp_source_in_roadmap")
-  roadmap_courses_roadmap_course_prerequisites_roadmap_id_target_roadmap_course_idToroadmap_courses roadmap_courses @relation("roadmap_course_prerequisites_roadmap_id_target_roadmap_course_idToroadmap_courses", fields: [roadmap_id, target_roadmap_course_id], references: [roadmap_id, id], onDelete: Cascade, onUpdate: NoAction, map: "rcp_target_in_roadmap")
-
-  @@id([target_roadmap_course_id, source_roadmap_course_id, group_index])
-  @@index([source_roadmap_course_id], map: "idx_rcp_source")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model has constraints using non-default deferring rules and requires additional setup for migrations. Visit https://pris.ly/d/constraint-deferring for more info.
 model roadmap_courses {
-  id                                                                                                             String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  roadmap_id                                                                                                     String                         @db.Uuid
-  course_id                                                                                                      String                         @db.Uuid
-  position                                                                                                       Int
-  is_optional                                                                                                    Boolean                        @default(false)
-  created_at                                                                                                     DateTime                       @default(now()) @db.Timestamptz(6)
-  roadmap_course_prerequisites_roadmap_course_prerequisites_roadmap_id_source_roadmap_course_idToroadmap_courses roadmap_course_prerequisites[] @relation("roadmap_course_prerequisites_roadmap_id_source_roadmap_course_idToroadmap_courses")
-  roadmap_course_prerequisites_roadmap_course_prerequisites_roadmap_id_target_roadmap_course_idToroadmap_courses roadmap_course_prerequisites[] @relation("roadmap_course_prerequisites_roadmap_id_target_roadmap_course_idToroadmap_courses")
-  courses                                                                                                        courses                        @relation(fields: [course_id], references: [id], onUpdate: NoAction)
-  roadmaps                                                                                                       roadmaps                       @relation(fields: [roadmap_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roadmap_id  String   @db.Uuid
+  course_id   String   @db.Uuid
+  position    Int
+  is_optional Boolean  @default(false)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  courses     courses  @relation(fields: [course_id], references: [id], onUpdate: NoAction)
+  roadmaps    roadmaps @relation(fields: [roadmap_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([roadmap_id, id], map: "roadmap_courses_id_roadmap_unique")
   @@unique([roadmap_id, position], map: "roadmap_courses_position_unique")
