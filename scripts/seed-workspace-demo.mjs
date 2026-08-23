@@ -1,10 +1,14 @@
 import { PrismaClient } from '@prisma/client';
+import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import mongoose from 'mongoose';
 
 const prisma = new PrismaClient();
 const NOW = new Date();
 const DAY = 86_400_000;
 const GROUP_ID = '11111111-1111-4111-8111-111111111111';
+const S3_BUCKET = process.env.AWS_S3_BUCKET;
+const S3_PREFIX = (process.env.AWS_S3_DOCUMENT_PREFIX || 'public/workspace-documents').replace(/^\/+|\/+$/g, '');
+const s3 = S3_BUCKET && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY ? new S3Client({ region: process.env.AWS_REGION || 'ap-southeast-1', endpoint: process.env.AWS_S3_ENDPOINT || undefined, forcePathStyle: process.env.AWS_S3_FORCE_PATH_STYLE === 'true', credentials: { accessKeyId: process.env.AWS_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY } }) : null;
 
 const PEOPLE = [
   ['Nguyễn Trung Nguyên', 'nguyen.trung.nguyen', 11, 1890, 36, 9],
@@ -80,6 +84,7 @@ async function main() {
   await seedMongoContents(exercises);
   const linked = await seedGroupExercises(group.id, owner.id, exercises, documents);
   const { assignments, submissions } = await seedLearningData(group.id, owner.id, memberships, linked);
+  await seedSubmissionRunDetails(group.id);
   await seedActivities(group.id, owner.id, memberships, linked, assignments, submissions, documents);
 
   const memberCount = await prisma.group_members.count({ where: { group_id: group.id, status: 'active' } });
@@ -97,7 +102,7 @@ async function seedUsers() {
 }
 
 function seedWorkspace(ownerId) {
-  const data = { name: 'Nhóm Ôn tập Cấu trúc Dữ liệu', description: 'Nhóm học tập thực hành Cấu trúc dữ liệu & Giải thuật: học theo tuần, chữa bài định kỳ, chia sẻ tài liệu và theo dõi tiến độ minh bạch.', topic: 'Cấu trúc dữ liệu & Giải thuật', owner_id: ownerId, invite_code: 'KLTNDEMO01', status: 'active', last_activity_at: NOW, created_at: ago(35) };
+  const data = { name: 'Nhóm Ôn tập Cấu trúc Dữ liệu', description: 'Nhóm học tập thực hành Cấu trúc dữ liệu & Giải thuật: học theo tuần, chữa bài định kỳ, chia sẻ tài liệu và theo dõi tiến độ minh bạch.', topic: 'Cấu trúc dữ liệu & Giải thuật', owner_id: ownerId, invite_code: 'KLTNDEMO01', privacy: 'private', join_policy: 'approval', status: 'active', last_activity_at: NOW, created_at: ago(35) };
   return prisma.study_groups.upsert({ where: { slug: 'workspace-demo-klt' }, create: { id: GROUP_ID, slug: 'workspace-demo-klt', ...data, member_count: 20, created_at: ago(35) }, update: data });
 }
 
@@ -112,7 +117,7 @@ async function removeLegacyWorkspaceExercises(groupId) {
 
 async function seedMemberships(groupId, owner, loginMember, users) {
   const completed = [12, 12, 11, 10, 10, 9, 8, 7, 7, 6, 6, 5, 4, 3, 2, 1, 0, 0];
-  const profiles = [{ user: owner, role: 'owner', joinedDays: 35, completed: 0 }, { user: loginMember, role: 'deputy', joinedDays: 32, completed: 12 }, ...users.map((user, index) => ({ user, role: index === 0 ? 'deputy' : 'member', joinedDays: PEOPLE[index][2], completed: completed[index] }))];
+  const profiles = [{ user: owner, role: 'owner', joinedDays: 35, completed: 0 }, { user: loginMember, role: 'member', joinedDays: 32, completed: 12 }, ...users.map((user, index) => ({ user, role: index === 0 ? 'deputy' : 'member', joinedDays: PEOPLE[index][2], completed: completed[index] }))];
   const result = [];
   for (const [index, profile] of profiles.entries()) {
     const membership = await prisma.group_members.upsert({ where: { group_id_user_id: { group_id: groupId, user_id: profile.user.id } }, create: { id: uuid('61000000-0000-4000-8000', index + 1), group_id: groupId, user_id: profile.user.id, role: profile.role, status: 'active', joined_at: ago(profile.joinedDays) }, update: { role: profile.role, status: 'active', joined_at: ago(profile.joinedDays) } });
@@ -139,14 +144,25 @@ async function seedStats(ownerId, loginMemberId, memberships) {
 
 async function seedDocuments(groupId, ownerId, memberships) {
   const result = [];
-  for (const [index, [title, topic, preview, url, status]] of DOCUMENTS.entries()) {
+  for (const [index, [title, topic, preview, sourceUrl, status]] of DOCUMENTS.entries()) {
     const id = uuid('21000000-0000-4000-8000', index + 1);
     const uploaderId = index % 4 === 0 ? memberships[2 + (index % (memberships.length - 2))].user.id : ownerId;
-    const data = { group_id: groupId, title, doc_type: 'Link', topic, uploader_id: uploaderId, storage_key: null, url, preview_text: preview, status, ai_verdict: 'valid', reviewed_by: status === 'published' ? ownerId : null, reviewed_at: status === 'published' ? ago(Math.max(1, 25 - index)) : null, uploaded_at: ago(Math.max(1, 28 - index)) };
+    const body = Buffer.from(`# ${title}\n\n${preview}\n\nChủ đề: ${topic}\nNguồn tham khảo: ${sourceUrl}\n\nTài liệu seed phục vụ Workspace demo CodeMentor.\n`, 'utf8');
+    const storageKey = `${S3_PREFIX}/workspaces/${groupId}/seed/${String(index + 1).padStart(2, '0')}-${slug(title)}.txt`;
+    await ensureSeedObject(storageKey, body, { workspace: groupId, fixture: `workspace-document-${index + 1}` });
+    const data = { group_id: groupId, title, doc_type: 'TXT', topic, uploader_id: uploaderId, size_bytes: BigInt(body.length), storage_key: storageKey, url: publicObjectUrl(storageKey), preview_text: preview, status, ai_verdict: 'valid', reviewed_by: status === 'published' ? ownerId : null, reviewed_at: status === 'published' ? ago(Math.max(1, 25 - index)) : null, uploaded_at: ago(Math.max(1, 28 - index)) };
     result.push(await prisma.group_documents.upsert({ where: { id }, create: { id, ...data }, update: data }));
   }
   return result;
 }
+
+async function ensureSeedObject(key, body, metadata) {
+  if (!s3 || !S3_BUCKET) throw new Error('Thiếu cấu hình AWS S3 để seed tài liệu Workspace thật');
+  try { await s3.send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: key })); return; } catch (error) { if (error?.$metadata?.httpStatusCode !== 404 && error?.name !== 'NotFound') throw error; }
+  await s3.send(new PutObjectCommand({ Bucket: S3_BUCKET, Key: key, Body: body, ContentType: 'text/plain; charset=utf-8', Metadata: metadata }));
+}
+
+function publicObjectUrl(key) { const base = process.env.AWS_S3_PUBLIC_URL; return base ? `${base.replace(/\/+$/, '')}/${key}` : `https://${S3_BUCKET}.s3.${process.env.AWS_REGION || 'ap-southeast-1'}.amazonaws.com/${key}`; }
 
 async function seedExercises(ownerId) {
   const result = [];
@@ -241,6 +257,23 @@ async function seedActivities(groupId, ownerId, memberships, linked, assignments
   await prisma.group_activities.createMany({ data: rows.sort((a, b) => a.created_at - b.created_at) });
 }
 
+async function seedSubmissionRunDetails(groupId) {
+  if (!process.env.MONGO_URI) throw new Error('Thiếu MONGO_URI để seed chi tiết chấm bài');
+  const rows = await prisma.submissions.findMany({ where: { assignments: { group_id: groupId } }, orderBy: [{ submitted_at: 'asc' }, { id: 'asc' }] });
+  const mongo = await mongoose.createConnection(process.env.MONGO_URI, { dbName: process.env.MONGO_DB || 'codementor', autoIndex: false, ignoreUndefined: true }).asPromise();
+  try {
+    const collection = mongo.collection('submission_run_details');
+    for (const row of rows) {
+      const passed = row.passed_tests ?? 0; const total = row.total_tests ?? 10;
+      const failureVerdict = ['wrong_answer', 'runtime_error', 'timeout', 'memory_exceeded'].includes(row.verdict) ? row.verdict : 'wrong_answer';
+      const cases = Array.from({ length: total }, (_, index) => ({ order: index + 1, passed: index < passed, visibility: index < 2 ? 'public' : 'hidden', input: `[${index + 1}, ${index + 2}]`, expected: index < passed ? `${index + 1}` : `${index + 2}`, actual: `${index + 1}`, stderr: row.verdict === 'runtime_error' && index === passed ? 'RangeError: Maximum call stack size exceeded' : '', runtimeMs: Math.max(1, Math.round((row.runtime_ms ?? 30) / total) + index), memoryKb: row.memory_kb ?? 20480, verdict: index < passed ? 'accepted' : failureVerdict }));
+      await collection.updateOne({ submissionId: row.id }, { $set: { compile: { success: row.verdict !== 'compile_error', stderr: row.verdict === 'compile_error' ? 'SyntaxError: unexpected token' : '', durationMs: 12 }, cases, consoleOutput: row.verdict === 'accepted' ? 'All test cases completed.' : 'Một số test case chưa đạt.', judge: { worker: 'workspace-demo-seed', imageTag: 'judge-v1', languageVersion: row.language === 'python' ? '3.12' : 'Node.js 22' } }, $setOnInsert: { submissionId: row.id, createdAt: row.submitted_at } }, { upsert: true });
+      const detail = await collection.findOne({ submissionId: row.id }, { projection: { _id: 1 } });
+      if (detail?._id) await prisma.submissions.update({ where: { id: row.id }, data: { run_detail_ref: detail._id.toString() } });
+    }
+  } finally { await mongo.close(); }
+}
+
 async function upsertContent(collection, exerciseId, content) {
   await collection.updateOne({ exerciseId }, { $set: { ...content, kind: 'code', updatedAt: NOW }, $setOnInsert: { exerciseId, createdAt: NOW } }, { upsert: true });
   const row = await collection.findOne({ exerciseId }, { projection: { _id: 1 } });
@@ -257,6 +290,7 @@ const ago = (days) => new Date(NOW.getTime() - days * DAY);
 const fromNow = (days) => new Date(NOW.getTime() + days * DAY);
 const avatar = (name) => `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(name)}`;
 const feedback = (member, exercise) => ['Tốt, lời giải rõ ràng và đúng độ phức tạp.', 'Đã đạt. Có thể bổ sung giải thích edge case.', 'Kết quả đúng, cách đặt tên biến dễ đọc.'][(member + exercise) % 3];
+const slug = (value) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
 
 main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => prisma.$disconnect());
 
