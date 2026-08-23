@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 import { BusinessRuleViolation, InvalidInput, Result } from '@codementor/kernel';
@@ -15,8 +21,6 @@ export interface PresignedUpload {
   objectKey: string;
   expiresInSeconds: number;
 }
-
-
 
 /**
  * Chỉ nhận đúng những định dạng trình duyệt phát được bằng thẻ `<video>`. Danh sách này
@@ -39,9 +43,17 @@ export const DOCUMENT_CONTENT_TYPES = [
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'text/plain',
+  'text/markdown',
+  'text/csv',
+  'text/javascript',
+  'text/css',
+  'text/html',
+  'application/json',
   'image/png',
   'image/jpeg',
   'image/webp',
+  'video/mp4',
+  'video/webm',
 ] as const;
 
 /**
@@ -79,10 +91,13 @@ export class ObjectStorageService {
       /^\/+|\/+$/g,
       '',
     );
-    this.documentPrefix = (config.get<string>('AWS_S3_DOCUMENT_PREFIX') ?? 'public/workspace-documents').replace(/^\/+|\/+$/g, '');
+    this.documentPrefix = (
+      config.get<string>('AWS_S3_DOCUMENT_PREFIX') ?? 'public/workspace-documents'
+    ).replace(/^\/+|\/+$/g, '');
     this.expiresInSeconds = config.get<number>('AWS_S3_PRESIGNED_EXPIRES') ?? 900;
     this.maxUploadBytes = (config.get<number>('VIDEO_MAX_UPLOAD_MB') ?? 500) * 1024 * 1024;
-    this.maxDocumentUploadBytes = (config.get<number>('DOCUMENT_MAX_UPLOAD_MB') ?? 20) * 1024 * 1024;
+    this.maxDocumentUploadBytes =
+      (config.get<number>('DOCUMENT_MAX_UPLOAD_MB') ?? 20) * 1024 * 1024;
 
     const accessKeyId = config.get<string>('AWS_ACCESS_KEY_ID');
     const secretAccessKey = config.get<string>('AWS_SECRET_ACCESS_KEY');
@@ -137,17 +152,20 @@ export class ObjectStorageService {
 
     if (input.sizeBytes <= 0 || input.sizeBytes > this.maxUploadBytes) {
       return Result.fail(
-        new InvalidInput(
-          `Video tối đa ${Math.round(this.maxUploadBytes / 1024 / 1024)} MB`,
-          { sizeBytes: input.sizeBytes },
-        ),
+        new InvalidInput(`Video tối đa ${Math.round(this.maxUploadBytes / 1024 / 1024)} MB`, {
+          sizeBytes: input.sizeBytes,
+        }),
       );
     }
 
     // Prefix cấu hình đứng trước prefix nghiệp vụ: mọi video nằm gọn dưới một thư mục
     // duy nhất trong bucket, nên đặt quyền đọc công khai (hoặc trỏ CDN) cho đúng nhánh đó
     // là xong, không phải liệt kê từng khoá học.
-    const objectKey = [this.videoPrefix, input.prefix.replace(/^\/+|\/+$/g, ''), `${randomUUID()}${extensionOf(input.filename)}`]
+    const objectKey = [
+      this.videoPrefix,
+      input.prefix.replace(/^\/+|\/+$/g, ''),
+      `${randomUUID()}${extensionOf(input.filename)}`,
+    ]
       .filter(Boolean)
       .join('/');
 
@@ -173,33 +191,102 @@ export class ObjectStorageService {
     });
   }
 
-  async presignDocumentUpload(input: { prefix: string; filename: string; contentType: string; sizeBytes: number }): Promise<Result<PresignedUpload, BusinessRuleViolation | InvalidInput>> {
-    if (this.client === null || !this.bucket) return Result.fail(new BusinessRuleViolation('Chưa cấu hình kho lưu trữ tài liệu.'));
-    if (!DOCUMENT_CONTENT_TYPES.includes(input.contentType as (typeof DOCUMENT_CONTENT_TYPES)[number])) {
-      return Result.fail(new InvalidInput('Chỉ hỗ trợ PDF, Office, văn bản và ảnh.', { contentType: input.contentType }));
+  async presignDocumentUpload(input: {
+    prefix: string;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+  }): Promise<Result<PresignedUpload, BusinessRuleViolation | InvalidInput>> {
+    if (this.client === null || !this.bucket)
+      return Result.fail(new BusinessRuleViolation('Chưa cấu hình kho lưu trữ tài liệu.'));
+    if (
+      !DOCUMENT_CONTENT_TYPES.includes(input.contentType as (typeof DOCUMENT_CONTENT_TYPES)[number])
+    ) {
+      return Result.fail(
+        new InvalidInput('Chỉ hỗ trợ PDF, Office, văn bản và ảnh.', {
+          contentType: input.contentType,
+        }),
+      );
     }
     if (input.sizeBytes <= 0 || input.sizeBytes > this.maxDocumentUploadBytes) {
-      return Result.fail(new InvalidInput(`Tài liệu tối đa ${Math.round(this.maxDocumentUploadBytes / 1024 / 1024)} MB`, { sizeBytes: input.sizeBytes }));
+      return Result.fail(
+        new InvalidInput(
+          `Tài liệu tối đa ${Math.round(this.maxDocumentUploadBytes / 1024 / 1024)} MB`,
+          { sizeBytes: input.sizeBytes },
+        ),
+      );
     }
-    const objectKey = [this.documentPrefix, input.prefix.replace(/^\/+|\/+$/g, ''), `${randomUUID()}${extensionOf(input.filename)}`].filter(Boolean).join('/');
-    const uploadUrl = await getSignedUrl(this.client, new PutObjectCommand({ Bucket: this.bucket, Key: objectKey, ContentType: input.contentType, ContentLength: input.sizeBytes }), { expiresIn: this.expiresInSeconds });
-    return Result.ok({ uploadUrl, headers: { 'Content-Type': input.contentType }, publicUrl: this.publicUrlFor(objectKey), objectKey, expiresInSeconds: this.expiresInSeconds });
+    const objectKey = [
+      this.documentPrefix,
+      input.prefix.replace(/^\/+|\/+$/g, ''),
+      `${randomUUID()}${extensionOf(input.filename)}`,
+    ]
+      .filter(Boolean)
+      .join('/');
+    const uploadUrl = await getSignedUrl(
+      this.client,
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: objectKey,
+        ContentType: input.contentType,
+        ContentLength: input.sizeBytes,
+      }),
+      { expiresIn: this.expiresInSeconds },
+    );
+    return Result.ok({
+      uploadUrl,
+      headers: { 'Content-Type': input.contentType },
+      publicUrl: this.publicUrlFor(objectKey),
+      objectKey,
+      expiresInSeconds: this.expiresInSeconds,
+    });
   }
 
   async objectExists(objectKey: string): Promise<boolean> {
     if (this.client === null || !this.bucket) return false;
-    try { await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: objectKey })); return true; }
-    catch { return false; }
+    try {
+      await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: objectKey }));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   isDocumentKeyFor(objectKey: string, prefix: string): boolean {
-    const expected = [this.documentPrefix, prefix.replace(/^\/+|\/+$/g, '')].filter(Boolean).join('/') + '/';
+    const expected =
+      [this.documentPrefix, prefix.replace(/^\/+|\/+$/g, '')].filter(Boolean).join('/') + '/';
     return objectKey.startsWith(expected) && !objectKey.includes('..');
   }
 
   async deleteObject(objectKey: string): Promise<void> {
     if (this.client === null || !this.bucket) return;
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: objectKey }));
+  }
+
+  async presignDownload(
+    objectKey: string,
+    filename?: string,
+    dispositionType: 'attachment' | 'inline' = 'attachment',
+  ): Promise<Result<{ url: string; expiresInSeconds: number }, BusinessRuleViolation>> {
+    if (this.client === null || !this.bucket)
+      return Result.fail(new BusinessRuleViolation('Chưa cấu hình kho lưu trữ tài liệu.'));
+    const disposition = filename
+      ? `${dispositionType}; filename*=UTF-8''${encodeURIComponent(filename)}`
+      : dispositionType;
+    const url = await getSignedUrl(
+      this.client,
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: objectKey,
+        ResponseContentDisposition: disposition,
+      }),
+      { expiresIn: this.expiresInSeconds },
+    );
+    return Result.ok({ url, expiresInSeconds: this.expiresInSeconds });
+  }
+
+  publicUrl(objectKey: string): string {
+    return this.publicUrlFor(objectKey);
   }
 
   /**

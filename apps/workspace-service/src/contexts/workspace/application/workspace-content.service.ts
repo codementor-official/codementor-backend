@@ -1,32 +1,297 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { InjectConnection } from '@nestjs/mongoose';
+import type { Connection } from 'mongoose';
 import { BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
 import { DOCUMENT_CONTENT_TYPES, ObjectStorageService } from '@codementor/platform';
-import { WORKSPACE_CONTENT_REPOSITORY, type WorkspaceContentRepository } from '../domain/port/workspace-content.repository';
+import {
+  WORKSPACE_CONTENT_REPOSITORY,
+  type WorkspaceContentRepository,
+} from '../domain/port/workspace-content.repository';
 import { WorkspaceService } from './workspace.service';
-import type { AttachWorkspaceExerciseDto, CreateWorkspaceDocumentDto, DocumentUploadUrlDto, UpdateWorkspaceAssignmentDto, UpdateWorkspaceDocumentDto, UpdateWorkspaceExerciseDto, WorkspaceContentQueryDto } from '../presentation/dto/workspace.dto';
+import type {
+  AttachWorkspaceExerciseDto,
+  CreateWorkspaceDocumentDto,
+  DocumentUploadUrlDto,
+  UpdateWorkspaceAssignmentDto,
+  UpdateWorkspaceDocumentDto,
+  UpdateWorkspaceExerciseDto,
+  WorkspaceAssetUploadUrlDto,
+  WorkspaceContentQueryDto,
+} from '../presentation/dto/workspace.dto';
 
 type Detail = Awaited<ReturnType<WorkspaceService['detail']>>;
 
 @Injectable()
 export class WorkspaceContentService {
-  constructor(private readonly workspaces: WorkspaceService, @Inject(WORKSPACE_CONTENT_REPOSITORY) private readonly content: WorkspaceContentRepository, private readonly storage: ObjectStorageService) {}
+  constructor(
+    private readonly workspaces: WorkspaceService,
+    @Inject(WORKSPACE_CONTENT_REPOSITORY) private readonly content: WorkspaceContentRepository,
+    private readonly storage: ObjectStorageService,
+    @InjectConnection() private readonly mongo: Connection,
+  ) {}
 
-  async uploadConfig(userId: string, slug: string) { const detail = await this.workspaces.detail(userId, slug); this.require(detail, 'upload_doc'); return { enabled: this.storage.isConfigured, maxBytes: this.storage.maxDocumentUploadBytes, acceptedTypes: DOCUMENT_CONTENT_TYPES }; }
-  async presign(userId: string, slug: string, dto: DocumentUploadUrlDto) { const detail = await this.workspaces.detail(userId, slug); this.require(detail, 'upload_doc'); const result = await this.storage.presignDocumentUpload({ prefix: `workspaces/${detail.id}`, filename: dto.filename, contentType: dto.contentType, sizeBytes: dto.sizeBytes }); if (result.isFail) throw result.error; return result.value; }
-  async documents(userId: string, slug: string, query: WorkspaceContentQueryDto) { const detail = await this.workspaces.detail(userId, slug); const manager = detail.currentMembership.role === 'owner' || detail.currentMembership.permissions.delete_doc; return this.content.listDocuments(detail.id, { page: query.page ?? 1, limit: query.limit ?? 20, q: clean(query.q), status: clean(query.status), type: clean(query.type), publishedOnly: !manager }); }
-  async createDocument(userId: string, slug: string, dto: CreateWorkspaceDocumentDto) { const detail = await this.workspaces.detail(userId, slug); this.require(detail, 'upload_doc'); const prefix = `workspaces/${detail.id}`; if (!this.storage.isDocumentKeyFor(dto.storageKey, prefix)) throw new BusinessRuleViolation('Tệp không thuộc Workspace này'); if (!(await this.storage.objectExists(dto.storageKey))) throw new BusinessRuleViolation('Tệp chưa tồn tại trên storage'); const created = await this.content.createDocument(detail.id, { title: dto.title.trim(), docType: dto.docType.trim(), topic: clean(dto.topic), uploaderId: userId, sizeBytes: dto.sizeBytes, storageKey: dto.storageKey, url: dto.url }); return detail.currentMembership.role === 'owner' ? this.content.updateDocument(detail.id, created.id, { status: 'published' }) : created; }
-  async updateDocument(userId: string, slug: string, id: string, dto: UpdateWorkspaceDocumentDto) { const detail = await this.workspaces.detail(userId, slug); this.require(detail, 'delete_doc'); const updated = await this.content.updateDocument(detail.id, id, { title: dto.title?.trim(), topic: dto.topic === undefined ? undefined : clean(dto.topic) ?? null, status: dto.status }); if (!updated) throw new NotFound('Tài liệu', id); return updated; }
-  async deleteDocument(userId: string, slug: string, id: string) { const detail = await this.workspaces.detail(userId, slug); this.require(detail, 'delete_doc'); const removed = await this.content.deleteDocument(detail.id, id); if (!removed) throw new NotFound('Tài liệu', id); if (removed.storageKey) await this.storage.deleteObject(removed.storageKey); }
+  async uploadConfig(userId: string, slug: string) {
+    const detail = await this.workspaces.detail(userId, slug);
+    this.require(detail, 'upload_doc');
+    return {
+      enabled: this.storage.isConfigured,
+      maxBytes: this.storage.maxDocumentUploadBytes,
+      acceptedTypes: DOCUMENT_CONTENT_TYPES,
+    };
+  }
+  async presign(userId: string, slug: string, dto: DocumentUploadUrlDto) {
+    const detail = await this.workspaces.detail(userId, slug);
+    this.require(detail, 'upload_doc');
+    const result = await this.storage.presignDocumentUpload({
+      prefix: `workspaces/${detail.id}`,
+      filename: dto.filename,
+      contentType: dto.contentType,
+      sizeBytes: dto.sizeBytes,
+    });
+    if (result.isFail) throw result.error;
+    return result.value;
+  }
+  async presignAsset(userId: string, slug: string, dto: WorkspaceAssetUploadUrlDto) {
+    const detail = await this.workspaces.detail(userId, slug);
+    if (detail.currentMembership.role !== 'owner')
+      throw new NotAuthorized('Chỉ Chủ nhóm được thay ảnh nhóm');
+    const result = await this.storage.presignDocumentUpload({
+      prefix: `workspaces/${detail.id}/branding/${dto.kind}`,
+      filename: dto.filename,
+      contentType: dto.contentType,
+      sizeBytes: dto.sizeBytes,
+    });
+    if (result.isFail) throw result.error;
+    return result.value;
+  }
+  async coverPreview(userId: string, slug: string) {
+    const detail = await this.workspaces.detail(userId, slug);
+    if (!detail.coverKey) return { url: detail.coverUrl, expiresInSeconds: null };
+    const result = await this.storage.presignDownload(detail.coverKey, 'workspace-cover', 'inline');
+    if (result.isFail) throw result.error;
+    return result.value;
+  }
+  async documents(userId: string, slug: string, query: WorkspaceContentQueryDto) {
+    const detail = await this.workspaces.detail(userId, slug);
+    const manager =
+      detail.currentMembership.role === 'owner' || detail.currentMembership.permissions.delete_doc;
+    return this.content.listDocuments(detail.id, {
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+      q: clean(query.search ?? query.q),
+      status: clean(query.status),
+      type: clean(query.type),
+      publishedOnly: !manager,
+    });
+  }
+  async createDocument(userId: string, slug: string, dto: CreateWorkspaceDocumentDto) {
+    const detail = await this.workspaces.detail(userId, slug);
+    this.require(detail, 'upload_doc');
+    const prefix = `workspaces/${detail.id}`;
+    if (!this.storage.isDocumentKeyFor(dto.storageKey, prefix))
+      throw new BusinessRuleViolation('Tệp không thuộc Workspace này');
+    if (!(await this.storage.objectExists(dto.storageKey)))
+      throw new BusinessRuleViolation('Tệp chưa tồn tại trên storage');
+    const created = await this.content.createDocument(detail.id, {
+      title: dto.title.trim(),
+      docType: dto.docType.trim(),
+      topic: clean(dto.topic),
+      uploaderId: userId,
+      sizeBytes: dto.sizeBytes,
+      storageKey: dto.storageKey,
+      url: dto.url,
+    });
+    return detail.currentMembership.role === 'owner'
+      ? this.content.updateDocument(detail.id, created.id, { status: 'published' })
+      : created;
+  }
+  async updateDocument(userId: string, slug: string, id: string, dto: UpdateWorkspaceDocumentDto) {
+    const detail = await this.workspaces.detail(userId, slug);
+    this.require(detail, 'delete_doc');
+    const updated = await this.content.updateDocument(detail.id, id, {
+      title: dto.title?.trim(),
+      topic: dto.topic === undefined ? undefined : (clean(dto.topic) ?? null),
+      status: dto.status,
+    });
+    if (!updated) throw new NotFound('Tài liệu', id);
+    return updated;
+  }
+  async deleteDocument(userId: string, slug: string, id: string) {
+    const detail = await this.workspaces.detail(userId, slug);
+    this.require(detail, 'delete_doc');
+    const removed = await this.content.deleteDocument(detail.id, id);
+    if (!removed) throw new NotFound('Tài liệu', id);
+    if (removed.storageKey) await this.storage.deleteObject(removed.storageKey);
+  }
+  async documentDownload(userId: string, slug: string, id: string, preview = false) {
+    const detail = await this.workspaces.detail(userId, slug);
+    const document = await this.content.findDocument(detail.id, id);
+    if (!document) throw new NotFound('Tài liệu', id);
+    if (!document.storageKey) return { url: document.url, expiresInSeconds: null };
+    const result = await this.storage.presignDownload(
+      document.storageKey,
+      document.title,
+      preview ? 'inline' : 'attachment',
+    );
+    if (result.isFail) throw result.error;
+    return result.value;
+  }
 
-  async exercises(userId: string, slug: string, query: WorkspaceContentQueryDto) { const detail = await this.workspaces.detail(userId, slug); const manager = detail.currentMembership.role === 'owner' || detail.currentMembership.permissions.edit_exercise; return this.content.listExercises(detail.id, { page: query.page ?? 1, limit: query.limit ?? 20, q: clean(query.q), status: clean(query.status), difficulty: clean(query.difficulty), publishedOnly: !manager }); }
-  async attachExercise(userId: string, slug: string, dto: AttachWorkspaceExerciseDto) { const detail = await this.workspaces.detail(userId, slug); this.require(detail, 'create_exercise'); if (!(await this.content.publicExerciseExists(dto.exerciseId))) throw new NotFound('Bài tập', dto.exerciseId); await this.content.attachExercise(detail.id, userId, { exerciseId: dto.exerciseId, dueAt: dto.dueAt ? new Date(dto.dueAt) : undefined, attemptLimit: dto.attemptLimit, allowRetry: dto.allowRetry ?? true, allowLateSubmission: dto.allowLateSubmission ?? false, memberIds: dto.memberIds }); return { attached: true }; }
-  async updateExercise(userId: string, slug: string, id: string, dto: UpdateWorkspaceExerciseDto) { const detail = await this.workspaces.detail(userId, slug); this.require(detail, 'edit_exercise'); const updated = await this.content.updateExercise(detail.id, id, { dueAt: dto.dueAt === undefined ? undefined : dto.dueAt ? new Date(dto.dueAt) : null, attemptLimit: dto.attemptLimit, allowRetry: dto.allowRetry, allowLateSubmission: dto.allowLateSubmission, memberIds: dto.memberIds }); if (!updated) throw new NotFound('Bài tập nhóm', id); return { updated: true }; }
-  async deleteExercise(userId: string, slug: string, id: string) { const detail = await this.workspaces.detail(userId, slug); this.require(detail, 'edit_exercise'); if (await this.content.exerciseHasSubmissions(detail.id, id)) throw new BusinessRuleViolation('Không thể gỡ bài tập đã có bài nộp'); if (!(await this.content.deleteExercise(detail.id, id))) throw new NotFound('Bài tập nhóm', id); }
+  async exercises(userId: string, slug: string, query: WorkspaceContentQueryDto) {
+    const detail = await this.workspaces.detail(userId, slug);
+    const manager =
+      detail.currentMembership.role === 'owner' ||
+      detail.currentMembership.permissions.edit_exercise;
+    return this.content.listExercises(detail.id, {
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+      q: clean(query.search ?? query.q),
+      status: clean(query.status),
+      difficulty: clean(query.difficulty),
+      scope: query.scope,
+      memberId: detail.currentMembership.id,
+      publishedOnly: !manager,
+    });
+  }
+  async exerciseDetail(userId: string, slug: string, id: string) {
+    const detail = await this.workspaces.detail(userId, slug);
+    const exercise = await this.content.exerciseDetail(detail.id, id);
+    if (!exercise) throw new NotFound('Bài tập nhóm', id);
+    const canReview =
+      detail.currentMembership.role === 'owner' ||
+      detail.currentMembership.permissions.review_submission;
+    const mine =
+      exercise.assignments.find((item) => item.memberId === detail.currentMembership.id) ?? null;
+    return {
+      ...exercise,
+      isAssignedToMe: Boolean(mine),
+      myAssignment: mine
+        ? {
+            id: mine.id,
+            status: mine.status,
+            submissionCount: mine.submissionCount,
+            latestVerdict: mine.latestVerdict,
+          }
+        : null,
+      assignments: canReview ? exercise.assignments : mine ? [mine] : [],
+      canManage:
+        detail.currentMembership.role === 'owner' ||
+        detail.currentMembership.permissions.edit_exercise,
+      canReview,
+    };
+  }
+  async attachExercise(userId: string, slug: string, dto: AttachWorkspaceExerciseDto) {
+    const detail = await this.workspaces.detail(userId, slug);
+    this.require(detail, 'create_exercise');
+    if (!(await this.content.publicExerciseExists(dto.exerciseId)))
+      throw new NotFound('Bài tập', dto.exerciseId);
+    await this.content.attachExercise(detail.id, userId, {
+      exerciseId: dto.exerciseId,
+      dueAt: dto.dueAt ? new Date(dto.dueAt) : undefined,
+      attemptLimit: dto.attemptLimit,
+      allowRetry: dto.allowRetry ?? true,
+      allowLateSubmission: dto.allowLateSubmission ?? false,
+      memberIds: dto.memberIds,
+    });
+    return { attached: true };
+  }
+  async updateExercise(userId: string, slug: string, id: string, dto: UpdateWorkspaceExerciseDto) {
+    const detail = await this.workspaces.detail(userId, slug);
+    this.require(detail, 'edit_exercise');
+    const updated = await this.content.updateExercise(detail.id, id, {
+      dueAt: dto.dueAt === undefined ? undefined : dto.dueAt ? new Date(dto.dueAt) : null,
+      attemptLimit: dto.attemptLimit,
+      allowRetry: dto.allowRetry,
+      allowLateSubmission: dto.allowLateSubmission,
+      memberIds: dto.memberIds,
+    });
+    if (!updated) throw new NotFound('Bài tập nhóm', id);
+    return { updated: true };
+  }
+  async deleteExercise(userId: string, slug: string, id: string) {
+    const detail = await this.workspaces.detail(userId, slug);
+    this.require(detail, 'edit_exercise');
+    if (await this.content.exerciseHasSubmissions(detail.id, id))
+      throw new BusinessRuleViolation('Không thể gỡ bài tập đã có bài nộp');
+    if (!(await this.content.deleteExercise(detail.id, id))) throw new NotFound('Bài tập nhóm', id);
+  }
 
-  async assignments(userId: string, slug: string, query: WorkspaceContentQueryDto) { const detail = await this.workspaces.detail(userId, slug); const canReview = detail.currentMembership.role === 'owner' || detail.currentMembership.permissions.review_submission; return this.content.listAssignments(detail.id, { page: query.page ?? 1, limit: query.limit ?? 20, q: clean(query.q), status: clean(query.status), memberId: canReview ? undefined : detail.currentMembership.id }); }
-  async updateAssignment(userId: string, slug: string, id: string, dto: UpdateWorkspaceAssignmentDto) { const detail = await this.workspaces.detail(userId, slug); const canReview = detail.currentMembership.role === 'owner' || detail.currentMembership.permissions.review_submission; if ((dto.reviewStatus !== undefined || dto.feedback !== undefined) && !canReview) throw new NotAuthorized('Bạn không có quyền duyệt bài nộp'); if (!canReview && dto.status === undefined) throw new NotAuthorized('Bạn không có quyền cập nhật bài giao'); if (!canReview && dto.status !== 'notstarted' && dto.status !== 'inprogress') throw new BusinessRuleViolation('Trạng thái hoàn thành chỉ được cập nhật từ bài nộp'); const updated = await this.content.updateAssignment(detail.id, id, { status: dto.status, reviewStatus: dto.reviewStatus, feedback: dto.feedback, reviewedBy: canReview && dto.reviewStatus ? userId : undefined, memberId: canReview ? undefined : detail.currentMembership.id }); if (!updated) throw new NotFound('Bài giao', id); return { updated: true }; }
+  async assignments(userId: string, slug: string, query: WorkspaceContentQueryDto) {
+    const detail = await this.workspaces.detail(userId, slug);
+    const canReview =
+      detail.currentMembership.role === 'owner' ||
+      detail.currentMembership.permissions.review_submission;
+    return this.content.listAssignments(detail.id, {
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+      q: clean(query.q),
+      status: clean(query.status),
+      memberId: canReview ? undefined : detail.currentMembership.id,
+    });
+  }
+  async submissionHistory(userId: string, slug: string, assignmentId: string) {
+    const detail = await this.workspaces.detail(userId, slug);
+    const canReview =
+      detail.currentMembership.role === 'owner' ||
+      detail.currentMembership.permissions.review_submission;
+    if (
+      !(await this.content.assignmentExists(
+        detail.id,
+        assignmentId,
+        canReview ? undefined : detail.currentMembership.id,
+      ))
+    )
+      throw new NotFound('Bài giao', assignmentId);
+    const rows = await this.content.submissionHistory(detail.id, assignmentId);
+    const runDetails = await this.mongo
+      .collection('submission_run_details')
+      .find(
+        { submissionId: { $in: rows.map((row) => row.id) } },
+        { projection: { submissionId: 1, compile: 1, cases: 1, consoleOutput: 1, judge: 1 } },
+      )
+      .toArray();
+    const bySubmission = new Map(runDetails.map((item) => [item.submissionId as string, item]));
+    return {
+      items: rows.map((row) => ({ ...row, runDetail: bySubmission.get(row.id) ?? null })),
+      canReview,
+    };
+  }
+  async updateAssignment(
+    userId: string,
+    slug: string,
+    id: string,
+    dto: UpdateWorkspaceAssignmentDto,
+  ) {
+    const detail = await this.workspaces.detail(userId, slug);
+    const canReview =
+      detail.currentMembership.role === 'owner' ||
+      detail.currentMembership.permissions.review_submission;
+    if ((dto.reviewStatus !== undefined || dto.feedback !== undefined) && !canReview)
+      throw new NotAuthorized('Bạn không có quyền duyệt bài nộp');
+    if (!canReview && dto.status === undefined)
+      throw new NotAuthorized('Bạn không có quyền cập nhật bài giao');
+    if (!canReview && dto.status !== 'notstarted' && dto.status !== 'inprogress')
+      throw new BusinessRuleViolation('Trạng thái hoàn thành chỉ được cập nhật từ bài nộp');
+    const updated = await this.content.updateAssignment(detail.id, id, {
+      status: dto.status,
+      reviewStatus: dto.reviewStatus,
+      feedback: dto.feedback,
+      reviewedBy: canReview && dto.reviewStatus ? userId : undefined,
+      memberId: canReview ? undefined : detail.currentMembership.id,
+    });
+    if (!updated) throw new NotFound('Bài giao', id);
+    return { updated: true };
+  }
 
-  private require(detail: Detail, permission: keyof Detail['currentMembership']['permissions']) { if (detail.currentMembership.role !== 'owner' && !detail.currentMembership.permissions[permission]) throw new NotAuthorized('Bạn không có quyền thực hiện thao tác này'); }
+  private require(detail: Detail, permission: keyof Detail['currentMembership']['permissions']) {
+    if (
+      detail.currentMembership.role !== 'owner' &&
+      !detail.currentMembership.permissions[permission]
+    )
+      throw new NotAuthorized('Bạn không có quyền thực hiện thao tác này');
+  }
 }
 
-function clean(value: string | null | undefined) { return value?.trim() || undefined; }
+function clean(value: string | null | undefined) {
+  return value?.trim() || undefined;
+}

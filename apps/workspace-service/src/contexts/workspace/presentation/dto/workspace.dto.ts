@@ -67,16 +67,23 @@ export class ListMembersQueryDto {
   @MaxLength(200)
   q?: string;
 
+  @ApiPropertyOptional({ description: 'Alias rõ nghĩa của q' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string;
+
   @ApiPropertyOptional({ enum: ['owner', ...WORKSPACE_ROLES] })
   @IsOptional()
   @IsIn(['owner', ...WORKSPACE_ROLES])
   role?: 'owner' | (typeof WORKSPACE_ROLES)[number];
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ default: 1, minimum: 1 })
   @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  cursor?: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
 
   @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
   @IsOptional()
@@ -85,6 +92,31 @@ export class ListMembersQueryDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @ApiPropertyOptional({ enum: ['not_started', 'in_progress', 'completed'] })
+  @IsOptional()
+  @IsIn(['not_started', 'in_progress', 'completed'])
+  progress?: 'not_started' | 'in_progress' | 'completed';
+
+  @ApiPropertyOptional({ enum: ['low', 'medium', 'high'] })
+  @IsOptional()
+  @IsIn(['low', 'medium', 'high'])
+  activityLevel?: 'low' | 'medium' | 'high';
+
+  @ApiPropertyOptional({ enum: ['not_submitted', 'submitted', 'passed'] })
+  @IsOptional()
+  @IsIn(['not_submitted', 'submitted', 'passed'])
+  submissionStatus?: 'not_submitted' | 'submitted' | 'passed';
+
+  @ApiPropertyOptional({ description: 'Ngày tham gia từ (ISO 8601)' })
+  @IsOptional()
+  @IsDateString()
+  joinedFrom?: string;
+
+  @ApiPropertyOptional({ description: 'Ngày tham gia đến (ISO 8601)' })
+  @IsOptional()
+  @IsDateString()
+  joinedTo?: string;
 }
 
 export class CreateWorkspaceDto {
@@ -120,6 +152,14 @@ export class UpdateWorkspaceDto {
   @IsString()
   @MaxLength(100)
   topic?: string | null;
+
+  @IsOptional() @IsIn(['public', 'private']) privacy?: 'public' | 'private';
+  @IsOptional() @IsIn(['open', 'approval', 'invite_only']) joinPolicy?:
+    'open' | 'approval' | 'invite_only';
+  @IsOptional() @IsString() @MaxLength(2000) avatarUrl?: string | null;
+  @IsOptional() @IsString() @MaxLength(1000) avatarKey?: string | null;
+  @IsOptional() @IsString() @MaxLength(2000) coverUrl?: string | null;
+  @IsOptional() @IsString() @MaxLength(1000) coverKey?: string | null;
 }
 
 export class JoinWorkspaceDto {
@@ -155,22 +195,32 @@ export class UpdateRolePermissionsDto {
 
 export class UpdateMemberPermissionsDto {
   @IsObject()
-  permissions!: Partial<Record<(typeof WORKSPACE_PERMISSIONS)[number], boolean>>;
+  permissions!: Partial<Record<(typeof WORKSPACE_PERMISSIONS)[number], boolean | null>>;
+}
+
+export class RequestWorkspaceJoinDto {
+  @IsOptional() @IsString() @MaxLength(500) message?: string;
 }
 
 export class WorkspaceContentQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
   @IsOptional() @IsString() @MaxLength(200) q?: string;
+  @IsOptional() @IsString() @MaxLength(200) search?: string;
   @IsOptional() @IsString() @MaxLength(50) status?: string;
   @IsOptional() @IsString() @MaxLength(100) type?: string;
   @IsOptional() @IsString() @MaxLength(50) difficulty?: string;
+  @IsOptional() @IsIn(['all', 'assigned', 'public']) scope?: 'all' | 'assigned' | 'public';
 }
 
 export class DocumentUploadUrlDto {
   @IsString() @IsNotEmpty() @MaxLength(255) filename!: string;
   @IsString() @IsNotEmpty() @MaxLength(150) contentType!: string;
   @Type(() => Number) @IsInt() @Min(1) sizeBytes!: number;
+}
+
+export class WorkspaceAssetUploadUrlDto extends DocumentUploadUrlDto {
+  @IsIn(['cover']) kind!: 'cover';
 }
 
 export class CreateWorkspaceDocumentDto extends DocumentUploadUrlDto {

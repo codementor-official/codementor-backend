@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
@@ -14,6 +26,7 @@ import {
   JoinWorkspaceDto,
   ListMembersQueryDto,
   ListWorkspacesQueryDto,
+  RequestWorkspaceJoinDto,
   TransferOwnershipDto,
   UpdateMemberPermissionsDto,
   UpdateMemberRoleDto,
@@ -23,13 +36,18 @@ import {
   UpdateWorkspaceDocumentDto,
   UpdateWorkspaceExerciseDto,
   WorkspaceContentQueryDto,
+  WorkspaceAssetUploadUrlDto,
 } from './dto/workspace.dto';
 
 @ApiTags('workspaces')
 @ApiBearerAuth('access-token')
 @Controller({ path: 'workspaces', version: '1' })
 export class WorkspaceController {
-  constructor(private readonly workspaces: WorkspaceService, private readonly overview: WorkspaceOverviewService, private readonly content: WorkspaceContentService) {}
+  constructor(
+    private readonly workspaces: WorkspaceService,
+    private readonly overview: WorkspaceOverviewService,
+    private readonly content: WorkspaceContentService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Nhóm học tập của tôi' })
@@ -55,6 +73,16 @@ export class WorkspaceController {
     return this.workspaces.join(requireHumanId(user), dto);
   }
 
+  @Post(':slug/join-request')
+  @ApiOperation({ summary: 'Tham gia nhóm mở hoặc gửi yêu cầu tham gia' })
+  requestJoin(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: RequestWorkspaceJoinDto,
+  ) {
+    return this.workspaces.requestJoin(requireHumanId(user), slug, dto);
+  }
+
   @Get(':slug/overview')
   @ApiOperation({ summary: 'Dashboard dữ liệu thật của nhóm học tập' })
   overviewData(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
@@ -62,42 +90,160 @@ export class WorkspaceController {
   }
 
   @Get(':slug/documents/upload-config')
-  documentUploadConfig(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) { return this.content.uploadConfig(requireHumanId(user), slug); }
+  documentUploadConfig(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.content.uploadConfig(requireHumanId(user), slug);
+  }
 
   @Post(':slug/documents/upload-url')
-  documentUploadUrl(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: DocumentUploadUrlDto) { return this.content.presign(requireHumanId(user), slug, dto); }
+  documentUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: DocumentUploadUrlDto,
+  ) {
+    return this.content.presign(requireHumanId(user), slug, dto);
+  }
+
+  @Post(':slug/assets/upload-url')
+  workspaceAssetUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: WorkspaceAssetUploadUrlDto,
+  ) {
+    return this.content.presignAsset(requireHumanId(user), slug, dto);
+  }
+
+  @Get(':slug/assets/cover')
+  workspaceCoverPreview(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.content.coverPreview(requireHumanId(user), slug);
+  }
 
   @Get(':slug/documents')
-  documents(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Query() query: WorkspaceContentQueryDto) { return this.content.documents(requireHumanId(user), slug, query); }
+  documents(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Query() query: WorkspaceContentQueryDto,
+  ) {
+    return this.content.documents(requireHumanId(user), slug, query);
+  }
 
   @Post(':slug/documents')
-  createDocument(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: CreateWorkspaceDocumentDto) { return this.content.createDocument(requireHumanId(user), slug, dto); }
+  createDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: CreateWorkspaceDocumentDto,
+  ) {
+    return this.content.createDocument(requireHumanId(user), slug, dto);
+  }
 
   @Patch(':slug/documents/:documentId')
-  updateDocument(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('documentId') id: string, @Body() dto: UpdateWorkspaceDocumentDto) { return this.content.updateDocument(requireHumanId(user), slug, id, dto); }
+  updateDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('documentId') id: string,
+    @Body() dto: UpdateWorkspaceDocumentDto,
+  ) {
+    return this.content.updateDocument(requireHumanId(user), slug, id, dto);
+  }
 
   @Delete(':slug/documents/:documentId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteDocument(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('documentId') id: string) { await this.content.deleteDocument(requireHumanId(user), slug, id); }
+  async deleteDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('documentId') id: string,
+  ) {
+    await this.content.deleteDocument(requireHumanId(user), slug, id);
+  }
+
+  @Get(':slug/documents/:documentId/download')
+  documentDownload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('documentId') id: string,
+    @Query('preview') preview?: string,
+  ) {
+    return this.content.documentDownload(
+      requireHumanId(user),
+      slug,
+      id,
+      preview === '1' || preview === 'true',
+    );
+  }
 
   @Get(':slug/exercises')
-  exercises(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Query() query: WorkspaceContentQueryDto) { return this.content.exercises(requireHumanId(user), slug, query); }
+  exercises(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Query() query: WorkspaceContentQueryDto,
+  ) {
+    return this.content.exercises(requireHumanId(user), slug, query);
+  }
 
   @Post(':slug/exercises')
-  attachExercise(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: AttachWorkspaceExerciseDto) { return this.content.attachExercise(requireHumanId(user), slug, dto); }
+  attachExercise(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: AttachWorkspaceExerciseDto,
+  ) {
+    return this.content.attachExercise(requireHumanId(user), slug, dto);
+  }
+
+  @Get(':slug/exercises/:groupExerciseId/detail')
+  exerciseDetail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('groupExerciseId') id: string,
+  ) {
+    return this.content.exerciseDetail(requireHumanId(user), slug, id);
+  }
 
   @Patch(':slug/exercises/:groupExerciseId')
-  updateExercise(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('groupExerciseId') id: string, @Body() dto: UpdateWorkspaceExerciseDto) { return this.content.updateExercise(requireHumanId(user), slug, id, dto); }
+  updateExercise(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('groupExerciseId') id: string,
+    @Body() dto: UpdateWorkspaceExerciseDto,
+  ) {
+    return this.content.updateExercise(requireHumanId(user), slug, id, dto);
+  }
 
   @Delete(':slug/exercises/:groupExerciseId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteExercise(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('groupExerciseId') id: string) { await this.content.deleteExercise(requireHumanId(user), slug, id); }
+  async deleteExercise(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('groupExerciseId') id: string,
+  ) {
+    await this.content.deleteExercise(requireHumanId(user), slug, id);
+  }
 
   @Get(':slug/assignments')
-  assignments(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Query() query: WorkspaceContentQueryDto) { return this.content.assignments(requireHumanId(user), slug, query); }
+  assignments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Query() query: WorkspaceContentQueryDto,
+  ) {
+    return this.content.assignments(requireHumanId(user), slug, query);
+  }
 
   @Patch(':slug/assignments/:assignmentId')
-  updateAssignment(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('assignmentId') id: string, @Body() dto: UpdateWorkspaceAssignmentDto) { return this.content.updateAssignment(requireHumanId(user), slug, id, dto); }
+  updateAssignment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('assignmentId') id: string,
+    @Body() dto: UpdateWorkspaceAssignmentDto,
+  ) {
+    return this.content.updateAssignment(requireHumanId(user), slug, id, dto);
+  }
+
+  @Get(':slug/assignments/:assignmentId/submissions')
+  submissionHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('assignmentId') id: string,
+  ) {
+    return this.content.submissionHistory(requireHumanId(user), slug, id);
+  }
 
   @Get(':slug')
   @ApiOperation({ summary: 'Chi tiết nhóm học tập' })
@@ -107,7 +253,11 @@ export class WorkspaceController {
 
   @Patch(':slug')
   @ApiOperation({ summary: 'Sửa thông tin nhóm' })
-  update(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: UpdateWorkspaceDto) {
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: UpdateWorkspaceDto,
+  ) {
     return this.workspaces.update(requireHumanId(user), slug, dto);
   }
 
@@ -131,32 +281,86 @@ export class WorkspaceController {
 
   @Get(':slug/members')
   @ApiOperation({ summary: 'Danh sách thành viên' })
-  members(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Query() query: ListMembersQueryDto) {
+  members(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Query() query: ListMembersQueryDto,
+  ) {
     return this.workspaces.members(requireHumanId(user), slug, query);
+  }
+
+  @Get(':slug/members/:memberId')
+  @ApiOperation({ summary: 'Dashboard, hoạt động và quyền hiệu lực của thành viên' })
+  memberDetail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('memberId') memberId: string,
+  ) {
+    return this.workspaces.memberDetail(requireHumanId(user), slug, memberId);
+  }
+
+  @Get(':slug/join-requests')
+  @ApiOperation({ summary: 'Danh sách yêu cầu tham gia đang chờ' })
+  joinRequests(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.workspaces.joinRequests(requireHumanId(user), slug);
+  }
+
+  @Post(':slug/join-requests/:requestId/approve')
+  approveJoinRequest(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('requestId') requestId: string,
+  ) {
+    return this.workspaces.reviewJoinRequest(requireHumanId(user), slug, requestId, 'approved');
+  }
+
+  @Post(':slug/join-requests/:requestId/reject')
+  rejectJoinRequest(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('requestId') requestId: string,
+  ) {
+    return this.workspaces.reviewJoinRequest(requireHumanId(user), slug, requestId, 'rejected');
   }
 
   @Post(':slug/invitations')
   @ApiOperation({ summary: 'Mời người dùng bằng handle' })
-  invite(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: InviteWorkspaceMemberDto) {
+  invite(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: InviteWorkspaceMemberDto,
+  ) {
     return this.workspaces.invite(requireHumanId(user), slug, dto.handle);
   }
 
   @Get(':slug/invitations')
   @ApiOperation({ summary: 'Danh sách lời mời đang chờ' })
-  invitations(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Query() query: ListMembersQueryDto) {
+  invitations(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Query() query: ListMembersQueryDto,
+  ) {
     return this.workspaces.invitations(requireHumanId(user), slug, query);
   }
 
   @Post(':slug/invitations/:invitationId/accept')
   @ApiOperation({ summary: 'Chấp nhận lời mời vào nhóm' })
-  acceptInvitation(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('invitationId') invitationId: string) {
+  acceptInvitation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('invitationId') invitationId: string,
+  ) {
     return this.workspaces.acceptInvitation(requireHumanId(user), slug, invitationId);
   }
 
   @Delete(':slug/invitations/:invitationId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Thu hồi lời mời' })
-  async revokeInvitation(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('invitationId') invitationId: string) {
+  async revokeInvitation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('invitationId') invitationId: string,
+  ) {
     await this.workspaces.revokeInvitation(requireHumanId(user), slug, invitationId);
   }
 
@@ -174,13 +378,21 @@ export class WorkspaceController {
   @Delete(':slug/members/:memberId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Loại thành viên khỏi nhóm' })
-  async removeMember(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('memberId') memberId: string) {
+  async removeMember(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('memberId') memberId: string,
+  ) {
     await this.workspaces.removeMember(requireHumanId(user), slug, memberId);
   }
 
   @Post(':slug/transfer-ownership')
   @ApiOperation({ summary: 'Chuyển quyền Chủ nhóm' })
-  transferOwnership(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: TransferOwnershipDto) {
+  transferOwnership(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: TransferOwnershipDto,
+  ) {
     return this.workspaces.transferOwnership(requireHumanId(user), slug, dto);
   }
 

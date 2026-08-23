@@ -582,24 +582,49 @@ model roadmaps {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model study_groups {
-  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug                   String                   @unique @db.Citext
-  name                   String
-  description            String?
-  invite_code            String                   @unique @db.Citext
-  topic                  String?
-  owner_id               String                   @db.Uuid
-  status                 group_status             @default(active)
-  member_count           Int                      @default(0)
-  last_activity_at       DateTime?                @db.Timestamptz(6)
-  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
-  group_activities       group_activities[]
-  group_documents        group_documents[]
-  group_exercises        group_exercises[]
-  group_members          group_members[]
-  group_role_permissions group_role_permissions[]
-  users                  users                    @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                    String                    @unique @db.Citext
+  name                    String
+  description             String?
+  invite_code             String                    @unique @db.Citext
+  topic                   String?
+  avatar_url              String?
+  avatar_key              String?
+  cover_url               String?
+  cover_key               String?
+  privacy                 workspace_privacy         @default(private)
+  join_policy             workspace_join_policy     @default(invite_only)
+  owner_id                String                    @db.Uuid
+  status                  group_status              @default(active)
+  member_count            Int                       @default(0)
+  last_activity_at        DateTime?                 @db.Timestamptz(6)
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  group_activities        group_activities[]
+  group_documents         group_documents[]
+  group_exercises         group_exercises[]
+  group_members           group_members[]
+  group_role_permissions  group_role_permissions[]
+  workspace_join_requests workspace_join_requests[]
+  users                   users                     @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
+}
+
+model workspace_join_requests {
+  id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id     String              @db.Uuid
+  user_id      String              @db.Uuid
+  status       join_request_status @default(pending)
+  message      String?
+  reviewed_by  String?             @db.Uuid
+  reviewed_at  DateTime?           @db.Timestamptz(6)
+  created_at   DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime            @default(now()) @db.Timestamptz(6)
+  study_groups study_groups        @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  requester    users               @relation("workspace_join_request_user", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  reviewer     users?              @relation("workspace_join_request_reviewer", fields: [reviewed_by], references: [id], onUpdate: NoAction)
+
+  @@unique([group_id, user_id])
+  @@index([group_id, status, created_at(sort: Desc)], map: "idx_workspace_join_requests_group")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -698,6 +723,8 @@ model users {
   created_at                                         DateTime                   @default(now()) @db.Timestamptz(6)
   updated_at                                         DateTime                   @default(now()) @db.Timestamptz(6)
   external_id                                        String?                    @unique @db.Citext
+  workspace_join_requests_requested                  workspace_join_requests[]  @relation("workspace_join_request_user")
+  workspace_join_requests_reviewed                   workspace_join_requests[]  @relation("workspace_join_request_reviewer")
   articles                                           articles[]
   assignments                                        assignments[]
   course_enrollments                                 course_enrollments[]
@@ -864,6 +891,23 @@ enum group_role {
 enum group_status {
   active
   archived
+}
+
+enum workspace_privacy {
+  public
+  private
+}
+
+enum workspace_join_policy {
+  open
+  approval
+  invite_only
+}
+
+enum join_request_status {
+  pending
+  approved
+  rejected
 }
 
 enum learning_style {
