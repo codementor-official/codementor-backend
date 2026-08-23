@@ -267,6 +267,7 @@ export class ObjectStorageService {
     objectKey: string,
     filename?: string,
     dispositionType: 'attachment' | 'inline' = 'attachment',
+    contentType?: string,
   ): Promise<Result<{ url: string; expiresInSeconds: number }, BusinessRuleViolation>> {
     if (this.client === null || !this.bucket)
       return Result.fail(new BusinessRuleViolation('Chưa cấu hình kho lưu trữ tài liệu.'));
@@ -279,6 +280,7 @@ export class ObjectStorageService {
         Bucket: this.bucket,
         Key: objectKey,
         ResponseContentDisposition: disposition,
+        ResponseContentType: contentType ?? contentTypeOf(objectKey),
       }),
       { expiresIn: this.expiresInSeconds },
     );
@@ -311,4 +313,32 @@ export class ObjectStorageService {
 function extensionOf(filename: string): string {
   const match = /\.([a-zA-Z0-9]{1,5})$/.exec(filename.trim());
   return match ? `.${match[1].toLowerCase()}` : '';
+}
+
+/** Force browsers to render previewable documents instead of treating them as octet-stream. */
+function contentTypeOf(objectKey: string): string | undefined {
+  const extension = objectKey.split('.').pop()?.toLowerCase();
+  return extension
+    ? (
+        {
+          pdf: 'application/pdf',
+          doc: 'application/msword',
+          docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          xls: 'application/vnd.ms-excel',
+          xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          ppt: 'application/vnd.ms-powerpoint',
+          pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          txt: 'text/plain; charset=utf-8',
+          md: 'text/markdown; charset=utf-8',
+          csv: 'text/csv; charset=utf-8',
+          json: 'application/json',
+          png: 'image/png',
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          webp: 'image/webp',
+          mp4: 'video/mp4',
+          webm: 'video/webm',
+        } as Record<string, string>
+      )[extension]
+    : undefined;
 }
