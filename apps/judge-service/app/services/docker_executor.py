@@ -380,7 +380,7 @@ def _run_once(
 ) -> RunOutcome:
     """Một test case ở chế độ stdin/stdout: nạp đầu vào qua stdin, đọc đáp án ở stdout."""
     config = LANGUAGE_CONFIG[language]
-    (Path(workdir) / "stdin.txt").write_text(stdin or "")
+    (Path(workdir) / "stdin.txt").write_text(stdin or "", encoding="utf-8")
     shell_cmd = f"{' '.join(config['run_cmd'])} < stdin.txt"
     return _run_container(
         config["image"], ["sh", "-c", shell_cmd], workdir, time_limit_sec, memory_limit_mb
@@ -416,14 +416,15 @@ def run_function_mode(
             # được tái sử dụng giữa các bài nộp thì phải chuyển sang chown.
             Path(workdir).chmod(0o777)
 
-            (Path(workdir) / runner.solution_file).write_text(source_code)
+            (Path(workdir) / runner.solution_file).write_text(source_code, encoding="utf-8")
             for name, content in runner.files(spec).items():
-                (Path(workdir) / name).write_text(content)
+                (Path(workdir) / name).write_text(content, encoding="utf-8")
 
             # Chỉ `args`, không có `expected`: đáp án không vào sandbox.
             tests_path = Path(workdir) / "tests.json"
             tests_path.write_text(
-                json.dumps([{"id": case.order, "args": case.args or []} for case in test_cases])
+                json.dumps([{"id": case.order, "args": case.args or []} for case in test_cases]),
+                encoding="utf-8",
             )
             tests_path.chmod(0o666)
 
@@ -501,7 +502,7 @@ def run_against_testcases(
         workdir = tempfile.mkdtemp(prefix="codementor_judge_")
         try:
             source_path = Path(workdir) / config["filename"]
-            source_path.write_text(source_code)
+            source_path.write_text(source_code, encoding="utf-8")
 
             compile_output = compile_step(language, workdir)
             if compile_output is not None:

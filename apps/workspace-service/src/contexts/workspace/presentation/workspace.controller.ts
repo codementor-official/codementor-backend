@@ -1,0 +1,208 @@
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CurrentUser, requireHumanId } from '@codementor/platform';
+import type { AuthenticatedUser } from '@codementor/platform';
+import { WorkspaceService } from '../application/workspace.service';
+import { WorkspaceOverviewService } from '../application/workspace-overview.service';
+import { WorkspaceContentService } from '../application/workspace-content.service';
+import {
+  CreateWorkspaceDto,
+  AttachWorkspaceExerciseDto,
+  CreateWorkspaceDocumentDto,
+  DocumentUploadUrlDto,
+  InviteWorkspaceMemberDto,
+  JoinWorkspaceDto,
+  ListMembersQueryDto,
+  ListWorkspacesQueryDto,
+  TransferOwnershipDto,
+  UpdateMemberPermissionsDto,
+  UpdateMemberRoleDto,
+  UpdateRolePermissionsDto,
+  UpdateWorkspaceDto,
+  UpdateWorkspaceAssignmentDto,
+  UpdateWorkspaceDocumentDto,
+  UpdateWorkspaceExerciseDto,
+  WorkspaceContentQueryDto,
+} from './dto/workspace.dto';
+
+@ApiTags('workspaces')
+@ApiBearerAuth('access-token')
+@Controller({ path: 'workspaces', version: '1' })
+export class WorkspaceController {
+  constructor(private readonly workspaces: WorkspaceService, private readonly overview: WorkspaceOverviewService, private readonly content: WorkspaceContentService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Nhóm học tập của tôi' })
+  list(@CurrentUser() user: AuthenticatedUser, @Query() query: ListWorkspacesQueryDto) {
+    return this.workspaces.list(requireHumanId(user), query);
+  }
+
+  @Get('summary')
+  @ApiOperation({ summary: 'Thống kê Workspace của tôi' })
+  summary(@CurrentUser() user: AuthenticatedUser) {
+    return this.workspaces.summary(requireHumanId(user));
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Tạo nhóm học tập' })
+  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateWorkspaceDto) {
+    return this.workspaces.create(requireHumanId(user), dto);
+  }
+
+  @Post('join')
+  @ApiOperation({ summary: 'Tham gia bằng mã mời' })
+  join(@CurrentUser() user: AuthenticatedUser, @Body() dto: JoinWorkspaceDto) {
+    return this.workspaces.join(requireHumanId(user), dto);
+  }
+
+  @Get(':slug/overview')
+  @ApiOperation({ summary: 'Dashboard dữ liệu thật của nhóm học tập' })
+  overviewData(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.overview.get(requireHumanId(user), slug);
+  }
+
+  @Get(':slug/documents/upload-config')
+  documentUploadConfig(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) { return this.content.uploadConfig(requireHumanId(user), slug); }
+
+  @Post(':slug/documents/upload-url')
+  documentUploadUrl(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: DocumentUploadUrlDto) { return this.content.presign(requireHumanId(user), slug, dto); }
+
+  @Get(':slug/documents')
+  documents(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Query() query: WorkspaceContentQueryDto) { return this.content.documents(requireHumanId(user), slug, query); }
+
+  @Post(':slug/documents')
+  createDocument(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: CreateWorkspaceDocumentDto) { return this.content.createDocument(requireHumanId(user), slug, dto); }
+
+  @Patch(':slug/documents/:documentId')
+  updateDocument(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('documentId') id: string, @Body() dto: UpdateWorkspaceDocumentDto) { return this.content.updateDocument(requireHumanId(user), slug, id, dto); }
+
+  @Delete(':slug/documents/:documentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteDocument(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('documentId') id: string) { await this.content.deleteDocument(requireHumanId(user), slug, id); }
+
+  @Get(':slug/exercises')
+  exercises(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Query() query: WorkspaceContentQueryDto) { return this.content.exercises(requireHumanId(user), slug, query); }
+
+  @Post(':slug/exercises')
+  attachExercise(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: AttachWorkspaceExerciseDto) { return this.content.attachExercise(requireHumanId(user), slug, dto); }
+
+  @Patch(':slug/exercises/:groupExerciseId')
+  updateExercise(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('groupExerciseId') id: string, @Body() dto: UpdateWorkspaceExerciseDto) { return this.content.updateExercise(requireHumanId(user), slug, id, dto); }
+
+  @Delete(':slug/exercises/:groupExerciseId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteExercise(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('groupExerciseId') id: string) { await this.content.deleteExercise(requireHumanId(user), slug, id); }
+
+  @Get(':slug/assignments')
+  assignments(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Query() query: WorkspaceContentQueryDto) { return this.content.assignments(requireHumanId(user), slug, query); }
+
+  @Patch(':slug/assignments/:assignmentId')
+  updateAssignment(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('assignmentId') id: string, @Body() dto: UpdateWorkspaceAssignmentDto) { return this.content.updateAssignment(requireHumanId(user), slug, id, dto); }
+
+  @Get(':slug')
+  @ApiOperation({ summary: 'Chi tiết nhóm học tập' })
+  detail(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.workspaces.detail(requireHumanId(user), slug);
+  }
+
+  @Patch(':slug')
+  @ApiOperation({ summary: 'Sửa thông tin nhóm' })
+  update(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: UpdateWorkspaceDto) {
+    return this.workspaces.update(requireHumanId(user), slug, dto);
+  }
+
+  @Post(':slug/archive')
+  @ApiOperation({ summary: 'Lưu trữ nhóm' })
+  archive(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.workspaces.archive(requireHumanId(user), slug);
+  }
+
+  @Post(':slug/invite-code/rotate')
+  @ApiOperation({ summary: 'Xoay mã mời của nhóm' })
+  rotateInviteCode(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.workspaces.rotateInviteCode(requireHumanId(user), slug);
+  }
+
+  @Post(':slug/leave')
+  @ApiOperation({ summary: 'Rời nhóm' })
+  leave(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.workspaces.leave(requireHumanId(user), slug);
+  }
+
+  @Get(':slug/members')
+  @ApiOperation({ summary: 'Danh sách thành viên' })
+  members(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Query() query: ListMembersQueryDto) {
+    return this.workspaces.members(requireHumanId(user), slug, query);
+  }
+
+  @Post(':slug/invitations')
+  @ApiOperation({ summary: 'Mời người dùng bằng handle' })
+  invite(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: InviteWorkspaceMemberDto) {
+    return this.workspaces.invite(requireHumanId(user), slug, dto.handle);
+  }
+
+  @Get(':slug/invitations')
+  @ApiOperation({ summary: 'Danh sách lời mời đang chờ' })
+  invitations(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Query() query: ListMembersQueryDto) {
+    return this.workspaces.invitations(requireHumanId(user), slug, query);
+  }
+
+  @Post(':slug/invitations/:invitationId/accept')
+  @ApiOperation({ summary: 'Chấp nhận lời mời vào nhóm' })
+  acceptInvitation(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('invitationId') invitationId: string) {
+    return this.workspaces.acceptInvitation(requireHumanId(user), slug, invitationId);
+  }
+
+  @Delete(':slug/invitations/:invitationId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Thu hồi lời mời' })
+  async revokeInvitation(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('invitationId') invitationId: string) {
+    await this.workspaces.revokeInvitation(requireHumanId(user), slug, invitationId);
+  }
+
+  @Patch(':slug/members/:memberId/role')
+  @ApiOperation({ summary: 'Đổi role Phó nhóm/Thành viên' })
+  updateMemberRole(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('memberId') memberId: string,
+    @Body() dto: UpdateMemberRoleDto,
+  ) {
+    return this.workspaces.updateMemberRole(requireHumanId(user), slug, memberId, dto);
+  }
+
+  @Delete(':slug/members/:memberId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Loại thành viên khỏi nhóm' })
+  async removeMember(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Param('memberId') memberId: string) {
+    await this.workspaces.removeMember(requireHumanId(user), slug, memberId);
+  }
+
+  @Post(':slug/transfer-ownership')
+  @ApiOperation({ summary: 'Chuyển quyền Chủ nhóm' })
+  transferOwnership(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string, @Body() dto: TransferOwnershipDto) {
+    return this.workspaces.transferOwnership(requireHumanId(user), slug, dto);
+  }
+
+  @Put(':slug/permissions/roles/:role')
+  @ApiOperation({ summary: 'Cập nhật quyền mặc định của role' })
+  updateRolePermissions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('role') role: 'deputy' | 'member',
+    @Body() dto: UpdateRolePermissionsDto,
+  ) {
+    return this.workspaces.updateRolePermissions(requireHumanId(user), slug, role, dto);
+  }
+
+  @Put(':slug/members/:memberId/permissions')
+  @ApiOperation({ summary: 'Cập nhật quyền riêng của thành viên' })
+  updateMemberPermissions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('memberId') memberId: string,
+    @Body() dto: UpdateMemberPermissionsDto,
+  ) {
+    return this.workspaces.updateMemberPermissions(requireHumanId(user), slug, memberId, dto);
+  }
+}

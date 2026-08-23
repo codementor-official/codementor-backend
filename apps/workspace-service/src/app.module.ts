@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AuthModule, RemoteIdentityModule, ConfigModule, HealthModule, HttpModule, LoggingModule, PrismaModule } from '@codementor/platform';
+import { AuthModule, RemoteIdentityModule, ConfigModule, HealthModule, HttpModule, LoggingModule, PrismaModule, StorageModule } from '@codementor/platform';
 import { MessagingModule } from '@codementor/messaging';
+import { WorkspaceModule } from './contexts/workspace/workspace.module';
 
 /**
  * workspace-service
@@ -22,7 +23,9 @@ import { MessagingModule } from '@codementor/messaging';
     HttpModule,
     LoggingModule,
     PrismaModule,
+    StorageModule,
     MessagingModule.forRoot({ serviceName: 'workspace-service' }),
+    WorkspaceModule,
   ],
 })
 export class AppModule {}

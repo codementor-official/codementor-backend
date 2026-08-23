@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "seed:workspace-demo": "node --env-file=.env scripts/seed-workspace-demo.mjs",
     "build": "nest build core-service",
     "lint": "eslint \"apps/**/*.ts\" \"libs/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",

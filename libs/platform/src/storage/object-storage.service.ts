@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 import { BusinessRuleViolation, InvalidInput, Result } from '@codementor/kernel';
@@ -30,6 +30,20 @@ export const VIDEO_CONTENT_TYPES = [
   'video/quicktime',
 ] as const;
 
+export const DOCUMENT_CONTENT_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/plain',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+] as const;
+
 /**
  * Kho đối tượng tương thích S3, cho những thứ quá lớn để nằm trong CSDL.
  *
@@ -53,8 +67,10 @@ export class ObjectStorageService {
   private readonly publicBaseUrl: string | undefined;
   /** Thư mục gốc của video trong bucket, đã cắt gạch thừa hai đầu. */
   private readonly videoPrefix: string;
+  private readonly documentPrefix: string;
   private readonly expiresInSeconds: number;
   readonly maxUploadBytes: number;
+  readonly maxDocumentUploadBytes: number;
 
   constructor(private readonly config: ConfigService) {
     this.bucket = config.get<string>('AWS_S3_BUCKET');
@@ -63,15 +79,17 @@ export class ObjectStorageService {
       /^\/+|\/+$/g,
       '',
     );
+    this.documentPrefix = (config.get<string>('AWS_S3_DOCUMENT_PREFIX') ?? 'public/workspace-documents').replace(/^\/+|\/+$/g, '');
     this.expiresInSeconds = config.get<number>('AWS_S3_PRESIGNED_EXPIRES') ?? 900;
     this.maxUploadBytes = (config.get<number>('VIDEO_MAX_UPLOAD_MB') ?? 500) * 1024 * 1024;
+    this.maxDocumentUploadBytes = (config.get<number>('DOCUMENT_MAX_UPLOAD_MB') ?? 20) * 1024 * 1024;
 
     const accessKeyId = config.get<string>('AWS_ACCESS_KEY_ID');
     const secretAccessKey = config.get<string>('AWS_SECRET_ACCESS_KEY');
 
     if (!this.bucket || !accessKeyId || !secretAccessKey) {
       this.client = null;
-      this.logger.log('Chưa cấu hình S3 — tính năng tải video lên sẽ tắt, dán URL vẫn dùng được');
+      this.logger.log('Chưa cấu hình S3 — tính năng tải tệp trực tiếp sẽ tắt');
       return;
     }
 
@@ -153,6 +171,35 @@ export class ObjectStorageService {
       objectKey,
       expiresInSeconds: this.expiresInSeconds,
     });
+  }
+
+  async presignDocumentUpload(input: { prefix: string; filename: string; contentType: string; sizeBytes: number }): Promise<Result<PresignedUpload, BusinessRuleViolation | InvalidInput>> {
+    if (this.client === null || !this.bucket) return Result.fail(new BusinessRuleViolation('Chưa cấu hình kho lưu trữ tài liệu.'));
+    if (!DOCUMENT_CONTENT_TYPES.includes(input.contentType as (typeof DOCUMENT_CONTENT_TYPES)[number])) {
+      return Result.fail(new InvalidInput('Chỉ hỗ trợ PDF, Office, văn bản và ảnh.', { contentType: input.contentType }));
+    }
+    if (input.sizeBytes <= 0 || input.sizeBytes > this.maxDocumentUploadBytes) {
+      return Result.fail(new InvalidInput(`Tài liệu tối đa ${Math.round(this.maxDocumentUploadBytes / 1024 / 1024)} MB`, { sizeBytes: input.sizeBytes }));
+    }
+    const objectKey = [this.documentPrefix, input.prefix.replace(/^\/+|\/+$/g, ''), `${randomUUID()}${extensionOf(input.filename)}`].filter(Boolean).join('/');
+    const uploadUrl = await getSignedUrl(this.client, new PutObjectCommand({ Bucket: this.bucket, Key: objectKey, ContentType: input.contentType, ContentLength: input.sizeBytes }), { expiresIn: this.expiresInSeconds });
+    return Result.ok({ uploadUrl, headers: { 'Content-Type': input.contentType }, publicUrl: this.publicUrlFor(objectKey), objectKey, expiresInSeconds: this.expiresInSeconds });
+  }
+
+  async objectExists(objectKey: string): Promise<boolean> {
+    if (this.client === null || !this.bucket) return false;
+    try { await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: objectKey })); return true; }
+    catch { return false; }
+  }
+
+  isDocumentKeyFor(objectKey: string, prefix: string): boolean {
+    const expected = [this.documentPrefix, prefix.replace(/^\/+|\/+$/g, '')].filter(Boolean).join('/') + '/';
+    return objectKey.startsWith(expected) && !objectKey.includes('..');
+  }
+
+  async deleteObject(objectKey: string): Promise<void> {
+    if (this.client === null || !this.bucket) return;
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: objectKey }));
   }
 
   /**
