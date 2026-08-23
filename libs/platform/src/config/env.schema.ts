@@ -28,10 +28,7 @@ export const envSchema = z.object({
   MONGO_DB: z.string().default('codementor'),
 
   // Xác thực do Keycloak đảm nhiệm — backend là resource server, KHÔNG tự ký token.
-  KEYCLOAK_ISSUER: z
-    .string()
-    .url()
-    .describe('vd: http://localhost:8080/realms/codementor'),
+  KEYCLOAK_ISSUER: z.string().url().describe('vd: http://localhost:8080/realms/codementor'),
   KEYCLOAK_AUDIENCE: z.string().default('codementor-api'),
   KEYCLOAK_URL: z.string().url(),
   KEYCLOAK_REALM: z.string().default('codementor'),
@@ -43,6 +40,7 @@ export const envSchema = z.object({
    * chỉ core được đọc bảng `users`. Xem `RemoteIdentityProvisioning`.
    */
   CORE_SERVICE_URL: z.string().url().default('http://localhost:3001'),
+  WORKSPACE_SERVICE_URL: z.string().url().default('http://localhost:3004'),
 
   KAFKA_BROKERS: z.string().default('localhost:9092'),
 

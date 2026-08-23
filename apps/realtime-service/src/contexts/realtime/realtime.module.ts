@@ -3,6 +3,8 @@ import { EventConsumer } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
 import { HandshakeAuthService } from './handshake-auth.service';
 import { NotificationGateway } from './notification.gateway';
+import { WorkspaceGateway } from './workspace.gateway';
+import { WorkspaceRealtimeClient } from './workspace-realtime.client';
 
 /**
  * Kafka → WebSocket. Không đọc DB, không dựng nội dung: `evt.notification.created.v1`
@@ -12,7 +14,7 @@ import { NotificationGateway } from './notification.gateway';
  * notification-service — cả hai cùng nhận, mỗi bên làm việc của mình.
  */
 @Module({
-  providers: [HandshakeAuthService, NotificationGateway],
+  providers: [HandshakeAuthService, NotificationGateway, WorkspaceGateway, WorkspaceRealtimeClient],
 })
 export class RealtimeModule implements OnModuleInit {
   constructor(
