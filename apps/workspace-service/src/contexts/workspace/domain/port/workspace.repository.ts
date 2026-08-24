@@ -197,6 +197,13 @@ export interface WorkspaceRepository {
   ): Promise<void>;
   findUserByHandle(handle: string): Promise<WorkspaceUser | null>;
   refreshMemberCount(groupId: string): Promise<number>;
+  recordActivity(
+    groupId: string,
+    actorId: string,
+    action: string,
+    targetType?: string,
+    targetId?: string,
+  ): Promise<void>;
   upsertJoinRequest(
     groupId: string,
     userId: string,

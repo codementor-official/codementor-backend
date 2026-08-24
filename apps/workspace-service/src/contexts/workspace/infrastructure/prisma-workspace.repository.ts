@@ -541,15 +541,13 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
           ? Math.round(scored.reduce((sum, item) => sum + (item.score ?? 0), 0) / scored.length)
           : 0,
       },
-      recentActivities: activities
-        .slice(0, 12)
-        .map((item) => ({
-          id: item.id,
-          action: item.action,
-          targetType: item.target_type,
-          targetId: item.target_id,
-          createdAt: item.created_at,
-        })),
+      recentActivities: activities.slice(0, 12).map((item) => ({
+        id: item.id,
+        action: item.action,
+        targetType: item.target_type,
+        targetId: item.target_id,
+        createdAt: item.created_at,
+      })),
     };
   }
 
@@ -641,6 +639,32 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
       data: { member_count: memberCount, updated_at: new Date() },
     });
     return memberCount;
+  }
+
+  async recordActivity(
+    groupId: string,
+    actorId: string,
+    action: string,
+    targetType?: string,
+    targetId?: string,
+  ) {
+    const occurredAt = new Date();
+    await this.prisma.$transaction([
+      this.prisma.group_activities.create({
+        data: {
+          group_id: groupId,
+          actor_id: actorId,
+          action,
+          target_type: targetType ?? null,
+          target_id: targetId ?? null,
+          created_at: occurredAt,
+        },
+      }),
+      this.prisma.study_groups.update({
+        where: { id: groupId },
+        data: { last_activity_at: occurredAt },
+      }),
+    ]);
   }
 
   async upsertJoinRequest(groupId: string, userId: string, message?: string) {

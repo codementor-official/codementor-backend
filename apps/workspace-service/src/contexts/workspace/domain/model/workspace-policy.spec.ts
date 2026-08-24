@@ -14,4 +14,23 @@ describe('Workspace permission policy', () => {
     );
     expect(permissions.remove_member).toBe(false);
   });
+
+  it('Member chỉ có quyền nội dung của chính mình theo mặc định', () => {
+    const permissions = resolveWorkspacePermissions('member', [], []);
+    expect(permissions.view_doc).toBe(true);
+    expect(permissions.upload_doc).toBe(true);
+    expect(permissions.edit_own_doc).toBe(true);
+    expect(permissions.manage_doc).toBe(false);
+    expect(permissions.view_exercise).toBe(true);
+    expect(permissions.manage_exercise).toBe(false);
+  });
+
+  it('member override có thể thu hồi một quyền mặc định granular', () => {
+    const permissions = resolveWorkspacePermissions(
+      'member',
+      [],
+      [{ permission: 'delete_own_doc', allowed: false }],
+    );
+    expect(permissions.delete_own_doc).toBe(false);
+  });
 });

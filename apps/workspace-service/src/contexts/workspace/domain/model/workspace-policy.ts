@@ -1,8 +1,18 @@
 import { BusinessRuleViolation, NotAuthorized } from '@codementor/kernel';
 
 export const WORKSPACE_PERMISSIONS = [
+  'view_doc',
   'upload_doc',
+  'edit_own_doc',
+  'delete_own_doc',
+  'manage_doc',
+  'approve_doc',
+  'view_exercise',
   'create_exercise',
+  'edit_own_exercise',
+  'delete_own_exercise',
+  'manage_exercise',
+  'assign_exercise',
   'edit_exercise',
   'delete_doc',
   'review_submission',
@@ -25,13 +35,29 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
   Partial<EffectivePermissions>
 > = {
   deputy: {
+    view_doc: true,
     upload_doc: true,
+    edit_own_doc: true,
+    delete_own_doc: true,
+    manage_doc: true,
+    approve_doc: true,
+    view_exercise: true,
     create_exercise: true,
+    edit_own_exercise: true,
+    delete_own_exercise: true,
+    manage_exercise: true,
+    assign_exercise: true,
     edit_exercise: true,
     review_submission: true,
     remove_member: true,
   },
-  member: { upload_doc: true },
+  member: {
+    view_doc: true,
+    upload_doc: true,
+    edit_own_doc: true,
+    delete_own_doc: true,
+    view_exercise: true,
+  },
 };
 
 export function resolveWorkspacePermissions(
@@ -39,8 +65,12 @@ export function resolveWorkspacePermissions(
   rolePermissions: PermissionGrant[],
   overrides: MemberPermissionOverride[],
 ): EffectivePermissions {
+  const defaults = role === 'owner' ? {} : DEFAULT_ROLE_PERMISSIONS[role];
   const result = Object.fromEntries(
-    WORKSPACE_PERMISSIONS.map((permission) => [permission, role === 'owner']),
+    WORKSPACE_PERMISSIONS.map((permission) => [
+      permission,
+      role === 'owner' || defaults[permission] === true,
+    ]),
   ) as EffectivePermissions;
   if (role === 'owner') return result;
   for (const grant of rolePermissions)

@@ -176,16 +176,37 @@ export class WorkspaceService {
     const workspace = await this.workspaces.findActiveByInviteCode(dto.inviteCode.trim());
     if (!workspace) throw new NotFound('Không tìm thấy nhóm học tập bằng mã mời này');
     const existing = await this.workspaces.findMembershipAny(workspace.id, userId);
-    if (existing?.status === 'active') return this.detail(userId, workspace.slug);
+    if (existing?.status === 'active')
+      return { status: 'joined' as const, workspaceSlug: workspace.slug };
+
+    // A valid invite code identifies the workspace, but it must not bypass an
+    // approval policy. Only invite-only and open workspaces activate the member
+    // immediately; approval workspaces always create a reviewable request.
+    if (workspace.joinPolicy === 'approval') {
+      const request = await this.workspaces.upsertJoinRequest(workspace.id, userId);
+      return {
+        status: 'pending' as const,
+        requestId: request.id,
+        workspaceSlug: workspace.slug,
+      };
+    }
+    let membershipId = existing?.id;
     if (existing)
       await this.workspaces.updateMember(existing.id, {
         status: 'active',
         role: 'member',
         joinedAt: new Date(),
       });
-    else await this.workspaces.createMember(workspace.id, userId);
+    else membershipId = (await this.workspaces.createMember(workspace.id, userId)).id;
     await this.workspaces.refreshMemberCount(workspace.id);
-    return this.detail(userId, workspace.slug);
+    await this.workspaces.recordActivity(
+      workspace.id,
+      userId,
+      'đã tham gia nhóm học tập',
+      'membership',
+      membershipId,
+    );
+    return { status: 'joined' as const, workspaceSlug: workspace.slug };
   }
   async leave(userId: string, slug: string) {
     const workspace = await this.requireActive(slug);
@@ -195,6 +216,13 @@ export class WorkspaceService {
       throw new BusinessRuleViolation('Chủ nhóm cần chuyển quyền sở hữu trước khi rời nhóm');
     await this.workspaces.updateMember(member.id, { status: 'removed' });
     await this.workspaces.refreshMemberCount(workspace.id);
+    await this.workspaces.recordActivity(
+      workspace.id,
+      userId,
+      'đã rời nhóm học tập',
+      'membership',
+      member.id,
+    );
     return { left: true };
   }
 
@@ -352,14 +380,22 @@ export class WorkspaceService {
     if (workspace.joinPolicy === 'invite_only')
       throw new NotAuthorized('Nhóm này chỉ nhận thành viên bằng mã mời');
     if (workspace.joinPolicy === 'open') {
+      let membershipId = existing?.id;
       if (existing)
         await this.workspaces.updateMember(existing.id, {
           status: 'active',
           role: 'member',
           joinedAt: new Date(),
         });
-      else await this.workspaces.createMember(workspace.id, userId);
+      else membershipId = (await this.workspaces.createMember(workspace.id, userId)).id;
       await this.workspaces.refreshMemberCount(workspace.id);
+      await this.workspaces.recordActivity(
+        workspace.id,
+        userId,
+        'đã tham gia nhóm học tập',
+        'membership',
+        membershipId,
+      );
       return { status: 'joined', workspaceSlug: slug };
     }
     const request = await this.workspaces.upsertJoinRequest(workspace.id, userId, dto.message);
@@ -381,14 +417,22 @@ export class WorkspaceService {
       throw new NotFound('Không tìm thấy yêu cầu đang chờ');
     if (decision === 'approved') {
       const existing = await this.workspaces.findMembershipAny(workspace.id, request.userId);
+      let membershipId = existing?.id;
       if (existing)
         await this.workspaces.updateMember(existing.id, {
           status: 'active',
           role: 'member',
           joinedAt: new Date(),
         });
-      else await this.workspaces.createMember(workspace.id, request.userId);
+      else membershipId = (await this.workspaces.createMember(workspace.id, request.userId)).id;
       await this.workspaces.refreshMemberCount(workspace.id);
+      await this.workspaces.recordActivity(
+        workspace.id,
+        request.userId,
+        'đã tham gia nhóm học tập',
+        'membership',
+        membershipId,
+      );
     }
     await this.workspaces.reviewJoinRequest(request.id, userId, decision);
     return { status: decision };
@@ -442,6 +486,13 @@ export class WorkspaceService {
     if (!invitation || invitation.userId !== userId) throw new NotFound('Không tìm thấy lời mời');
     await this.workspaces.updateMember(invitation.id, { status: 'active', joinedAt: new Date() });
     await this.workspaces.refreshMemberCount(workspace.id);
+    await this.workspaces.recordActivity(
+      workspace.id,
+      userId,
+      'đã tham gia nhóm học tập',
+      'membership',
+      invitation.id,
+    );
     return this.detail(userId, slug);
   }
   async revokeInvitation(userId: string, slug: string, invitationId: string) {
