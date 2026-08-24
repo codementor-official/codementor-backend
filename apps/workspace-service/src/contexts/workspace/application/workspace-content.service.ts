@@ -309,10 +309,12 @@ export class WorkspaceContentService {
       throw new NotAuthorized('Bạn không có quyền phân công bài tập');
     return this.content.createExercise(detail.id, userId, {
       title: dto.title.trim(),
+      slug: clean(dto.slug),
       summary: clean(dto.summary),
       difficulty: dto.difficulty,
       source: dto.source ?? 'manual',
       xpReward: dto.xpReward ?? 100,
+      estimatedMinutes: dto.estimatedMinutes,
       timeLimitMs: dto.timeLimitMs ?? 1000,
       memoryLimitKb: dto.memoryLimitKb ?? 262144,
       content: dto.content,
@@ -391,6 +393,9 @@ export class WorkspaceContentService {
       title: dto.title?.trim(),
       summary: dto.summary === undefined ? undefined : (clean(dto.summary) ?? null),
       difficulty: dto.difficulty,
+      estimatedMinutes: dto.estimatedMinutes,
+      timeLimitMs: dto.timeLimitMs,
+      memoryLimitKb: dto.memoryLimitKb,
       publicationStatus: dto.publicationStatus,
       content: dto.content,
     });

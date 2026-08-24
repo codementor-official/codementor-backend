@@ -38,6 +38,9 @@ export interface WorkspaceExerciseRecord {
   deletedBy: string | null;
   deleteReason: string | null;
   xp: number;
+  estimatedMinutes: number | null;
+  timeLimitMs: number;
+  memoryLimitKb: number;
   dueAt: Date | null;
   attemptLimit: number | null;
   allowRetry: boolean;
@@ -178,10 +181,12 @@ export interface WorkspaceContentRepository {
     userId: string,
     input: {
       title: string;
+      slug?: string;
       summary?: string;
       difficulty: 'easy' | 'medium' | 'hard';
       source: 'manual' | 'ai';
       xpReward: number;
+      estimatedMinutes?: number;
       timeLimitMs: number;
       memoryLimitKb: number;
       content: Record<string, unknown>;
@@ -209,6 +214,9 @@ export interface WorkspaceContentRepository {
       title?: string;
       summary?: string | null;
       difficulty?: 'easy' | 'medium' | 'hard';
+      estimatedMinutes?: number | null;
+      timeLimitMs?: number;
+      memoryLimitKb?: number;
       publicationStatus?: 'published' | 'hidden';
       content?: Record<string, unknown>;
     },

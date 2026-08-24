@@ -329,6 +329,9 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
           deletedBy: row.deleted_by,
           deleteReason: row.delete_reason,
           xp: row.exercises.xp_reward,
+          estimatedMinutes: row.exercises.estimated_minutes,
+          timeLimitMs: row.exercises.time_limit_ms,
+          memoryLimitKb: row.exercises.memory_limit_kb,
           dueAt: row.due_at,
           attemptLimit: row.attempt_limit,
           allowRetry: row.allow_retry,
@@ -419,10 +422,12 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     userId: string,
     input: {
       title: string;
+      slug?: string;
       summary?: string;
       difficulty: 'easy' | 'medium' | 'hard';
       source: 'manual' | 'ai';
       xpReward: number;
+      estimatedMinutes?: number;
       timeLimitMs: number;
       memoryLimitKb: number;
       content: Record<string, unknown>;
@@ -435,7 +440,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
   ) {
     const exercise = await this.prisma.exercises.create({
       data: {
-        slug: `${slugify(input.title)}-${randomUUID().slice(0, 8)}`,
+        slug: `${slugify(input.slug || input.title)}-${randomUUID().slice(0, 8)}`,
         title: input.title,
         summary: input.summary,
         kind: exercise_kind.code,
@@ -444,6 +449,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
         source: input.source as exercise_source,
         visibility: exercise_visibility.group,
         xp_reward: input.xpReward,
+        estimated_minutes: input.estimatedMinutes,
         time_limit_ms: input.timeLimitMs,
         memory_limit_kb: input.memoryLimitKb,
         author_id: userId,
@@ -543,6 +549,9 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       deletedBy: row.deleted_by,
       deleteReason: row.delete_reason,
       xp: row.exercises.xp_reward,
+      estimatedMinutes: row.exercises.estimated_minutes,
+      timeLimitMs: row.exercises.time_limit_ms,
+      memoryLimitKb: row.exercises.memory_limit_kb,
       dueAt: row.due_at,
       attemptLimit: row.attempt_limit,
       allowRetry: row.allow_retry,
@@ -578,6 +587,9 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       title?: string;
       summary?: string | null;
       difficulty?: 'easy' | 'medium' | 'hard';
+      estimatedMinutes?: number | null;
+      timeLimitMs?: number;
+      memoryLimitKb?: number;
       publicationStatus?: 'published' | 'hidden';
       content?: Record<string, unknown>;
     },
@@ -600,7 +612,10 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       if (
         input.title !== undefined ||
         input.summary !== undefined ||
-        input.difficulty !== undefined
+        input.difficulty !== undefined ||
+        input.estimatedMinutes !== undefined ||
+        input.timeLimitMs !== undefined ||
+        input.memoryLimitKb !== undefined
       )
         await tx.exercises.update({
           where: { id: found.exercise_id },
@@ -608,6 +623,9 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
             title: input.title,
             summary: input.summary,
             difficulty: input.difficulty as exercise_difficulty | undefined,
+            estimated_minutes: input.estimatedMinutes,
+            time_limit_ms: input.timeLimitMs,
+            memory_limit_kb: input.memoryLimitKb,
           },
         });
       if (input.memberIds) {
@@ -630,16 +648,14 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     });
     if (input.content) {
       const now = new Date();
-      const contentRow = await this.mongo
-        .collection('exercise_contents')
-        .findOneAndUpdate(
-          { exerciseId: found.exercise_id },
-          {
-            $set: { ...sanitizeExerciseContent(input.content), kind: 'code', updatedAt: now },
-            $setOnInsert: { exerciseId: found.exercise_id, createdAt: now },
-          },
-          { upsert: true, returnDocument: 'after', projection: { _id: 1 } },
-        );
+      const contentRow = await this.mongo.collection('exercise_contents').findOneAndUpdate(
+        { exerciseId: found.exercise_id },
+        {
+          $set: { ...sanitizeExerciseContent(input.content), kind: 'code', updatedAt: now },
+          $setOnInsert: { exerciseId: found.exercise_id, createdAt: now },
+        },
+        { upsert: true, returnDocument: 'after', projection: { _id: 1 } },
+      );
       if (contentRow?._id)
         await this.prisma.exercises.update({
           where: { id: found.exercise_id },
@@ -842,6 +858,9 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       deletedBy: row.deleted_by,
       deleteReason: row.delete_reason,
       xp: row.exercises.xp_reward,
+      estimatedMinutes: row.exercises.estimated_minutes,
+      timeLimitMs: row.exercises.time_limit_ms,
+      memoryLimitKb: row.exercises.memory_limit_kb,
       dueAt: row.due_at,
       attemptLimit: row.attempt_limit,
       allowRetry: row.allow_retry,

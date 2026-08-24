@@ -277,11 +277,13 @@ export class ReportWorkspaceDocumentDto {
 }
 
 export class CreateWorkspaceExerciseDto {
+  @IsOptional() @IsString() @MaxLength(200) slug?: string;
   @IsString() @IsNotEmpty() @MaxLength(200) title!: string;
   @IsOptional() @IsString() @MaxLength(500) summary?: string;
   @IsIn(['easy', 'medium', 'hard']) difficulty!: 'easy' | 'medium' | 'hard';
   @IsOptional() @IsIn(['manual', 'ai']) source?: 'manual' | 'ai';
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(10000) xpReward?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100000) estimatedMinutes?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(60000) timeLimitMs?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1024) @Max(4194304) memoryLimitKb?: number;
   @IsObject() content!: Record<string, unknown>;
@@ -311,6 +313,9 @@ export class UpdateWorkspaceExerciseDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) title?: string;
   @IsOptional() @IsString() @MaxLength(500) summary?: string | null;
   @IsOptional() @IsIn(['easy', 'medium', 'hard']) difficulty?: 'easy' | 'medium' | 'hard';
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100000) estimatedMinutes?: number | null;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(60000) timeLimitMs?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1024) @Max(4194304) memoryLimitKb?: number;
   @IsOptional() @IsIn(['published', 'hidden']) publicationStatus?: 'published' | 'hidden';
   @IsOptional() @IsObject() content?: Record<string, unknown>;
   @IsOptional() @IsDateString() dueAt?: string | null;
