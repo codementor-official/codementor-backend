@@ -58,7 +58,10 @@ def js_starter(spec: DriverSpec) -> str:
 def ts_starter(spec: DriverSpec) -> str:
     args = ", ".join(f"{p.name}: {ts_type(p.type)}" for p in spec.parameters)
     returns = ts_type(spec.return_type)
-    body = "    // Viết code của bạn ở đây\n"
+    body = (
+        "    // Viết code của bạn ở đây\n"
+        '    throw new Error("TODO: implement solution");\n'
+    )
     return f"function {camel(spec.function_name)}({args}): {returns} {{\n{body}}}\n"
 
 

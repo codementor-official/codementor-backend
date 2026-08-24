@@ -78,7 +78,10 @@ def _gson_target(node: dict) -> str:
 def starter(spec: DriverSpec) -> str:
     args = ", ".join(f"{type_of(p.type)} {p.name}" for p in spec.parameters)
     returns = type_of(spec.return_type)
-    body = "        // Viết code của bạn ở đây\n"
+    body = (
+        "        // Viết code của bạn ở đây\n"
+        '        throw new UnsupportedOperationException("TODO: implement solution");\n'
+    )
     return (
         "import java.util.*;\n\n"
         "class Solution {\n"

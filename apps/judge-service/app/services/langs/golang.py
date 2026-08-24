@@ -47,7 +47,7 @@ def starter(spec: DriverSpec) -> str:
     args = ", ".join(f"{p.name} {type_of(p.type)}" for p in spec.parameters)
     void = spec.return_type.get("kind") == "void"
     returns = "" if void else f" {type_of(spec.return_type)}"
-    body = "\t// Viết code của bạn ở đây\n"
+    body = "\t// Viết code của bạn ở đây\n\tpanic(\"TODO: implement solution\")\n"
     return f"package main\n\nfunc {camel(spec.function_name)}({args}){returns} {{\n{body}}}\n"
 
 
