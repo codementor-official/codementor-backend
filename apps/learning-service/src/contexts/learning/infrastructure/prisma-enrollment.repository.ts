@@ -160,16 +160,41 @@ export class PrismaEnrollmentRepository implements EnrollmentRepository {
           now(), ${completed ? new Date() : null}
         )
         ON CONFLICT (user_id, lesson_id) DO UPDATE SET
-          status = EXCLUDED.status,
+          /*
+           * Tiến độ chỉ đi TỚI: đã completed thì ở lại completed.
+           *
+           * Trước đây dòng này là "status = EXCLUDED.status" không điều kiện, và cột
+           * completed_at bị đặt về NULL với mọi lần ghi không phải completed. Hệ quả dây
+           * chuyền khi một bài đã xong bị ghi đè bằng in_progress — thứ xảy ra ngay lần
+           * đầu có ai đó lưu điểm dừng video của một bài đã học xong:
+           *
+           *   - fn_lesson_available gác theo status = completed, nên bài KẾ TIẾP khoá
+           *     lại, và chính nó cũng không ghi tiến độ được nữa (422).
+           *   - fn_refresh_course_progress đếm lại, hạ course_enrollments từ completed
+           *     xuống active và xoá completed_at.
+           *   - Trigger chạy tiếp fn_refresh_roadmap_progress cho mọi lộ trình chứa khoá
+           *     này, nên một lộ trình đã xong cũng mất luôn.
+           *
+           * Người học không có cách nào lấy lại ngoài học lại từ đầu. Chặn ở đây chứ không
+           * ở chỗ gọi: consumer Kafka và đường HTTP đều đi qua đúng câu lệnh này, còn thêm
+           * một guard ở mỗi nơi gọi thì nơi gọi thứ ba sẽ quên.
+           *
+           * Kiểm bằng: npm run verify:progress-monotonic
+           */
+          status = CASE WHEN lesson_progress.status = 'completed'
+                        THEN 'completed'::progress_status
+                        ELSE EXCLUDED.status END,
           -- Cộng dồn: mỗi lần client báo là thời gian của phiên đó, không phải tổng.
           time_spent_seconds = lesson_progress.time_spent_seconds + EXCLUDED.time_spent_seconds,
           last_position_seconds = COALESCE(EXCLUDED.last_position_seconds,
                                            lesson_progress.last_position_seconds),
           started_at = COALESCE(lesson_progress.started_at, EXCLUDED.started_at),
-          -- Xong rồi thì giữ mốc cũ: học lại một bài đã hoàn thành không dời ngày hoàn thành.
+          -- Xong rồi thì giữ mốc cũ: học lại một bài đã hoàn thành không dời ngày hoàn
+          -- thành. now() ở cuối giữ bất biến "đã xong thì phải có ngày xong" cho những
+          -- hàng cũ lỡ mang completed mà completed_at rỗng.
           completed_at = CASE
-            WHEN EXCLUDED.status = 'completed'
-              THEN COALESCE(lesson_progress.completed_at, EXCLUDED.completed_at)
+            WHEN lesson_progress.status = 'completed' OR EXCLUDED.status = 'completed'
+              THEN COALESCE(lesson_progress.completed_at, EXCLUDED.completed_at, now())
             ELSE NULL END
         RETURNING lesson_id AS "lessonId", status::text AS status,
                   time_spent_seconds AS "timeSpentSeconds",

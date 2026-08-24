@@ -6,7 +6,11 @@ import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@
 import { DEFAULT_PAGE_LIMIT, canEditCourse, decodeCursor, requireHumanId, toPage, ContentAuthorLookup, ObjectStorageService, VIDEO_CONTENT_TYPES, type AuthenticatedUser, type Page, type PresignedUpload } from '@codementor/platform';
 import { Course } from '../domain/model/course';
 import type { CourseEdit } from '../domain/model/course';
-import { validateCurriculum, type ChapterDraft } from '../domain/model/curriculum';
+import {
+  lessonDurationConflict,
+  validateCurriculum,
+  type ChapterDraft,
+} from '../domain/model/curriculum';
 import type { CurrentLevel } from '../domain/model/roadmap';
 import {
   COURSE_REPOSITORY,
@@ -254,6 +258,18 @@ export class CourseUseCases {
       .flatMap((chapter) => chapter.lessons)
       .find((candidate) => candidate.id === lessonId);
     if (!lesson) throw new NotFound('Bài học', lessonId);
+
+    /*
+     * Thời lượng bài phải chứa nổi video của nó. Cùng một luật cho video tải lên và video
+     * dán link — tới đây cả hai chỉ còn là một URL kèm số giây, không còn phân biệt được.
+     *
+     * Chỗ này là chốt chặn, KHÔNG phải phép đo: máy chủ không mở video ra xem nó dài bao
+     * nhiêu, nó tin `durationSeconds` mà studio gửi lên. Client bỏ trống trường đó là qua
+     * được. Đo thật đòi tải cả tệp về rồi chạy ffprobe, còn YouTube/Vimeo thì phải có khoá
+     * API của họ — cái giá đó không tương xứng với một con số hiển thị ở mục lục.
+     */
+    const conflict = lessonDurationConflict(lesson.durationMinutes, content.media?.durationSeconds);
+    if (conflict) throw new BusinessRuleViolation(conflict);
 
     // Document trước, tham chiếu sau — cùng thứ tự như thân bài code.
     const contentRef = await this.contents.upsert(lessonId, content);

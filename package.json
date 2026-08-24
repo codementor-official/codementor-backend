@@ -18,6 +18,7 @@
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config test/jest-e2e.json",
     "smoke": "bash scripts/smoke.sh",
+    "verify:progress-monotonic": "node --env-file=.env scripts/verify-lesson-progress-monotonic.mjs",
     "services": "node scripts/services.mjs",
     "db:pull": "prisma db pull",
     "db:generate": "prisma generate",
