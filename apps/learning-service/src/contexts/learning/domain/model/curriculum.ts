@@ -52,6 +52,28 @@ export interface ChapterDraft {
 const MAX_TITLE = 200;
 
 /**
+ * "Thời lượng bài học phải chứa nổi video của nó" — trả câu lỗi, hoặc `null` khi hợp lệ.
+ *
+ * Một luật cho cả hai đường vào: video tải lên kho và video dán link. Tới đây chúng không
+ * còn phân biệt được nữa — cả hai chỉ còn là một URL kèm số giây — nên không có nhánh nào
+ * để hai đường lệch luật nhau.
+ *
+ * `null` ở hai đầu là "chưa biết", và chưa biết thì không chặn. Thời lượng video do trình
+ * duyệt đo rồi gửi lên; giảng viên bỏ trống ô thời lượng bài, hoặc SDK của YouTube/Vimeo bị
+ * mạng chặn, đều rơi vào đây. Chặn khi chưa biết là biến một lần nạp script hỏng thành một
+ * bài học không lưu được.
+ */
+export function lessonDurationConflict(
+  durationMinutes: number | null,
+  videoSeconds: number | null | undefined,
+): string | null {
+  if (durationMinutes === null || !videoSeconds || videoSeconds <= 0) return null;
+  if (durationMinutes * 60 >= videoSeconds) return null;
+  const required = Math.max(1, Math.ceil(videoSeconds / 60));
+  return `Thời lượng bài (${durationMinutes} phút) ngắn hơn video (${Math.round(videoSeconds)} giây). Đặt tối thiểu ${required} phút.`;
+}
+
+/**
  * Kiểm cả cây trước khi chạm CSDL.
  *
  * Ghi curriculum là một transaction dài; để CSDL bắt lỗi thì nó rollback cả cây và

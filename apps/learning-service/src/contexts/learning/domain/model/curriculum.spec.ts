@@ -1,4 +1,10 @@
-import { deriveLessonSources, validateCurriculum, type ChapterDraft, type OrderedChapter } from './curriculum';
+import {
+  deriveLessonSources,
+  lessonDurationConflict,
+  validateCurriculum,
+  type ChapterDraft,
+  type OrderedChapter,
+} from './curriculum';
 
 function lesson(id: string, title: string): ChapterDraft['lessons'][number] {
   return {
@@ -78,5 +84,40 @@ describe('deriveLessonSources — suy cạnh phụ thuộc từ thứ tự', () 
     // Bài C vẫn cần bài B (liền trước nó), dù B tự nó mở ngay không cần A.
     expect(sources.get(C)).toEqual([B]);
     expect(sources.get(D)).toEqual([A, B, C]);
+  });
+});
+
+describe('lessonDurationConflict', () => {
+  it('cho qua khi thời lượng bài dài hơn video', () => {
+    expect(lessonDurationConflict(15, 754)).toBeNull();
+  });
+
+  it('cho qua khi vừa khít', () => {
+    expect(lessonDurationConflict(10, 600)).toBeNull();
+  });
+
+  it('chặn khi bài ngắn hơn video, và nói ra số phút tối thiểu', () => {
+    const message = lessonDurationConflict(10, 754);
+    expect(message).toContain('ngắn hơn video');
+    // 754 giây = 12 phút 34 → phải làm tròn LÊN 13, làm tròn xuống là vẫn thiếu chỗ.
+    expect(message).toContain('13 phút');
+  });
+
+  it('một phút là đủ cho video ngắn hơn một phút', () => {
+    expect(lessonDurationConflict(1, 20)).toBeNull();
+    // Tối thiểu luôn là 1 phút, không bao giờ là 0 — `ceil(20/60)` ra 1.
+    expect(lessonDurationConflict(0, 20)).toContain('tối thiểu 1 phút');
+  });
+
+  // Chưa biết thì không chặn — chặn khi chưa biết là biến một lần SDK hỏng thành một bài
+  // học không lưu được.
+  it('bỏ qua khi chưa biết thời lượng bài', () => {
+    expect(lessonDurationConflict(null, 754)).toBeNull();
+  });
+
+  it('bỏ qua khi chưa đo được video', () => {
+    expect(lessonDurationConflict(5, null)).toBeNull();
+    expect(lessonDurationConflict(5, undefined)).toBeNull();
+    expect(lessonDurationConflict(5, 0)).toBeNull();
   });
 });
