@@ -32,6 +32,7 @@ export interface WorkspaceOverviewData {
   submissions: { total: number; accepted: number; failed: number; acceptanceRate: number; averageScore: number; averageAttempts: number; maxAttempts: number };
   members: WorkspaceOverviewMember[];
   activities: WorkspaceOverviewActivity[];
+  activityPagination: { page: number; limit: number; total: number; totalPages: number };
   submissionTrend: Array<{ label: string; value: number }>;
   completionTrend: Array<{ label: string; value: number }>;
   activityTrend: Array<{ label: string; value: number }>;
@@ -39,7 +40,10 @@ export interface WorkspaceOverviewData {
 }
 
 export interface WorkspaceOverviewRepository {
-  get(groupId: string): Promise<WorkspaceOverviewData>;
+  get(
+    groupId: string,
+    input?: { activitySearch?: string; activityPage?: number; activityLimit?: number },
+  ): Promise<WorkspaceOverviewData>;
 }
 
 export const WORKSPACE_OVERVIEW_REPOSITORY = Symbol('WORKSPACE_OVERVIEW_REPOSITORY');

@@ -20,14 +20,18 @@ import { WorkspaceContentService } from '../application/workspace-content.servic
 import { WorkspaceChatService } from '../application/workspace-chat.service';
 import {
   CreateWorkspaceDto,
+  CreateWorkspaceExerciseDto,
   AttachWorkspaceExerciseDto,
   CreateWorkspaceDocumentDto,
   DocumentUploadUrlDto,
+  GenerateWorkspaceExerciseDraftDto,
   InviteWorkspaceMemberDto,
   JoinWorkspaceDto,
   ListMembersQueryDto,
   ListWorkspacesQueryDto,
   RequestWorkspaceJoinDto,
+  RemoveWorkspaceContentDto,
+  ReportWorkspaceDocumentDto,
   TransferOwnershipDto,
   UpdateMemberPermissionsDto,
   UpdateMemberRoleDto,
@@ -37,6 +41,7 @@ import {
   UpdateWorkspaceDocumentDto,
   UpdateWorkspaceExerciseDto,
   WorkspaceContentQueryDto,
+  WorkspaceOverviewQueryDto,
   WorkspaceAssetUploadUrlDto,
   CreateWorkspaceMessageDto,
   ListWorkspaceMessagesQueryDto,
@@ -143,8 +148,12 @@ export class WorkspaceController {
 
   @Get(':slug/overview')
   @ApiOperation({ summary: 'Dashboard dữ liệu thật của nhóm học tập' })
-  overviewData(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
-    return this.overview.get(requireHumanId(user), slug);
+  overviewData(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Query() query: WorkspaceOverviewQueryDto,
+  ) {
+    return this.overview.get(requireHumanId(user), slug, query);
   }
 
   @Get(':slug/documents/upload-config')
@@ -184,6 +193,11 @@ export class WorkspaceController {
     return this.content.documents(requireHumanId(user), slug, query);
   }
 
+  @Get(':slug/documents/pending-count')
+  pendingDocumentCount(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.content.pendingDocumentCount(requireHumanId(user), slug);
+  }
+
   @Post(':slug/documents')
   createDocument(
     @CurrentUser() user: AuthenticatedUser,
@@ -209,8 +223,39 @@ export class WorkspaceController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('slug') slug: string,
     @Param('documentId') id: string,
+    @Body() dto: RemoveWorkspaceContentDto,
   ) {
-    await this.content.deleteDocument(requireHumanId(user), slug, id);
+    await this.content.deleteDocument(requireHumanId(user), slug, id, dto);
+  }
+
+
+  @Post(':slug/documents/:documentId/restore')
+  restoreDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('documentId') id: string,
+  ) {
+    return this.content.restoreDocument(requireHumanId(user), slug, id);
+  }
+
+  @Delete(':slug/documents/:documentId/permanent')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async purgeDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('documentId') id: string,
+  ) {
+    await this.content.purgeDocument(requireHumanId(user), slug, id);
+  }
+
+  @Post(':slug/documents/:documentId/reports')
+  reportDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('documentId') id: string,
+    @Body() dto: ReportWorkspaceDocumentDto,
+  ) {
+    return this.content.reportDocument(requireHumanId(user), slug, id, dto);
   }
 
   @Get(':slug/documents/:documentId/download')
@@ -238,12 +283,39 @@ export class WorkspaceController {
   }
 
   @Post(':slug/exercises')
+  createExercise(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: CreateWorkspaceExerciseDto,
+  ) {
+    return this.content.createExercise(requireHumanId(user), slug, dto);
+  }
+
+  @Post(':slug/exercises/generate-draft')
+  generateExerciseDraft(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: GenerateWorkspaceExerciseDraftDto,
+  ) {
+    return this.content.generateExerciseDraft(requireHumanId(user), slug, dto);
+  }
+
+  @Post(':slug/exercises/attach')
   attachExercise(
     @CurrentUser() user: AuthenticatedUser,
     @Param('slug') slug: string,
     @Body() dto: AttachWorkspaceExerciseDto,
   ) {
     return this.content.attachExercise(requireHumanId(user), slug, dto);
+  }
+
+  @Post(':slug/exercises/:groupExerciseId/duplicate')
+  duplicateExercise(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('groupExerciseId') id: string,
+  ) {
+    return this.content.duplicateExercise(requireHumanId(user), slug, id);
   }
 
   @Get(':slug/exercises/:groupExerciseId/detail')
@@ -271,8 +343,29 @@ export class WorkspaceController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('slug') slug: string,
     @Param('groupExerciseId') id: string,
+    @Body() dto: RemoveWorkspaceContentDto,
   ) {
-    await this.content.deleteExercise(requireHumanId(user), slug, id);
+    await this.content.deleteExercise(requireHumanId(user), slug, id, dto);
+  }
+
+
+  @Post(':slug/exercises/:groupExerciseId/restore')
+  restoreExercise(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('groupExerciseId') id: string,
+  ) {
+    return this.content.restoreExercise(requireHumanId(user), slug, id);
+  }
+
+  @Delete(':slug/exercises/:groupExerciseId/permanent')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async purgeExercise(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('groupExerciseId') id: string,
+  ) {
+    await this.content.purgeExercise(requireHumanId(user), slug, id);
   }
 
   @Get(':slug/assignments')

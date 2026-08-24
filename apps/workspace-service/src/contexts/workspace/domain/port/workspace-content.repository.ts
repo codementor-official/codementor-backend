@@ -19,6 +19,9 @@ export interface WorkspaceDocumentRecord {
   status: string;
   aiVerdict: string;
   uploadedAt: Date;
+  deletedAt: Date | null;
+  deletedBy: string | null;
+  deleteReason: string | null;
 }
 export interface WorkspaceExerciseRecord {
   id: string;
@@ -29,6 +32,11 @@ export interface WorkspaceExerciseRecord {
   difficulty: string;
   status: string;
   source: string;
+  authorId: string | null;
+  publicationStatus: string;
+  deletedAt: Date | null;
+  deletedBy: string | null;
+  deleteReason: string | null;
   xp: number;
   dueAt: Date | null;
   attemptLimit: number | null;
@@ -96,6 +104,7 @@ export interface WorkspaceContentRepository {
       status?: string;
       type?: string;
       publishedOnly: boolean;
+      removedOnly?: boolean;
     },
   ): Promise<ContentPage<WorkspaceDocumentRecord>>;
   findDocument(groupId: string, id: string): Promise<WorkspaceDocumentRecord | null>;
@@ -116,7 +125,18 @@ export interface WorkspaceContentRepository {
     id: string,
     input: { title?: string; topic?: string | null; status?: string },
   ): Promise<WorkspaceDocumentRecord | null>;
-  deleteDocument(groupId: string, id: string): Promise<WorkspaceDocumentRecord | null>;
+  pendingDocumentCount(groupId: string): Promise<number>;
+  softDeleteDocument(groupId: string, id: string, userId: string, reason?: string): Promise<boolean>;
+  restoreDocument(groupId: string, id: string): Promise<boolean>;
+  purgeDocument(groupId: string, id: string): Promise<WorkspaceDocumentRecord | null>;
+  reportDocument(
+    groupId: string,
+    documentId: string,
+    reporterId: string,
+    category: string,
+    note?: string,
+  ): Promise<{ id: string; status: string; createdAt: Date }>;
+  approvedDocumentContext(groupId: string, documentIds?: string[]): Promise<Array<{ id: string; title: string; previewText: string | null }>>;
   listExercises(
     groupId: string,
     input: {
@@ -128,6 +148,7 @@ export interface WorkspaceContentRepository {
       scope?: string;
       memberId: string;
       publishedOnly: boolean;
+      removedOnly?: boolean;
     },
   ): Promise<ContentPage<WorkspaceExerciseRecord>>;
   exerciseDetail(groupId: string, id: string): Promise<WorkspaceExerciseDetailRecord | null>;
@@ -144,6 +165,26 @@ export interface WorkspaceContentRepository {
       memberIds: string[];
     },
   ): Promise<void>;
+  createExercise(
+    groupId: string,
+    userId: string,
+    input: {
+      title: string;
+      summary?: string;
+      difficulty: 'easy' | 'medium' | 'hard';
+      source: 'manual' | 'ai';
+      xpReward: number;
+      timeLimitMs: number;
+      memoryLimitKb: number;
+      content: Record<string, unknown>;
+      dueAt?: Date;
+      attemptLimit?: number;
+      allowRetry: boolean;
+      allowLateSubmission: boolean;
+      memberIds: string[];
+    },
+  ): Promise<WorkspaceExerciseRecord>;
+  duplicateExercise(groupId: string, id: string, userId: string): Promise<WorkspaceExerciseRecord | null>;
   updateExercise(
     groupId: string,
     id: string,
@@ -153,10 +194,17 @@ export interface WorkspaceContentRepository {
       allowRetry?: boolean;
       allowLateSubmission?: boolean;
       memberIds?: string[];
+      title?: string;
+      summary?: string | null;
+      difficulty?: 'easy' | 'medium' | 'hard';
+      publicationStatus?: 'published' | 'hidden';
+      content?: Record<string, unknown>;
     },
   ): Promise<boolean>;
   exerciseHasSubmissions(groupId: string, id: string): Promise<boolean>;
-  deleteExercise(groupId: string, id: string): Promise<boolean>;
+  softDeleteExercise(groupId: string, id: string, userId: string, reason?: string): Promise<boolean>;
+  restoreExercise(groupId: string, id: string): Promise<boolean>;
+  purgeExercise(groupId: string, id: string): Promise<boolean>;
   listAssignments(
     groupId: string,
     input: { page: number; limit: number; q?: string; status?: string; memberId?: string },

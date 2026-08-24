@@ -313,25 +313,29 @@ model group_activities {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model group_documents {
-  id                                       String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  group_id                                 String            @db.Uuid
+  id                                       String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id                                 String                       @db.Uuid
   title                                    String
   doc_type                                 String
   topic                                    String?
-  uploader_id                              String?           @db.Uuid
+  uploader_id                              String?                      @db.Uuid
   size_bytes                               BigInt?
   storage_key                              String?
   url                                      String?
   preview_text                             String?
-  status                                   document_status   @default(pending)
-  ai_verdict                               ai_verdict        @default(valid)
-  reviewed_by                              String?           @db.Uuid
-  reviewed_at                              DateTime?         @db.Timestamptz(6)
-  uploaded_at                              DateTime          @default(now()) @db.Timestamptz(6)
-  study_groups                             study_groups      @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users_group_documents_reviewed_byTousers users?            @relation("group_documents_reviewed_byTousers", fields: [reviewed_by], references: [id], onUpdate: NoAction)
-  users_group_documents_uploader_idTousers users?            @relation("group_documents_uploader_idTousers", fields: [uploader_id], references: [id], onUpdate: NoAction)
+  status                                   document_status              @default(pending)
+  ai_verdict                               ai_verdict                   @default(valid)
+  reviewed_by                              String?                      @db.Uuid
+  reviewed_at                              DateTime?                    @db.Timestamptz(6)
+  uploaded_at                              DateTime                     @default(now()) @db.Timestamptz(6)
+  deleted_at                               DateTime?                    @db.Timestamptz(6)
+  deleted_by                               String?                      @db.Uuid
+  delete_reason                            String?
+  study_groups                             study_groups                 @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_group_documents_reviewed_byTousers users?                       @relation("group_documents_reviewed_byTousers", fields: [reviewed_by], references: [id], onUpdate: NoAction)
+  users_group_documents_uploader_idTousers users?                       @relation("group_documents_uploader_idTousers", fields: [uploader_id], references: [id], onUpdate: NoAction)
   group_exercises                          group_exercises[]
+  workspace_document_reports               workspace_document_reports[]
 
   @@index([group_id, uploaded_at(sort: Desc)], map: "idx_group_documents_group")
 }
@@ -349,6 +353,10 @@ model group_exercises {
   phase                 String?
   reference_document_id String?          @db.Uuid
   created_at            DateTime         @default(now()) @db.Timestamptz(6)
+  publication_status    String           @default("published")
+  deleted_at            DateTime?        @db.Timestamptz(6)
+  deleted_by            String?          @db.Uuid
+  delete_reason         String?
   assignments           assignments[]
   users                 users?           @relation(fields: [assigned_by], references: [id], onUpdate: NoAction)
   exercises             exercises        @relation(fields: [exercise_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -583,32 +591,33 @@ model roadmaps {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model study_groups {
-  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug                    String                    @unique @db.Citext
-  name                    String
-  description             String?
-  invite_code             String                    @unique @db.Citext
-  topic                   String?
-  avatar_url              String?
-  avatar_key              String?
-  cover_url               String?
-  cover_key               String?
-  privacy                 workspace_privacy         @default(private)
-  join_policy             workspace_join_policy     @default(invite_only)
-  owner_id                String                    @db.Uuid
-  status                  group_status              @default(active)
-  member_count            Int                       @default(0)
-  last_activity_at        DateTime?                 @db.Timestamptz(6)
-  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
-  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
-  group_activities        group_activities[]
-  group_documents         group_documents[]
-  group_exercises         group_exercises[]
-  group_members           group_members[]
-  group_role_permissions  group_role_permissions[]
-  workspace_join_requests workspace_join_requests[]
-  workspace_messages      workspace_messages[]
-  users                   users                     @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
+  id                         String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug                       String                       @unique @db.Citext
+  name                       String
+  description                String?
+  invite_code                String                       @unique @db.Citext
+  topic                      String?
+  avatar_url                 String?
+  avatar_key                 String?
+  cover_url                  String?
+  cover_key                  String?
+  privacy                    workspace_privacy            @default(private)
+  join_policy                workspace_join_policy        @default(invite_only)
+  owner_id                   String                       @db.Uuid
+  status                     group_status                 @default(active)
+  member_count               Int                          @default(0)
+  last_activity_at           DateTime?                    @db.Timestamptz(6)
+  created_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                     @default(now()) @db.Timestamptz(6)
+  group_activities           group_activities[]
+  group_documents            group_documents[]
+  group_exercises            group_exercises[]
+  group_members              group_members[]
+  group_role_permissions     group_role_permissions[]
+  workspace_join_requests    workspace_join_requests[]
+  workspace_messages         workspace_messages[]
+  workspace_document_reports workspace_document_reports[]
+  users                      users                        @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
 }
 
 model workspace_messages {
@@ -623,6 +632,24 @@ model workspace_messages {
   users        users        @relation(fields: [sender_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([group_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_workspace_messages_history")
+}
+
+model workspace_document_reports {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id        String          @db.Uuid
+  document_id     String          @db.Uuid
+  reporter_id     String          @db.Uuid
+  category        String
+  note            String?
+  status          String          @default("PENDING")
+  created_at      DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime        @default(now()) @db.Timestamptz(6)
+  study_groups    study_groups    @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  group_documents group_documents @relation(fields: [document_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users           users           @relation(fields: [reporter_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([reporter_id, document_id])
+  @@index([group_id, status, created_at(sort: Desc)], map: "idx_workspace_document_reports_queue")
 }
 
 model workspace_message_reads {
@@ -729,39 +756,40 @@ model user_stats {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model users {
-  id                                                 String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email                                              String                     @unique @db.Citext
-  handle                                             String?                    @unique @db.Citext
+  id                                                 String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                                              String                       @unique @db.Citext
+  handle                                             String?                      @unique @db.Citext
   display_name                                       String
   bio                                                String?
   avatar_url                                         String?
   website_url                                        String?
   github_handle                                      String?
-  role                                               platform_role              @default(learner)
-  status                                             account_status             @default(active)
-  locale                                             String                     @default("vi")
-  timezone                                           String                     @default("Asia/Ho_Chi_Minh")
-  email_verified_at                                  DateTime?                  @db.Timestamptz(6)
-  last_active_at                                     DateTime?                  @db.Timestamptz(6)
-  created_at                                         DateTime                   @default(now()) @db.Timestamptz(6)
-  updated_at                                         DateTime                   @default(now()) @db.Timestamptz(6)
-  external_id                                        String?                    @unique @db.Citext
-  workspace_join_requests_requested                  workspace_join_requests[]  @relation("workspace_join_request_user")
-  workspace_join_requests_reviewed                   workspace_join_requests[]  @relation("workspace_join_request_reviewer")
+  role                                               platform_role                @default(learner)
+  status                                             account_status               @default(active)
+  locale                                             String                       @default("vi")
+  timezone                                           String                       @default("Asia/Ho_Chi_Minh")
+  email_verified_at                                  DateTime?                    @db.Timestamptz(6)
+  last_active_at                                     DateTime?                    @db.Timestamptz(6)
+  created_at                                         DateTime                     @default(now()) @db.Timestamptz(6)
+  updated_at                                         DateTime                     @default(now()) @db.Timestamptz(6)
+  external_id                                        String?                      @unique @db.Citext
+  workspace_join_requests_requested                  workspace_join_requests[]    @relation("workspace_join_request_user")
+  workspace_join_requests_reviewed                   workspace_join_requests[]    @relation("workspace_join_request_reviewer")
   workspace_messages                                 workspace_messages[]
+  workspace_document_reports                         workspace_document_reports[]
   articles                                           articles[]
   assignments                                        assignments[]
   course_enrollments                                 course_enrollments[]
   course_reviews                                     course_reviews[]
-  courses_courses_created_byTousers                  courses[]                  @relation("courses_created_byTousers")
-  courses_courses_instructor_idTousers               courses[]                  @relation("courses_instructor_idTousers")
+  courses_courses_created_byTousers                  courses[]                    @relation("courses_created_byTousers")
+  courses_courses_instructor_idTousers               courses[]                    @relation("courses_instructor_idTousers")
   exercise_progress                                  exercise_progress[]
   exercise_set_enrollments                           exercise_set_enrollments[]
   exercise_sets                                      exercise_sets[]
   exercises                                          exercises[]
   group_activities                                   group_activities[]
-  group_documents_group_documents_reviewed_byTousers group_documents[]          @relation("group_documents_reviewed_byTousers")
-  group_documents_group_documents_uploader_idTousers group_documents[]          @relation("group_documents_uploader_idTousers")
+  group_documents_group_documents_reviewed_byTousers group_documents[]            @relation("group_documents_reviewed_byTousers")
+  group_documents_group_documents_uploader_idTousers group_documents[]            @relation("group_documents_uploader_idTousers")
   group_exercises                                    group_exercises[]
   group_members                                      group_members[]
   learning_preferences                               learning_preferences?
@@ -898,8 +926,18 @@ enum exercise_status {
 }
 
 enum group_permission {
+  view_doc
   upload_doc
+  edit_own_doc
+  delete_own_doc
+  manage_doc
+  approve_doc
+  view_exercise
   create_exercise
+  edit_own_exercise
+  delete_own_exercise
+  manage_exercise
+  assign_exercise
   edit_exercise
   delete_doc
   review_submission

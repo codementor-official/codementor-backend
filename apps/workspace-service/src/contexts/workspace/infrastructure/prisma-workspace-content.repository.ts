@@ -1,9 +1,15 @@
 import { Injectable } from '@nestjs/common';
+import { InjectConnection } from '@nestjs/mongoose';
+import type { Connection } from 'mongoose';
+import { randomUUID } from 'node:crypto';
 import {
   assignment_status,
   document_status,
   exercise_difficulty,
+  exercise_kind,
+  exercise_source,
   exercise_status,
+  exercise_visibility,
   member_status,
   review_status,
   Prisma,
@@ -17,10 +23,24 @@ import type {
 type DocumentRow = Prisma.group_documentsGetPayload<{
   include: { users_group_documents_uploader_idTousers: { select: { display_name: true } } };
 }>;
+type ExerciseRow = Prisma.group_exercisesGetPayload<{
+  include: {
+    exercises: true;
+    assignments: {
+      include: {
+        submissions: { select: { verdict: true } };
+        _count: { select: { submissions: true } };
+      };
+    };
+  };
+}>;
 
 @Injectable()
 export class PrismaWorkspaceContentRepository implements WorkspaceContentRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @InjectConnection() private readonly mongo: Connection,
+  ) {}
 
   async listDocuments(
     groupId: string,
@@ -31,11 +51,16 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       status?: string;
       type?: string;
       publishedOnly: boolean;
+      removedOnly?: boolean;
     },
   ) {
-    const where: Prisma.group_documentsWhereInput = { group_id: groupId };
+    const where: Prisma.group_documentsWhereInput = {
+      group_id: groupId,
+      deleted_at: input.removedOnly ? { not: null } : null,
+    };
     if (input.publishedOnly) where.status = document_status.published;
-    else if (input.status) where.status = input.status as document_status;
+    else if (input.status && input.status !== 'removed')
+      where.status = input.status as document_status;
     if (input.type) where.doc_type = input.type;
     if (input.q)
       where.OR = [
@@ -118,14 +143,70 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     return this.document(row);
   }
 
-  async deleteDocument(groupId: string, id: string) {
+  async pendingDocumentCount(groupId: string) {
+    return this.prisma.group_documents.count({
+      where: { group_id: groupId, status: document_status.pending, deleted_at: null },
+    });
+  }
+
+  async softDeleteDocument(groupId: string, id: string, userId: string, reason?: string) {
+    const result = await this.prisma.group_documents.updateMany({
+      where: { id, group_id: groupId, deleted_at: null },
+      data: { deleted_at: new Date(), deleted_by: userId, delete_reason: reason },
+    });
+    return result.count > 0;
+  }
+
+  async restoreDocument(groupId: string, id: string) {
+    const result = await this.prisma.group_documents.updateMany({
+      where: { id, group_id: groupId, deleted_at: { not: null } },
+      data: { deleted_at: null, deleted_by: null, delete_reason: null },
+    });
+    return result.count > 0;
+  }
+
+  async purgeDocument(groupId: string, id: string) {
     const found = await this.prisma.group_documents.findFirst({
-      where: { id, group_id: groupId },
+      where: { id, group_id: groupId, deleted_at: { not: null } },
       include: { users_group_documents_uploader_idTousers: { select: { display_name: true } } },
     });
     if (!found) return null;
     await this.prisma.group_documents.delete({ where: { id } });
     return this.document(found);
+  }
+
+  async reportDocument(
+    groupId: string,
+    documentId: string,
+    reporterId: string,
+    category: string,
+    note?: string,
+  ) {
+    const row = await this.prisma.workspace_document_reports.create({
+      data: {
+        group_id: groupId,
+        document_id: documentId,
+        reporter_id: reporterId,
+        category,
+        note,
+      },
+    });
+    return { id: row.id, status: row.status, createdAt: row.created_at };
+  }
+
+  async approvedDocumentContext(groupId: string, documentIds?: string[]) {
+    const rows = await this.prisma.group_documents.findMany({
+      where: {
+        group_id: groupId,
+        status: document_status.published,
+        deleted_at: null,
+        id: documentIds?.length ? { in: documentIds } : undefined,
+      },
+      orderBy: { uploaded_at: 'desc' },
+      take: 8,
+      select: { id: true, title: true, preview_text: true },
+    });
+    return rows.map((row) => ({ id: row.id, title: row.title, previewText: row.preview_text }));
   }
 
   async listExercises(
@@ -139,16 +220,26 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       scope?: string;
       memberId: string;
       publishedOnly: boolean;
+      removedOnly?: boolean;
     },
   ) {
-    const where: Prisma.group_exercisesWhereInput = { group_id: groupId };
-    if (input.publishedOnly)
+    const where: Prisma.group_exercisesWhereInput = {
+      group_id: groupId,
+      deleted_at: input.removedOnly ? { not: null } : null,
+    };
+    if (input.publishedOnly) {
       where.exercises = { status: { in: [exercise_status.published, exercise_status.closed] } };
-    else if (
+      where.publication_status = 'published';
+    } else if (
       input.status &&
+      input.status !== 'hidden' &&
+      input.status !== 'published' &&
+      input.status !== 'removed' &&
       Object.values(exercise_status).includes(input.status as exercise_status)
     )
       where.exercises = { status: input.status as exercise_status };
+    if (input.status === 'hidden') where.publication_status = 'hidden';
+    if (input.status === 'published') where.publication_status = 'published';
     const and: Prisma.group_exercisesWhereInput[] = [];
     if (input.difficulty)
       and.push({ exercises: { difficulty: input.difficulty as exercise_difficulty } });
@@ -232,6 +323,11 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
           difficulty: row.exercises.difficulty,
           status: row.exercises.status,
           source: row.exercises.source,
+          authorId: row.exercises.author_id,
+          publicationStatus: row.publication_status,
+          deletedAt: row.deleted_at,
+          deletedBy: row.deleted_by,
+          deleteReason: row.delete_reason,
           xp: row.exercises.xp_reward,
           dueAt: row.due_at,
           attemptLimit: row.attempt_limit,
@@ -289,6 +385,9 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
           attempt_limit: input.attemptLimit,
           allow_retry: input.allowRetry,
           allow_late_submission: input.allowLateSubmission,
+          deleted_at: null,
+          deleted_by: null,
+          delete_reason: null,
         },
       });
       const members = await tx.group_members.findMany({
@@ -315,9 +414,109 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     });
   }
 
+  async createExercise(
+    groupId: string,
+    userId: string,
+    input: {
+      title: string;
+      summary?: string;
+      difficulty: 'easy' | 'medium' | 'hard';
+      source: 'manual' | 'ai';
+      xpReward: number;
+      timeLimitMs: number;
+      memoryLimitKb: number;
+      content: Record<string, unknown>;
+      dueAt?: Date;
+      attemptLimit?: number;
+      allowRetry: boolean;
+      allowLateSubmission: boolean;
+      memberIds: string[];
+    },
+  ) {
+    const exercise = await this.prisma.exercises.create({
+      data: {
+        slug: `${slugify(input.title)}-${randomUUID().slice(0, 8)}`,
+        title: input.title,
+        summary: input.summary,
+        kind: exercise_kind.code,
+        difficulty: input.difficulty as exercise_difficulty,
+        status: exercise_status.published,
+        source: input.source as exercise_source,
+        visibility: exercise_visibility.group,
+        xp_reward: input.xpReward,
+        time_limit_ms: input.timeLimitMs,
+        memory_limit_kb: input.memoryLimitKb,
+        author_id: userId,
+        published_at: new Date(),
+      },
+    });
+    const now = new Date();
+    const content = sanitizeExerciseContent(input.content);
+    const contentRow = await this.mongo.collection('exercise_contents').findOneAndUpdate(
+      { exerciseId: exercise.id },
+      {
+        $set: { ...content, kind: 'code', updatedAt: now },
+        $setOnInsert: { exerciseId: exercise.id, createdAt: now },
+      },
+      { upsert: true, returnDocument: 'after', projection: { _id: 1 } },
+    );
+    if (!contentRow?._id) throw new Error('Không lưu được nội dung bài tập');
+    await this.prisma.exercises.update({
+      where: { id: exercise.id },
+      data: { content_ref: contentRow._id.toString() },
+    });
+    await this.attachExercise(groupId, userId, {
+      exerciseId: exercise.id,
+      dueAt: input.dueAt,
+      attemptLimit: input.attemptLimit,
+      allowRetry: input.allowRetry,
+      allowLateSubmission: input.allowLateSubmission,
+      memberIds: input.memberIds,
+    });
+    const linked = await this.prisma.group_exercises.findUniqueOrThrow({
+      where: { group_id_exercise_id: { group_id: groupId, exercise_id: exercise.id } },
+      include: {
+        exercises: true,
+        assignments: {
+          include: {
+            submissions: { orderBy: { submitted_at: 'desc' }, take: 1, select: { verdict: true } },
+            _count: { select: { submissions: true } },
+          },
+        },
+      },
+    });
+    return this.exercise(linked, '');
+  }
+
+  async duplicateExercise(groupId: string, id: string, userId: string) {
+    const source = await this.prisma.group_exercises.findFirst({
+      where: { id, group_id: groupId, deleted_at: null },
+      include: { exercises: true, assignments: { select: { member_id: true } } },
+    });
+    if (!source) return null;
+    const content = await this.mongo
+      .collection('exercise_contents')
+      .findOne({ exerciseId: source.exercise_id }, { projection: { _id: 0, exerciseId: 0, kind: 0, createdAt: 0, updatedAt: 0 } });
+    return this.createExercise(groupId, userId, {
+      title: `${source.exercises.title} (Bản sao)`,
+      summary: source.exercises.summary ?? undefined,
+      difficulty: source.exercises.difficulty,
+      source: 'manual',
+      xpReward: source.exercises.xp_reward,
+      timeLimitMs: source.exercises.time_limit_ms,
+      memoryLimitKb: source.exercises.memory_limit_kb,
+      content: (content as Record<string, unknown> | null) ?? {},
+      dueAt: source.due_at ?? undefined,
+      attemptLimit: source.attempt_limit ?? undefined,
+      allowRetry: source.allow_retry,
+      allowLateSubmission: source.allow_late_submission,
+      memberIds: source.assignments.map((item) => item.member_id),
+    });
+  }
+
   async exerciseDetail(groupId: string, id: string) {
     const row = await this.prisma.group_exercises.findFirst({
-      where: { id, group_id: groupId },
+      where: { id, group_id: groupId, deleted_at: null },
       include: {
         exercises: true,
         assignments: {
@@ -353,6 +552,11 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       difficulty: row.exercises.difficulty,
       status: row.exercises.status,
       source: row.exercises.source,
+      authorId: row.exercises.author_id,
+      publicationStatus: row.publication_status,
+      deletedAt: row.deleted_at,
+      deletedBy: row.deleted_by,
+      deleteReason: row.delete_reason,
       xp: row.exercises.xp_reward,
       dueAt: row.due_at,
       attemptLimit: row.attempt_limit,
@@ -386,9 +590,16 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       allowRetry?: boolean;
       allowLateSubmission?: boolean;
       memberIds?: string[];
+      title?: string;
+      summary?: string | null;
+      difficulty?: 'easy' | 'medium' | 'hard';
+      publicationStatus?: 'published' | 'hidden';
+      content?: Record<string, unknown>;
     },
   ) {
-    const found = await this.prisma.group_exercises.findFirst({ where: { id, group_id: groupId } });
+    const found = await this.prisma.group_exercises.findFirst({
+      where: { id, group_id: groupId, deleted_at: null },
+    });
     if (!found) return false;
     await this.prisma.$transaction(async (tx) => {
       await tx.group_exercises.update({
@@ -398,8 +609,18 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
           attempt_limit: input.attemptLimit,
           allow_retry: input.allowRetry,
           allow_late_submission: input.allowLateSubmission,
+          publication_status: input.publicationStatus,
         },
       });
+      if (input.title !== undefined || input.summary !== undefined || input.difficulty !== undefined)
+        await tx.exercises.update({
+          where: { id: found.exercise_id },
+          data: {
+            title: input.title,
+            summary: input.summary,
+            difficulty: input.difficulty as exercise_difficulty | undefined,
+          },
+        });
       if (input.memberIds) {
         const members = await tx.group_members.findMany({
           where: { id: { in: input.memberIds }, group_id: groupId, status: member_status.active },
@@ -418,6 +639,19 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
         });
       }
     });
+    if (input.content) {
+      const now = new Date();
+      const contentRow = await this.mongo.collection('exercise_contents').findOneAndUpdate(
+        { exerciseId: found.exercise_id },
+        { $set: { ...sanitizeExerciseContent(input.content), kind: 'code', updatedAt: now }, $setOnInsert: { exerciseId: found.exercise_id, createdAt: now } },
+        { upsert: true, returnDocument: 'after', projection: { _id: 1 } },
+      );
+      if (contentRow?._id)
+        await this.prisma.exercises.update({
+          where: { id: found.exercise_id },
+          data: { content_ref: contentRow._id.toString() },
+        });
+    }
     return true;
   }
   async exerciseHasSubmissions(groupId: string, id: string) {
@@ -427,10 +661,38 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       })) > 0
     );
   }
-  async deleteExercise(groupId: string, id: string) {
-    const result = await this.prisma.group_exercises.deleteMany({
-      where: { id, group_id: groupId },
+  async softDeleteExercise(groupId: string, id: string, userId: string, reason?: string) {
+    const result = await this.prisma.group_exercises.updateMany({
+      where: { id, group_id: groupId, deleted_at: null },
+      data: { deleted_at: new Date(), deleted_by: userId, delete_reason: reason },
     });
+    return result.count > 0;
+  }
+  async restoreExercise(groupId: string, id: string) {
+    const result = await this.prisma.group_exercises.updateMany({
+      where: { id, group_id: groupId, deleted_at: { not: null } },
+      data: { deleted_at: null, deleted_by: null, delete_reason: null },
+    });
+    return result.count > 0;
+  }
+  async purgeExercise(groupId: string, id: string) {
+    const found = await this.prisma.group_exercises.findFirst({
+      where: { id, group_id: groupId, deleted_at: { not: null } },
+      select: { exercise_id: true, exercises: { select: { visibility: true } } },
+    });
+    if (!found) return false;
+    const result = await this.prisma.group_exercises.deleteMany({
+      where: { id, group_id: groupId, deleted_at: { not: null } },
+    });
+    if (result.count > 0 && found.exercises.visibility === exercise_visibility.group) {
+      const references = await this.prisma.group_exercises.count({
+        where: { exercise_id: found.exercise_id },
+      });
+      if (references === 0) {
+        await this.prisma.exercises.delete({ where: { id: found.exercise_id } });
+        await this.mongo.collection('exercise_contents').deleteOne({ exerciseId: found.exercise_id });
+      }
+    }
     return result.count > 0;
   }
 
@@ -550,9 +812,52 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       storageKey: row.storage_key,
       url: row.url,
       previewText: row.preview_text,
-      status: row.status,
+      status: row.deleted_at ? 'removed' : row.status,
       aiVerdict: row.ai_verdict,
       uploadedAt: row.uploaded_at,
+      deletedAt: row.deleted_at,
+      deletedBy: row.deleted_by,
+      deleteReason: row.delete_reason,
+    };
+  }
+
+  private exercise(row: ExerciseRow, memberId: string) {
+    const myAssignment = row.assignments.find(
+      (assignment) => assignment.member_id === memberId,
+    );
+    return {
+      id: row.id,
+      exerciseId: row.exercise_id,
+      slug: row.exercises.slug,
+      title: row.exercises.title,
+      summary: row.exercises.summary,
+      difficulty: row.exercises.difficulty,
+      status: row.exercises.status,
+      source: row.exercises.source,
+      authorId: row.exercises.author_id,
+      publicationStatus: row.publication_status,
+      deletedAt: row.deleted_at,
+      deletedBy: row.deleted_by,
+      deleteReason: row.delete_reason,
+      xp: row.exercises.xp_reward,
+      dueAt: row.due_at,
+      attemptLimit: row.attempt_limit,
+      allowRetry: row.allow_retry,
+      allowLateSubmission: row.allow_late_submission,
+      phase: row.phase,
+      assignedCount: row.assignments.length,
+      completedCount: row.assignments.filter(
+        (item) => item.status === assignment_status.done || item.status === assignment_status.late,
+      ).length,
+      isAssignedToMe: Boolean(myAssignment),
+      myAssignment: myAssignment
+        ? {
+            id: myAssignment.id,
+            status: myAssignment.status,
+            submissionCount: myAssignment._count.submissions,
+            latestVerdict: myAssignment.submissions[0]?.verdict ?? null,
+          }
+        : null,
     };
   }
   private assignment(row: {
@@ -613,4 +918,32 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       },
     });
   }
+}
+
+function slugify(value: string) {
+  return (
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/đ/g, 'd')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'workspace-exercise'
+  );
+}
+
+function sanitizeExerciseContent(input: Record<string, unknown>) {
+  const allowed = [
+    'statement',
+    'ioMode',
+    'signature',
+    'constraints',
+    'hints',
+    'examples',
+    'testCases',
+    'languages',
+    'evaluation',
+    'theory',
+  ];
+  return Object.fromEntries(allowed.flatMap((key) => (input[key] === undefined ? [] : [[key, input[key]]])));
 }

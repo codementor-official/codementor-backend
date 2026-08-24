@@ -19,8 +19,18 @@ import {
 export const WORKSPACE_SCOPES = ['all', 'owned', 'joined'] as const;
 export const WORKSPACE_ROLES = ['deputy', 'member'] as const;
 export const WORKSPACE_PERMISSIONS = [
+  'view_doc',
   'upload_doc',
+  'edit_own_doc',
+  'delete_own_doc',
+  'manage_doc',
+  'approve_doc',
+  'view_exercise',
   'create_exercise',
+  'edit_own_exercise',
+  'delete_own_exercise',
+  'manage_exercise',
+  'assign_exercise',
   'edit_exercise',
   'delete_doc',
   'review_submission',
@@ -213,6 +223,12 @@ export class WorkspaceContentQueryDto {
   @IsOptional() @IsIn(['all', 'assigned', 'public']) scope?: 'all' | 'assigned' | 'public';
 }
 
+export class WorkspaceOverviewQueryDto {
+  @IsOptional() @IsString() @MaxLength(200) activitySearch?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) activityPage?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) activityLimit?: number;
+}
+
 export class DocumentUploadUrlDto {
   @IsString() @IsNotEmpty() @MaxLength(255) filename!: string;
   @IsString() @IsNotEmpty() @MaxLength(150) contentType!: string;
@@ -237,6 +253,39 @@ export class UpdateWorkspaceDocumentDto {
   @IsOptional() @IsIn(['published', 'pending', 'changes', 'rejected', 'hidden']) status?: string;
 }
 
+export class RemoveWorkspaceContentDto {
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+export class ReportWorkspaceDocumentDto {
+  @IsIn(['spam', 'inappropriate', 'copyright', 'harmful', 'irrelevant', 'other'])
+  category!: 'spam' | 'inappropriate' | 'copyright' | 'harmful' | 'irrelevant' | 'other';
+
+  @IsOptional() @IsString() @MaxLength(1000) note?: string;
+}
+
+export class CreateWorkspaceExerciseDto {
+  @IsString() @IsNotEmpty() @MaxLength(200) title!: string;
+  @IsOptional() @IsString() @MaxLength(500) summary?: string;
+  @IsIn(['easy', 'medium', 'hard']) difficulty!: 'easy' | 'medium' | 'hard';
+  @IsOptional() @IsIn(['manual', 'ai']) source?: 'manual' | 'ai';
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(10000) xpReward?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(60000) timeLimitMs?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1024) @Max(4194304) memoryLimitKb?: number;
+  @IsObject() content!: Record<string, unknown>;
+  @IsOptional() @IsDateString() dueAt?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) attemptLimit?: number;
+  @IsOptional() @IsBoolean() allowRetry?: boolean;
+  @IsOptional() @IsBoolean() allowLateSubmission?: boolean;
+  @IsArray() @IsUUID(undefined, { each: true }) memberIds!: string[];
+}
+
+export class GenerateWorkspaceExerciseDraftDto {
+  @IsString() @IsNotEmpty() @MaxLength(300) prompt!: string;
+  @IsOptional() @IsArray() @IsUUID(undefined, { each: true }) documentIds?: string[];
+  @IsOptional() @IsIn(['easy', 'medium', 'hard']) difficulty?: 'easy' | 'medium' | 'hard';
+}
+
 export class AttachWorkspaceExerciseDto {
   @IsUUID() exerciseId!: string;
   @IsOptional() @IsDateString() dueAt?: string;
@@ -247,6 +296,11 @@ export class AttachWorkspaceExerciseDto {
 }
 
 export class UpdateWorkspaceExerciseDto {
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) title?: string;
+  @IsOptional() @IsString() @MaxLength(500) summary?: string | null;
+  @IsOptional() @IsIn(['easy', 'medium', 'hard']) difficulty?: 'easy' | 'medium' | 'hard';
+  @IsOptional() @IsIn(['published', 'hidden']) publicationStatus?: 'published' | 'hidden';
+  @IsOptional() @IsObject() content?: Record<string, unknown>;
   @IsOptional() @IsDateString() dueAt?: string | null;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) attemptLimit?: number | null;
   @IsOptional() @IsBoolean() allowRetry?: boolean;

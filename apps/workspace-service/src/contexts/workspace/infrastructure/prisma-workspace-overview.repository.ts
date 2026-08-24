@@ -14,22 +14,37 @@ import type { WorkspaceOverviewRepository } from '../domain/port/workspace-overv
 export class PrismaWorkspaceOverviewRepository implements WorkspaceOverviewRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async get(groupId: string) {
+  async get(
+    groupId: string,
+    input: { activitySearch?: string; activityPage?: number; activityLimit?: number } = {},
+  ) {
     const since = startOfUtcDay(-27);
+    const activityPage = input.activityPage ?? 1;
+    const activityLimit = input.activityLimit ?? 12;
+    const activityWhere = {
+      group_id: groupId,
+      OR: input.activitySearch
+        ? [
+            { action: { contains: input.activitySearch, mode: 'insensitive' as const } },
+            { target_type: { contains: input.activitySearch, mode: 'insensitive' as const } },
+            { users: { display_name: { contains: input.activitySearch, mode: 'insensitive' as const } } },
+          ]
+        : undefined,
+    };
 
-    const [documents, exercises, assignments, members, activities, recentActivities, submissions] =
+    const [documents, exercises, assignments, members, activities, activityTotal, recentActivities, submissions] =
       await Promise.all([
         this.prisma.group_documents.groupBy({
           by: ['status'],
-          where: { group_id: groupId },
+          where: { group_id: groupId, deleted_at: null },
           _count: { _all: true },
         }),
         this.prisma.group_exercises.findMany({
-          where: { group_id: groupId },
+          where: { group_id: groupId, deleted_at: null },
           select: { due_at: true, exercises: { select: { status: true } } },
         }),
         this.prisma.assignments.findMany({
-          where: { group_id: groupId },
+          where: { group_id: groupId, group_exercises: { deleted_at: null } },
           select: { member_id: true, status: true },
         }),
         this.prisma.group_members.findMany({
@@ -47,17 +62,19 @@ export class PrismaWorkspaceOverviewRepository implements WorkspaceOverviewRepos
           },
         }),
         this.prisma.group_activities.findMany({
-          where: { group_id: groupId },
+          where: activityWhere,
           orderBy: { created_at: 'desc' },
-          take: 18,
+          skip: (activityPage - 1) * activityLimit,
+          take: activityLimit,
           include: { users: { select: { display_name: true } } },
         }),
+        this.prisma.group_activities.count({ where: activityWhere }),
         this.prisma.group_activities.findMany({
           where: { group_id: groupId, created_at: { gte: since } },
           select: { actor_id: true, created_at: true },
         }),
         this.prisma.submissions.findMany({
-          where: { assignments: { group_id: groupId } },
+          where: { assignments: { group_id: groupId, group_exercises: { deleted_at: null } } },
           select: {
             assignment_id: true,
             user_id: true,
@@ -236,6 +253,12 @@ export class PrismaWorkspaceOverviewRepository implements WorkspaceOverviewRepos
         targetType: activity.target_type,
         createdAt: activity.created_at,
       })),
+      activityPagination: {
+        page: activityPage,
+        limit: activityLimit,
+        total: activityTotal,
+        totalPages: Math.ceil(activityTotal / activityLimit),
+      },
       submissionTrend,
       completionTrend,
       activityTrend,
