@@ -231,6 +231,7 @@ export class WorkspaceContentQueryDto {
   @IsOptional() @IsString() @MaxLength(50) status?: string;
   @IsOptional() @IsString() @MaxLength(100) type?: string;
   @IsOptional() @IsString() @MaxLength(50) difficulty?: string;
+  @IsOptional() @IsUUID() groupExerciseId?: string;
   @IsOptional() @IsIn(['all', 'assigned', 'public']) scope?: 'all' | 'assigned' | 'public';
 }
 

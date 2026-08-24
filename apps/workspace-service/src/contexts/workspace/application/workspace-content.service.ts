@@ -95,11 +95,9 @@ export class WorkspaceContentService {
       items: page.items.map((document) => ({
         ...document,
         canEdit:
-          manager ||
-          (document.uploaderId === userId && this.canAny(detail, ['edit_own_doc'])),
+          manager || (document.uploaderId === userId && this.canAny(detail, ['edit_own_doc'])),
         canDelete:
-          manager ||
-          (document.uploaderId === userId && this.canAny(detail, ['delete_own_doc'])),
+          manager || (document.uploaderId === userId && this.canAny(detail, ['delete_own_doc'])),
         canApprove: this.canAny(detail, ['approve_doc', 'manage_doc', 'delete_doc']),
       })),
     };
@@ -186,7 +184,8 @@ export class WorkspaceContentService {
         clean(dto.note),
       );
     } catch (error) {
-      if ((error as { code?: string }).code === 'P2002') throw new AlreadyExists('Báo cáo tài liệu');
+      if ((error as { code?: string }).code === 'P2002')
+        throw new AlreadyExists('Báo cáo tài liệu');
       throw error;
     }
   }
@@ -230,11 +229,9 @@ export class WorkspaceContentService {
       items: page.items.map((exercise) => ({
         ...exercise,
         canEdit:
-          manager ||
-          (exercise.authorId === userId && this.canAny(detail, ['edit_own_exercise'])),
+          manager || (exercise.authorId === userId && this.canAny(detail, ['edit_own_exercise'])),
         canDelete:
-          manager ||
-          (exercise.authorId === userId && this.canAny(detail, ['delete_own_exercise'])),
+          manager || (exercise.authorId === userId && this.canAny(detail, ['delete_own_exercise'])),
       })),
     };
   }
@@ -244,19 +241,27 @@ export class WorkspaceContentService {
     if (!exercise) throw new NotFound('Bài tập nhóm', id);
     const canManageAll = this.canAny(detail, ['manage_exercise', 'edit_exercise']);
     const canManage =
-      canManageAll ||
-      (exercise.authorId === userId && this.canAny(detail, ['edit_own_exercise']));
+      canManageAll || (exercise.authorId === userId && this.canAny(detail, ['edit_own_exercise']));
     if (exercise.publicationStatus === 'hidden' && !canManage)
       throw new NotFound('Bài tập nhóm', id);
     const canReview =
       detail.currentMembership.role === 'owner' ||
       detail.currentMembership.permissions.review_submission;
     const mine =
-      exercise.assignments.find((item) => item.memberId === detail.currentMembership.id) ?? null;
-    const content = await this.mongo.collection('exercise_contents').findOne(
-      { exerciseId: exercise.exerciseId },
-      { projection: { _id: 0, exerciseId: 0, kind: 0, createdAt: 0, updatedAt: 0 } },
-    );
+      (
+        await this.content.listAssignments(detail.id, {
+          page: 1,
+          limit: 1,
+          memberId: detail.currentMembership.id,
+          groupExerciseId: id,
+        })
+      ).items[0] ?? null;
+    const content = await this.mongo
+      .collection('exercise_contents')
+      .findOne(
+        { exerciseId: exercise.exerciseId },
+        { projection: { _id: 0, exerciseId: 0, kind: 0, createdAt: 0, updatedAt: 0 } },
+      );
     return {
       ...exercise,
       content: content ?? null,
@@ -269,14 +274,19 @@ export class WorkspaceContentService {
             latestVerdict: mine.latestVerdict,
           }
         : null,
-      assignments: canReview ? exercise.assignments : mine ? [mine] : [],
+      assignedMemberIds: canManage ? exercise.assignmentMemberIds : [],
       canManage,
       canReview,
     };
   }
   async attachExercise(userId: string, slug: string, dto: AttachWorkspaceExerciseDto) {
     const detail = await this.workspaces.detail(userId, slug);
-    this.requireAny(detail, ['assign_exercise', 'create_exercise', 'manage_exercise', 'edit_exercise']);
+    this.requireAny(detail, [
+      'assign_exercise',
+      'create_exercise',
+      'manage_exercise',
+      'edit_exercise',
+    ]);
     if (!(await this.content.publicExerciseExists(dto.exerciseId)))
       throw new NotFound('Bài tập', dto.exerciseId);
     await this.content.attachExercise(detail.id, userId, {
@@ -292,7 +302,10 @@ export class WorkspaceContentService {
   async createExercise(userId: string, slug: string, dto: CreateWorkspaceExerciseDto) {
     const detail = await this.workspaces.detail(userId, slug);
     this.requireAny(detail, ['create_exercise']);
-    if (dto.memberIds.length && !this.canAny(detail, ['assign_exercise', 'manage_exercise', 'edit_exercise']))
+    if (
+      dto.memberIds.length &&
+      !this.canAny(detail, ['assign_exercise', 'manage_exercise', 'edit_exercise'])
+    )
       throw new NotAuthorized('Bạn không có quyền phân công bài tập');
     return this.content.createExercise(detail.id, userId, {
       title: dto.title.trim(),
@@ -310,14 +323,20 @@ export class WorkspaceContentService {
       memberIds: dto.memberIds,
     });
   }
-  async generateExerciseDraft(userId: string, slug: string, dto: GenerateWorkspaceExerciseDraftDto) {
+  async generateExerciseDraft(
+    userId: string,
+    slug: string,
+    dto: GenerateWorkspaceExerciseDraftDto,
+  ) {
     const detail = await this.workspaces.detail(userId, slug);
     this.requireAny(detail, ['create_exercise']);
     const documents = await this.content.approvedDocumentContext(detail.id, dto.documentIds);
     if (!documents.length)
       throw new BusinessRuleViolation('Workspace chưa có tài liệu đã duyệt để tạo bản nháp');
     const context = documents
-      .map((item) => `- ${item.title}${item.previewText ? `: ${item.previewText.slice(0, 500)}` : ''}`)
+      .map(
+        (item) => `- ${item.title}${item.previewText ? `: ${item.previewText.slice(0, 500)}` : ''}`,
+      )
       .join('\n');
     return {
       title: dto.prompt.trim().slice(0, 200),
@@ -329,7 +348,13 @@ export class WorkspaceContentService {
         statement: `${dto.prompt.trim()}\n\nNgữ cảnh tham khảo:\n${context}`,
         ioMode: 'stdin_stdout',
         constraints: ['Đọc kỹ dữ liệu đầu vào và xử lý đúng các trường hợp biên.'],
-        examples: [{ input: 'Dữ liệu mẫu', output: 'Kết quả mẫu', explanation: 'Chủ nhóm cần rà soát ví dụ trước khi lưu.' }],
+        examples: [
+          {
+            input: 'Dữ liệu mẫu',
+            output: 'Kết quả mẫu',
+            explanation: 'Chủ nhóm cần rà soát ví dụ trước khi lưu.',
+          },
+        ],
         testCases: [],
         languages: [],
         evaluation: { checker: 'trimmed', stopOnFirstFailure: false },
@@ -350,7 +375,10 @@ export class WorkspaceContentService {
     const manager = this.canAny(detail, ['manage_exercise', 'edit_exercise']);
     const own = existing.authorId === userId && this.canAny(detail, ['edit_own_exercise']);
     if (!manager && !own) throw new NotAuthorized('Bạn không có quyền sửa bài tập này');
-    if (dto.memberIds && !this.canAny(detail, ['assign_exercise', 'manage_exercise', 'edit_exercise']))
+    if (
+      dto.memberIds &&
+      !this.canAny(detail, ['assign_exercise', 'manage_exercise', 'edit_exercise'])
+    )
       throw new NotAuthorized('Bạn không có quyền phân công bài tập');
     if (dto.publicationStatus && !manager)
       throw new NotAuthorized('Bạn không có quyền ẩn hoặc xuất bản bài tập');
@@ -361,7 +389,7 @@ export class WorkspaceContentService {
       allowLateSubmission: dto.allowLateSubmission,
       memberIds: dto.memberIds,
       title: dto.title?.trim(),
-      summary: dto.summary === undefined ? undefined : clean(dto.summary) ?? null,
+      summary: dto.summary === undefined ? undefined : (clean(dto.summary) ?? null),
       difficulty: dto.difficulty,
       publicationStatus: dto.publicationStatus,
       content: dto.content,
@@ -383,7 +411,8 @@ export class WorkspaceContentService {
   async restoreExercise(userId: string, slug: string, id: string) {
     const detail = await this.workspaces.detail(userId, slug);
     this.requireAny(detail, ['manage_exercise', 'edit_exercise']);
-    if (!(await this.content.restoreExercise(detail.id, id))) throw new NotFound('Bài tập nhóm', id);
+    if (!(await this.content.restoreExercise(detail.id, id)))
+      throw new NotFound('Bài tập nhóm', id);
     return { restored: true };
   }
   async purgeExercise(userId: string, slug: string, id: string) {
@@ -403,6 +432,7 @@ export class WorkspaceContentService {
       q: clean(query.q),
       status: clean(query.status),
       memberId: canReview ? undefined : detail.currentMembership.id,
+      groupExerciseId: query.groupExerciseId,
     });
   }
   async submissionHistory(userId: string, slug: string, assignmentId: string) {
@@ -467,7 +497,10 @@ export class WorkspaceContentService {
       throw new NotAuthorized('Bạn không có quyền thực hiện thao tác này');
   }
 
-  private canAny(detail: Detail, permissions: Array<keyof Detail['currentMembership']['permissions']>) {
+  private canAny(
+    detail: Detail,
+    permissions: Array<keyof Detail['currentMembership']['permissions']>,
+  ) {
     return (
       detail.currentMembership.role === 'owner' ||
       permissions.some((permission) => detail.currentMembership.permissions[permission])

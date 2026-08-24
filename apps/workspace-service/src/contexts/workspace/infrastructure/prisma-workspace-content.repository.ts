@@ -496,7 +496,10 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     if (!source) return null;
     const content = await this.mongo
       .collection('exercise_contents')
-      .findOne({ exerciseId: source.exercise_id }, { projection: { _id: 0, exerciseId: 0, kind: 0, createdAt: 0, updatedAt: 0 } });
+      .findOne(
+        { exerciseId: source.exercise_id },
+        { projection: { _id: 0, exerciseId: 0, kind: 0, createdAt: 0, updatedAt: 0 } },
+      );
     return this.createExercise(groupId, userId, {
       title: `${source.exercises.title} (Bản sao)`,
       summary: source.exercises.summary ?? undefined,
@@ -520,25 +523,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       include: {
         exercises: true,
         assignments: {
-          orderBy: { created_at: 'asc' },
-          include: {
-            group_exercises: {
-              include: { exercises: { select: { id: true, slug: true, title: true } } },
-            },
-            group_members: { include: { users: { select: { display_name: true } } } },
-            submissions: {
-              orderBy: { submitted_at: 'desc' },
-              take: 1,
-              select: {
-                verdict: true,
-                score: true,
-                attempt_number: true,
-                is_late: true,
-                submitted_at: true,
-              },
-            },
-            _count: { select: { submissions: true } },
-          },
+          select: { member_id: true, status: true },
         },
       },
     });
@@ -569,7 +554,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       ).length,
       isAssignedToMe: false,
       myAssignment: null,
-      assignments: row.assignments.map((assignment) => this.assignment(assignment)),
+      assignmentMemberIds: row.assignments.map((assignment) => assignment.member_id),
     };
   }
 
@@ -612,7 +597,11 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
           publication_status: input.publicationStatus,
         },
       });
-      if (input.title !== undefined || input.summary !== undefined || input.difficulty !== undefined)
+      if (
+        input.title !== undefined ||
+        input.summary !== undefined ||
+        input.difficulty !== undefined
+      )
         await tx.exercises.update({
           where: { id: found.exercise_id },
           data: {
@@ -641,11 +630,16 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     });
     if (input.content) {
       const now = new Date();
-      const contentRow = await this.mongo.collection('exercise_contents').findOneAndUpdate(
-        { exerciseId: found.exercise_id },
-        { $set: { ...sanitizeExerciseContent(input.content), kind: 'code', updatedAt: now }, $setOnInsert: { exerciseId: found.exercise_id, createdAt: now } },
-        { upsert: true, returnDocument: 'after', projection: { _id: 1 } },
-      );
+      const contentRow = await this.mongo
+        .collection('exercise_contents')
+        .findOneAndUpdate(
+          { exerciseId: found.exercise_id },
+          {
+            $set: { ...sanitizeExerciseContent(input.content), kind: 'code', updatedAt: now },
+            $setOnInsert: { exerciseId: found.exercise_id, createdAt: now },
+          },
+          { upsert: true, returnDocument: 'after', projection: { _id: 1 } },
+        );
       if (contentRow?._id)
         await this.prisma.exercises.update({
           where: { id: found.exercise_id },
@@ -690,7 +684,9 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       });
       if (references === 0) {
         await this.prisma.exercises.delete({ where: { id: found.exercise_id } });
-        await this.mongo.collection('exercise_contents').deleteOne({ exerciseId: found.exercise_id });
+        await this.mongo
+          .collection('exercise_contents')
+          .deleteOne({ exerciseId: found.exercise_id });
       }
     }
     return result.count > 0;
@@ -698,11 +694,19 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
 
   async listAssignments(
     groupId: string,
-    input: { page: number; limit: number; q?: string; status?: string; memberId?: string },
+    input: {
+      page: number;
+      limit: number;
+      q?: string;
+      status?: string;
+      memberId?: string;
+      groupExerciseId?: string;
+    },
   ) {
     const where: Prisma.assignmentsWhereInput = { group_id: groupId };
     if (input.status) where.status = input.status as assignment_status;
     if (input.memberId) where.member_id = input.memberId;
+    if (input.groupExerciseId) where.group_exercise_id = input.groupExerciseId;
     if (input.q)
       where.OR = [
         { group_exercises: { exercises: { title: { contains: input.q, mode: 'insensitive' } } } },
@@ -822,9 +826,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
   }
 
   private exercise(row: ExerciseRow, memberId: string) {
-    const myAssignment = row.assignments.find(
-      (assignment) => assignment.member_id === memberId,
-    );
+    const myAssignment = row.assignments.find((assignment) => assignment.member_id === memberId);
     return {
       id: row.id,
       exerciseId: row.exercise_id,
@@ -945,5 +947,7 @@ function sanitizeExerciseContent(input: Record<string, unknown>) {
     'evaluation',
     'theory',
   ];
-  return Object.fromEntries(allowed.flatMap((key) => (input[key] === undefined ? [] : [[key, input[key]]])));
+  return Object.fromEntries(
+    allowed.flatMap((key) => (input[key] === undefined ? [] : [[key, input[key]]])),
+  );
 }

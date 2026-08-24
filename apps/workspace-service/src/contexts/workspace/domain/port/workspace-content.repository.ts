@@ -91,7 +91,7 @@ export interface WorkspaceSubmissionRecord {
   submittedAt: Date;
 }
 export interface WorkspaceExerciseDetailRecord extends WorkspaceExerciseRecord {
-  assignments: WorkspaceAssignmentRecord[];
+  assignmentMemberIds: string[];
 }
 
 export interface WorkspaceContentRepository {
@@ -126,7 +126,12 @@ export interface WorkspaceContentRepository {
     input: { title?: string; topic?: string | null; status?: string },
   ): Promise<WorkspaceDocumentRecord | null>;
   pendingDocumentCount(groupId: string): Promise<number>;
-  softDeleteDocument(groupId: string, id: string, userId: string, reason?: string): Promise<boolean>;
+  softDeleteDocument(
+    groupId: string,
+    id: string,
+    userId: string,
+    reason?: string,
+  ): Promise<boolean>;
   restoreDocument(groupId: string, id: string): Promise<boolean>;
   purgeDocument(groupId: string, id: string): Promise<WorkspaceDocumentRecord | null>;
   reportDocument(
@@ -136,7 +141,10 @@ export interface WorkspaceContentRepository {
     category: string,
     note?: string,
   ): Promise<{ id: string; status: string; createdAt: Date }>;
-  approvedDocumentContext(groupId: string, documentIds?: string[]): Promise<Array<{ id: string; title: string; previewText: string | null }>>;
+  approvedDocumentContext(
+    groupId: string,
+    documentIds?: string[],
+  ): Promise<Array<{ id: string; title: string; previewText: string | null }>>;
   listExercises(
     groupId: string,
     input: {
@@ -184,7 +192,11 @@ export interface WorkspaceContentRepository {
       memberIds: string[];
     },
   ): Promise<WorkspaceExerciseRecord>;
-  duplicateExercise(groupId: string, id: string, userId: string): Promise<WorkspaceExerciseRecord | null>;
+  duplicateExercise(
+    groupId: string,
+    id: string,
+    userId: string,
+  ): Promise<WorkspaceExerciseRecord | null>;
   updateExercise(
     groupId: string,
     id: string,
@@ -202,12 +214,24 @@ export interface WorkspaceContentRepository {
     },
   ): Promise<boolean>;
   exerciseHasSubmissions(groupId: string, id: string): Promise<boolean>;
-  softDeleteExercise(groupId: string, id: string, userId: string, reason?: string): Promise<boolean>;
+  softDeleteExercise(
+    groupId: string,
+    id: string,
+    userId: string,
+    reason?: string,
+  ): Promise<boolean>;
   restoreExercise(groupId: string, id: string): Promise<boolean>;
   purgeExercise(groupId: string, id: string): Promise<boolean>;
   listAssignments(
     groupId: string,
-    input: { page: number; limit: number; q?: string; status?: string; memberId?: string },
+    input: {
+      page: number;
+      limit: number;
+      q?: string;
+      status?: string;
+      memberId?: string;
+      groupExerciseId?: string;
+    },
   ): Promise<ContentPage<WorkspaceAssignmentRecord>>;
   assignmentExists(groupId: string, id: string, memberId?: string): Promise<boolean>;
   submissionHistory(groupId: string, assignmentId: string): Promise<WorkspaceSubmissionRecord[]>;
