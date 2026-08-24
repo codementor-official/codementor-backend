@@ -16,7 +16,7 @@ import {
   Min,
 } from 'class-validator';
 
-export const WORKSPACE_SCOPES = ['all', 'owned', 'joined'] as const;
+export const WORKSPACE_SCOPES = ['all', 'mine', 'owned', 'joined', 'discover'] as const;
 export const WORKSPACE_ROLES = ['deputy', 'member'] as const;
 export const WORKSPACE_PERMISSIONS = [
   'view_doc',
@@ -55,19 +55,27 @@ export class ListWorkspacesQueryDto {
   @MaxLength(100)
   topic?: string;
 
-  @ApiPropertyOptional({ description: 'Cursor nhận từ nextCursor' })
+  @ApiPropertyOptional({ default: 1, minimum: 1 })
   @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  cursor?: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
 
-  @ApiPropertyOptional({ default: 12, minimum: 1, maximum: 50 })
+  @ApiPropertyOptional({ default: 8, minimum: 1, maximum: 50 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(50)
   limit?: number;
+}
+
+export class ListJoinRequestsQueryDto {
+  @ApiPropertyOptional({ enum: ['pending', 'rejected', 'all'], default: 'pending' })
+  @IsOptional()
+  @IsIn(['pending', 'rejected', 'all'])
+  status?: 'pending' | 'rejected' | 'all';
 }
 
 export class ListMembersQueryDto {
@@ -170,6 +178,9 @@ export class UpdateWorkspaceDto {
   @IsOptional() @IsString() @MaxLength(1000) avatarKey?: string | null;
   @IsOptional() @IsString() @MaxLength(2000) coverUrl?: string | null;
   @IsOptional() @IsString() @MaxLength(1000) coverKey?: string | null;
+  @IsOptional() @IsIn(['top', 'center', 'bottom']) coverPosition?: 'top' | 'center' | 'bottom';
+  @IsOptional() @IsIn(['cover', 'contain']) coverFit?: 'cover' | 'contain';
+  @IsOptional() @IsIn(['compact', 'medium', 'tall']) coverHeight?: 'compact' | 'medium' | 'tall';
 }
 
 export class JoinWorkspaceDto {

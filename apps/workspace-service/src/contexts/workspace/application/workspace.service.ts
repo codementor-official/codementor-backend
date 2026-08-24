@@ -12,7 +12,6 @@ import {
 } from '../domain/model/workspace-policy';
 import {
   WORKSPACE_REPOSITORY,
-  type WorkspaceCursor,
   type WorkspaceRepository,
 } from '../domain/port/workspace.repository';
 import type {
@@ -28,7 +27,7 @@ import type {
   UpdateWorkspaceDto,
 } from '../presentation/dto/workspace.dto';
 
-const DEFAULT_LIMIT = 12;
+const DEFAULT_LIMIT = 8;
 
 /** Application layer: điều phối use case; policy nằm ở domain, I/O nằm ở repository port. */
 @Injectable()
@@ -37,17 +36,16 @@ export class WorkspaceService {
 
   async list(userId: string, query: ListWorkspacesQueryDto) {
     const limit = clamp(query.limit, DEFAULT_LIMIT, 50);
-    const rows = await this.workspaces.listForUser(userId, {
+    const page = Math.max(query.page ?? 1, 1);
+    const result = await this.workspaces.listForUser(userId, {
       scope: query.scope,
       q: query.q?.trim() || undefined,
       topic: query.topic?.trim() || undefined,
-      cursor: query.cursor ? decodeCursor(query.cursor) : undefined,
+      page,
       limit,
     });
-    const page = rows.slice(0, limit);
-    const last = page.at(-1);
     return {
-      items: page.map((row) => ({
+      items: result.items.map((row) => ({
         id: row.id,
         slug: row.slug,
         name: row.name,
@@ -56,6 +54,9 @@ export class WorkspaceService {
         memberCount: row.memberCount,
         avatarUrl: row.avatarUrl,
         coverUrl: row.coverUrl,
+        coverPosition: row.coverPosition,
+        coverFit: row.coverFit,
+        coverHeight: row.coverHeight,
         privacy: row.privacy,
         joinPolicy: row.joinPolicy,
         lastActivityAt: row.lastActivityAt ?? row.updatedAt,
@@ -64,8 +65,12 @@ export class WorkspaceService {
         role: row.role,
         openTaskCount: row.openTaskCount,
         progressPercent: row.progressPercent,
+        unreadCount: row.unreadCount,
       })),
-      nextCursor: rows.length > limit && last ? encodeCursor(last.updatedAt, last.id) : null,
+      page,
+      limit,
+      total: result.total,
+      totalPages: Math.ceil(result.total / limit),
     };
   }
 
@@ -92,6 +97,9 @@ export class WorkspaceService {
       avatarUrl: data.avatarUrl,
       coverUrl: data.coverUrl,
       coverKey: data.coverKey,
+      coverPosition: data.coverPosition,
+      coverFit: data.coverFit,
+      coverHeight: data.coverHeight,
       privacy: data.privacy,
       joinPolicy: data.joinPolicy,
       createdAt: data.createdAt,
@@ -150,6 +158,9 @@ export class WorkspaceService {
       avatarKey: dto.avatarKey,
       coverUrl: dto.coverUrl,
       coverKey: dto.coverKey,
+      coverPosition: dto.coverPosition,
+      coverFit: dto.coverFit,
+      coverHeight: dto.coverHeight,
     });
     return this.detail(userId, slug);
   }
@@ -401,9 +412,18 @@ export class WorkspaceService {
     const request = await this.workspaces.upsertJoinRequest(workspace.id, userId, dto.message);
     return { status: request.status, requestId: request.id, workspaceSlug: slug };
   }
-  async joinRequests(userId: string, slug: string) {
+  async joinRequests(
+    userId: string,
+    slug: string,
+    status: 'pending' | 'rejected' | 'all' = 'pending',
+  ) {
     const workspace = await this.requireOwner(userId, slug);
-    return { items: await this.workspaces.listJoinRequests(workspace.id) };
+    return {
+      items: await this.workspaces.listJoinRequests(
+        workspace.id,
+        status === 'all' ? undefined : status,
+      ),
+    };
   }
   async reviewJoinRequest(
     userId: string,
@@ -540,18 +560,6 @@ function randomSuffix(length: number) {
 }
 function randomInviteCode() {
   return randomBytes(5).toString('hex').toUpperCase();
-}
-function encodeCursor(updatedAt: Date, id: string) {
-  return Buffer.from(`${updatedAt.toISOString()}|${id}`).toString('base64url');
-}
-function decodeCursor(cursor: string): WorkspaceCursor | undefined {
-  try {
-    const [iso, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
-    const updatedAt = new Date(iso ?? '');
-    return id && !Number.isNaN(updatedAt.getTime()) ? { updatedAt, id } : undefined;
-  } catch {
-    return undefined;
-  }
 }
 function isUniqueViolation(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
