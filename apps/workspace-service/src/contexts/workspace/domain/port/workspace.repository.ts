@@ -27,6 +27,9 @@ export interface WorkspaceRecord {
   avatarKey: string | null;
   coverUrl: string | null;
   coverKey: string | null;
+  coverPosition: 'top' | 'center' | 'bottom';
+  coverFit: 'cover' | 'contain';
+  coverHeight: 'compact' | 'medium' | 'tall';
   privacy: 'public' | 'private';
   joinPolicy: 'open' | 'approval' | 'invite_only';
   createdAt: Date;
@@ -49,10 +52,11 @@ export interface WorkspaceDetailRecord extends WorkspaceRecord {
 }
 export interface WorkspaceListRecord extends WorkspaceRecord {
   owner: WorkspaceUser;
-  role: WorkspaceRole;
+  role: WorkspaceRole | null;
   memberPreview: WorkspaceUser[];
   openTaskCount: number;
   progressPercent: number;
+  unreadCount: number;
 }
 export interface WorkspaceMemberRecord extends MembershipRecord {
   user: WorkspaceUser;
@@ -87,15 +91,11 @@ export interface WorkspaceJoinRequestRecord {
   reviewedAt: Date | null;
   user: WorkspaceUser;
 }
-export interface WorkspaceCursor {
-  updatedAt: Date;
-  id: string;
-}
 export interface WorkspaceListFilter {
-  scope?: 'all' | 'owned' | 'joined';
+  scope?: 'all' | 'mine' | 'owned' | 'joined' | 'discover';
   q?: string;
   topic?: string;
-  cursor?: WorkspaceCursor;
+  page: number;
   limit: number;
 }
 export interface MemberListFilter {
@@ -112,8 +112,13 @@ export interface MemberListFilter {
 }
 
 export interface WorkspaceRepository {
-  listForUser(userId: string, filter: WorkspaceListFilter): Promise<WorkspaceListRecord[]>;
-  summaryForUser(userId: string): Promise<{ total: number; owned: number; joined: number }>;
+  listForUser(
+    userId: string,
+    filter: WorkspaceListFilter,
+  ): Promise<{ items: WorkspaceListRecord[]; total: number }>;
+  summaryForUser(
+    userId: string,
+  ): Promise<{ total: number; owned: number; joined: number; unreadCount: number }>;
   findDetail(slug: string, userId: string): Promise<WorkspaceDetailRecord | null>;
   findActiveBySlug(slug: string): Promise<WorkspaceRecord | null>;
   findActiveByInviteCode(inviteCode: string): Promise<WorkspaceRecord | null>;
@@ -137,6 +142,9 @@ export interface WorkspaceRepository {
       avatarKey?: string | null;
       coverUrl?: string | null;
       coverKey?: string | null;
+      coverPosition?: 'top' | 'center' | 'bottom';
+      coverFit?: 'cover' | 'contain';
+      coverHeight?: 'compact' | 'medium' | 'tall';
       privacy?: 'public' | 'private';
       joinPolicy?: 'open' | 'approval' | 'invite_only';
     },
@@ -209,7 +217,10 @@ export interface WorkspaceRepository {
     userId: string,
     message?: string,
   ): Promise<WorkspaceJoinRequestRecord>;
-  listJoinRequests(groupId: string): Promise<WorkspaceJoinRequestRecord[]>;
+  listJoinRequests(
+    groupId: string,
+    status?: 'pending' | 'rejected',
+  ): Promise<WorkspaceJoinRequestRecord[]>;
   findJoinRequest(groupId: string, requestId: string): Promise<WorkspaceJoinRequestRecord | null>;
   reviewJoinRequest(
     requestId: string,

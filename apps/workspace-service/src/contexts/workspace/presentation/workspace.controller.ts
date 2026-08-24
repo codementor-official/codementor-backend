@@ -27,6 +27,7 @@ import {
   GenerateWorkspaceExerciseDraftDto,
   InviteWorkspaceMemberDto,
   JoinWorkspaceDto,
+  ListJoinRequestsQueryDto,
   ListMembersQueryDto,
   ListWorkspacesQueryDto,
   RequestWorkspaceJoinDto,
@@ -228,7 +229,6 @@ export class WorkspaceController {
     await this.content.deleteDocument(requireHumanId(user), slug, id, dto);
   }
 
-
   @Post(':slug/documents/:documentId/restore')
   restoreDocument(
     @CurrentUser() user: AuthenticatedUser,
@@ -348,7 +348,6 @@ export class WorkspaceController {
     await this.content.deleteExercise(requireHumanId(user), slug, id, dto);
   }
 
-
   @Post(':slug/exercises/:groupExerciseId/restore')
   restoreExercise(
     @CurrentUser() user: AuthenticatedUser,
@@ -452,8 +451,12 @@ export class WorkspaceController {
 
   @Get(':slug/join-requests')
   @ApiOperation({ summary: 'Danh sách yêu cầu tham gia đang chờ' })
-  joinRequests(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
-    return this.workspaces.joinRequests(requireHumanId(user), slug);
+  joinRequests(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Query() query: ListJoinRequestsQueryDto,
+  ) {
+    return this.workspaces.joinRequests(requireHumanId(user), slug, query.status);
   }
 
   @Post(':slug/join-requests/:requestId/approve')

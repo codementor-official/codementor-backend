@@ -23,7 +23,6 @@ import type {
   MembershipRecord,
   WorkspaceDetailRecord,
   WorkspaceListFilter,
-  WorkspaceListRecord,
   WorkspaceMemberRecord,
   WorkspaceRecord,
   WorkspaceRepository,
@@ -37,17 +36,35 @@ const ALL_PERMISSIONS = Object.values(group_permission) as WorkspacePermission[]
 export class PrismaWorkspaceRepository implements WorkspaceRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listForUser(userId: string, filter: WorkspaceListFilter): Promise<WorkspaceListRecord[]> {
+  async listForUser(userId: string, filter: WorkspaceListFilter) {
     const membership: Prisma.group_membersWhereInput = {
       user_id: userId,
       status: member_status.active,
     };
-    if (filter.scope === 'owned') membership.role = group_role.owner;
-    if (filter.scope === 'joined') membership.role = { in: [group_role.deputy, group_role.member] };
     const where: Prisma.study_groupsWhereInput = {
       status: group_status.active,
-      group_members: { some: membership },
     };
+    switch (filter.scope ?? 'mine') {
+      case 'owned':
+        where.group_members = { some: { ...membership, role: group_role.owner } };
+        break;
+      case 'joined':
+        where.group_members = {
+          some: { ...membership, role: { in: [group_role.deputy, group_role.member] } },
+        };
+        break;
+      case 'discover':
+        where.privacy = workspace_privacy.public;
+        where.NOT = { group_members: { some: membership } };
+        break;
+      case 'all':
+        where.OR = [{ privacy: workspace_privacy.public }, { group_members: { some: membership } }];
+        break;
+      case 'mine':
+      default:
+        where.group_members = { some: membership };
+        break;
+    }
     const and: Prisma.study_groupsWhereInput[] = [];
     if (filter.topic) where.topic = { equals: filter.topic, mode: 'insensitive' };
     if (filter.q)
@@ -58,32 +75,31 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
           { topic: { contains: filter.q, mode: 'insensitive' } },
         ],
       });
-    if (filter.cursor)
-      and.push({
-        OR: [
-          { updated_at: { lt: filter.cursor.updatedAt } },
-          { updated_at: filter.cursor.updatedAt, id: { lt: filter.cursor.id } },
-        ],
-      });
     if (and.length) where.AND = and;
-    const rows = await this.prisma.study_groups.findMany({
-      where,
-      orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
-      take: filter.limit + 1,
-      include: {
-        users: { select: { id: true, display_name: true, avatar_url: true, email: true } },
-        group_members: {
-          where: { status: member_status.active },
-          orderBy: { joined_at: 'asc' },
-          take: 4,
-          include: {
-            users: { select: { id: true, display_name: true, avatar_url: true, email: true } },
+    const [total, rows] = await Promise.all([
+      this.prisma.study_groups.count({ where }),
+      this.prisma.study_groups.findMany({
+        where,
+        orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+        skip: (filter.page - 1) * filter.limit,
+        take: filter.limit,
+        include: {
+          users: { select: { id: true, display_name: true, avatar_url: true, email: true } },
+          group_members: {
+            where: { status: member_status.active },
+            orderBy: { joined_at: 'asc' },
+            take: 4,
+            include: {
+              users: {
+                select: { id: true, display_name: true, avatar_url: true, email: true },
+              },
+            },
           },
         },
-      },
-    });
+      }),
+    ]);
     const groupIds = rows.map((row) => row.id);
-    const [roles, assignments, exercises] = await Promise.all([
+    const [roles, assignments, exercises, unreadRows] = await Promise.all([
       this.prisma.group_members.findMany({
         where: { group_id: { in: groupIds }, user_id: userId, status: member_status.active },
         select: { id: true, group_id: true, role: true },
@@ -96,36 +112,57 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
         where: { group_id: { in: groupIds }, exercises: { status: exercise_status.published } },
         select: { group_id: true, due_at: true },
       }),
+      groupIds.length
+        ? this.prisma.$queryRaw<Array<{ groupId: string; count: bigint }>>(Prisma.sql`
+            SELECT m.group_id AS "groupId", COUNT(*)::bigint AS count
+            FROM workspace_messages m
+            JOIN group_members gm
+              ON gm.group_id = m.group_id
+             AND gm.user_id = ${userId}::uuid
+             AND gm.status = 'active'
+            LEFT JOIN workspace_message_reads r ON r.group_member_id = gm.id
+            WHERE m.group_id IN (${Prisma.join(groupIds.map((id) => Prisma.sql`${id}::uuid`))})
+              AND m.sender_id <> ${userId}::uuid
+              AND m.deleted_at IS NULL
+              AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at)
+            GROUP BY m.group_id
+          `)
+        : Promise.resolve([]),
     ]);
     const membershipByGroup = new Map(roles.map((row) => [row.group_id, row]));
+    const unreadByGroup = new Map(unreadRows.map((row) => [row.groupId, Number(row.count)]));
     const now = new Date();
-    return rows.map((row) => {
-      const membership = membershipByGroup.get(row.id);
-      const relevantAssignments = assignments.filter(
-        (assignment) =>
-          assignment.group_id === row.id &&
-          (membership?.role === group_role.owner || assignment.member_id === membership?.id),
-      );
-      const completed = relevantAssignments.filter(
-        (assignment) =>
-          assignment.status === assignment_status.done ||
-          assignment.status === assignment_status.late,
-      ).length;
-      return {
-        ...this.toWorkspace(row),
-        owner: this.toUser(row.users),
-        role: membership?.role ?? 'member',
-        memberPreview: row.group_members.map((member) => this.toUser(member.users)),
-        openTaskCount: exercises.filter(
-          (exercise) =>
-            exercise.group_id === row.id && (!exercise.due_at || exercise.due_at >= now),
-        ).length,
-        progressPercent:
-          relevantAssignments.length === 0
-            ? 0
-            : Math.round((completed / relevantAssignments.length) * 100),
-      };
-    });
+    return {
+      total,
+      items: rows.map((row) => {
+        const membership = membershipByGroup.get(row.id);
+        const relevantAssignments = assignments.filter(
+          (assignment) =>
+            assignment.group_id === row.id &&
+            (membership?.role === group_role.owner || assignment.member_id === membership?.id),
+        );
+        const completed = relevantAssignments.filter(
+          (assignment) =>
+            assignment.status === assignment_status.done ||
+            assignment.status === assignment_status.late,
+        ).length;
+        return {
+          ...this.toWorkspace(row),
+          owner: this.toUser(row.users),
+          role: membership?.role ?? null,
+          memberPreview: row.group_members.map((member) => this.toUser(member.users)),
+          openTaskCount: exercises.filter(
+            (exercise) =>
+              exercise.group_id === row.id && (!exercise.due_at || exercise.due_at >= now),
+          ).length,
+          progressPercent:
+            relevantAssignments.length === 0
+              ? 0
+              : Math.round((completed / relevantAssignments.length) * 100),
+          unreadCount: unreadByGroup.get(row.id) ?? 0,
+        };
+      }),
+    };
   }
 
   async summaryForUser(userId: string) {
@@ -136,14 +173,27 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
       user_id: userId,
       study_groups: { is: { status: group_status.active } },
     };
-    const [total, owned, joined] = await Promise.all([
+    const [total, owned, joined, unreadRows] = await Promise.all([
       this.prisma.group_members.count({ where: active }),
       this.prisma.group_members.count({ where: { ...active, role: group_role.owner } }),
       this.prisma.group_members.count({
         where: { ...active, role: { in: [group_role.deputy, group_role.member] } },
       }),
+      this.prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+        SELECT COUNT(*)::bigint AS count
+        FROM workspace_messages m
+        JOIN group_members gm
+          ON gm.group_id = m.group_id
+         AND gm.user_id = ${userId}::uuid
+         AND gm.status = 'active'
+        JOIN study_groups g ON g.id = gm.group_id AND g.status = 'active'
+        LEFT JOIN workspace_message_reads r ON r.group_member_id = gm.id
+        WHERE m.sender_id <> ${userId}::uuid
+          AND m.deleted_at IS NULL
+          AND (r.last_read_at IS NULL OR m.created_at > r.last_read_at)
+      `),
     ]);
-    return { total, owned, joined };
+    return { total, owned, joined, unreadCount: Number(unreadRows[0]?.count ?? 0n) };
   }
 
   async findDetail(slug: string, userId: string): Promise<WorkspaceDetailRecord | null> {
@@ -235,6 +285,9 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
       avatarKey?: string | null;
       coverUrl?: string | null;
       coverKey?: string | null;
+      coverPosition?: 'top' | 'center' | 'bottom';
+      coverFit?: 'cover' | 'contain';
+      coverHeight?: 'compact' | 'medium' | 'tall';
       privacy?: 'public' | 'private';
       joinPolicy?: 'open' | 'approval' | 'invite_only';
     },
@@ -251,6 +304,9 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
         avatar_key: input.avatarKey,
         cover_url: input.coverUrl,
         cover_key: input.coverKey,
+        cover_position: input.coverPosition,
+        cover_fit: input.coverFit,
+        cover_height: input.coverHeight,
         privacy: input.privacy as workspace_privacy | undefined,
         join_policy: input.joinPolicy as workspace_join_policy | undefined,
       },
@@ -686,10 +742,13 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
     });
     return this.toJoinRequest(row);
   }
-  async listJoinRequests(groupId: string) {
+  async listJoinRequests(groupId: string, status?: 'pending' | 'rejected') {
     const rows = await this.prisma.workspace_join_requests.findMany({
-      where: { group_id: groupId, status: join_request_status.pending },
-      orderBy: { created_at: 'asc' },
+      where: {
+        group_id: groupId,
+        status: status ? (status as join_request_status) : undefined,
+      },
+      orderBy: { updated_at: 'desc' },
       include: {
         requester: {
           select: { id: true, display_name: true, avatar_url: true, handle: true, email: true },
@@ -735,6 +794,9 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
     avatar_key: string | null;
     cover_url: string | null;
     cover_key: string | null;
+    cover_position: string;
+    cover_fit: string;
+    cover_height: string;
     privacy: workspace_privacy;
     join_policy: workspace_join_policy;
     created_at: Date;
@@ -755,6 +817,9 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
       avatarKey: row.avatar_key,
       coverUrl: row.cover_url,
       coverKey: row.cover_key,
+      coverPosition: row.cover_position as WorkspaceRecord['coverPosition'],
+      coverFit: row.cover_fit as WorkspaceRecord['coverFit'],
+      coverHeight: row.cover_height as WorkspaceRecord['coverHeight'],
       privacy: row.privacy,
       joinPolicy: row.join_policy,
       createdAt: row.created_at,

@@ -601,6 +601,9 @@ model study_groups {
   avatar_key                 String?
   cover_url                  String?
   cover_key                  String?
+  cover_position             String                       @default("center")
+  cover_fit                  String                       @default("cover")
+  cover_height               String                       @default("medium")
   privacy                    workspace_privacy            @default(private)
   join_policy                workspace_join_policy        @default(invite_only)
   owner_id                   String                       @db.Uuid
