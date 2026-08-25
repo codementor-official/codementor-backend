@@ -16,6 +16,16 @@ export class ActivityQueryDto {
   limit?: number;
 }
 
+export class ActivityCalendarQueryDto {
+  @ApiPropertyOptional({ minimum: 4, maximum: 52, default: 13 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(4)
+  @Max(52)
+  weeks?: number;
+}
+
 /**
  * Hoạt động học tập của một tài khoản.
  *
@@ -33,6 +43,15 @@ export class UserActivityController {
   @ApiOperation({ summary: 'Dòng thời gian học tập của chính tôi' })
   mine(@CurrentUser() actor: AuthenticatedUser, @Query() query: ActivityQueryDto) {
     return this.activity.mine(actor, query.limit);
+  }
+
+  @Get('me/calendar')
+  @ApiOperation({ summary: 'Lịch đóng góp học tập theo ngày của chính tôi' })
+  calendar(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Query() query: ActivityCalendarQueryDto,
+  ) {
+    return this.activity.calendar(actor, query.weeks);
   }
 
   @Get('users/:id')

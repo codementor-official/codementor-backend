@@ -11,6 +11,19 @@ export interface ActivityEntry {
   occurredAt: string;
 }
 
+export interface ActivityCalendarDay {
+  date: string;
+  count: number;
+}
+
+export interface ActivityCalendar {
+  days: ActivityCalendarDay[];
+  totalActivities: number;
+  activeDays: number;
+  currentStreakDays: number;
+  longestStreakDays: number;
+}
+
 /**
  * Dòng thời gian học tập của một tài khoản, cho drawer chi tiết bên quản trị.
  *
@@ -35,6 +48,70 @@ export class UserActivityUseCases {
   /** Chính chủ xem lịch sử của mình — không cần kiểm vai trò, `userId` luôn là actor. */
   async mine(actor: AuthenticatedUser, limit = 50): Promise<ActivityEntry[]> {
     return this.timeline(requireHumanId(actor), limit);
+  }
+
+  /**
+   * Chuỗi đóng góp dùng cho heatmap hồ sơ. Mỗi hàng nguồn là một hành động học tập thật;
+   * generate_series lấp cả ngày không hoạt động để frontend không phải tự đoán ngày thiếu.
+   */
+  async calendar(actor: AuthenticatedUser, weeks = 13): Promise<ActivityCalendar> {
+    const userId = requireHumanId(actor);
+    const cappedWeeks = Math.min(Math.max(weeks, 4), 52);
+    const end = new Date();
+    end.setUTCHours(0, 0, 0, 0);
+    const start = new Date(end);
+    start.setUTCDate(start.getUTCDate() - cappedWeeks * 7 + 1);
+
+    const rows = await this.prisma.$queryRaw<{ date: string; count: number }[]>`
+      WITH days AS (
+        SELECT generate_series(${start}::date, ${end}::date, interval '1 day')::date AS day
+      ), activities AS (
+        SELECT re.started_at AS occurred_at
+        FROM roadmap_enrollments re
+        WHERE re.user_id = ${userId}::uuid
+
+        UNION ALL
+        SELECT ce.started_at
+        FROM course_enrollments ce
+        WHERE ce.user_id = ${userId}::uuid
+
+        UNION ALL
+        SELECT ce.completed_at
+        FROM course_enrollments ce
+        WHERE ce.user_id = ${userId}::uuid AND ce.completed_at IS NOT NULL
+
+        UNION ALL
+        SELECT lp.completed_at
+        FROM lesson_progress lp
+        WHERE lp.user_id = ${userId}::uuid AND lp.completed_at IS NOT NULL
+
+        UNION ALL
+        SELECT ep.first_solved_at
+        FROM exercise_progress ep
+        WHERE ep.user_id = ${userId}::uuid AND ep.first_solved_at IS NOT NULL
+      )
+      SELECT to_char(days.day, 'YYYY-MM-DD') AS date,
+             count(activities.occurred_at)::int AS count
+      FROM days
+      LEFT JOIN activities
+        ON (activities.occurred_at AT TIME ZONE 'UTC')::date = days.day
+      GROUP BY days.day
+      ORDER BY days.day`;
+
+    let running = 0;
+    let longestStreakDays = 0;
+    for (const day of rows) {
+      running = day.count > 0 ? running + 1 : 0;
+      longestStreakDays = Math.max(longestStreakDays, running);
+    }
+
+    return {
+      days: rows,
+      totalActivities: rows.reduce((sum, day) => sum + day.count, 0),
+      activeDays: rows.filter((day) => day.count > 0).length,
+      currentStreakDays: running,
+      longestStreakDays,
+    };
   }
 
   private async timeline(userId: string, limit: number): Promise<ActivityEntry[]> {
