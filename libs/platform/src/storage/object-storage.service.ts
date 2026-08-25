@@ -56,6 +56,8 @@ export const DOCUMENT_CONTENT_TYPES = [
   'video/webm',
 ] as const;
 
+export const IMAGE_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+
 /**
  * Kho đối tượng tương thích S3, cho những thứ quá lớn để nằm trong CSDL.
  *
@@ -80,9 +82,11 @@ export class ObjectStorageService {
   /** Thư mục gốc của video trong bucket, đã cắt gạch thừa hai đầu. */
   private readonly videoPrefix: string;
   private readonly documentPrefix: string;
+  private readonly imagePrefix: string;
   private readonly expiresInSeconds: number;
   readonly maxUploadBytes: number;
   readonly maxDocumentUploadBytes: number;
+  readonly maxImageUploadBytes: number;
 
   constructor(private readonly config: ConfigService) {
     this.bucket = config.get<string>('AWS_S3_BUCKET');
@@ -94,10 +98,15 @@ export class ObjectStorageService {
     this.documentPrefix = (
       config.get<string>('AWS_S3_DOCUMENT_PREFIX') ?? 'public/workspace-documents'
     ).replace(/^\/+|\/+$/g, '');
+    this.imagePrefix = (config.get<string>('AWS_S3_IMAGE_PREFIX') ?? 'public/images').replace(
+      /^\/+|\/+$/g,
+      '',
+    );
     this.expiresInSeconds = config.get<number>('AWS_S3_PRESIGNED_EXPIRES') ?? 900;
     this.maxUploadBytes = (config.get<number>('VIDEO_MAX_UPLOAD_MB') ?? 500) * 1024 * 1024;
     this.maxDocumentUploadBytes =
       (config.get<number>('DOCUMENT_MAX_UPLOAD_MB') ?? 20) * 1024 * 1024;
+    this.maxImageUploadBytes = (config.get<number>('IMAGE_MAX_UPLOAD_MB') ?? 5) * 1024 * 1024;
 
     const accessKeyId = config.get<string>('AWS_ACCESS_KEY_ID');
     const secretAccessKey = config.get<string>('AWS_SECRET_ACCESS_KEY');
@@ -218,6 +227,49 @@ export class ObjectStorageService {
     }
     const objectKey = [
       this.documentPrefix,
+      input.prefix.replace(/^\/+|\/+$/g, ''),
+      `${randomUUID()}${extensionOf(input.filename)}`,
+    ]
+      .filter(Boolean)
+      .join('/');
+    const uploadUrl = await getSignedUrl(
+      this.client,
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: objectKey,
+        ContentType: input.contentType,
+        ContentLength: input.sizeBytes,
+      }),
+      { expiresIn: this.expiresInSeconds },
+    );
+    return Result.ok({
+      uploadUrl,
+      headers: { 'Content-Type': input.contentType },
+      publicUrl: this.publicUrlFor(objectKey),
+      objectKey,
+      expiresInSeconds: this.expiresInSeconds,
+    });
+  }
+
+  async presignImageUpload(input: {
+    prefix: string;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+  }): Promise<Result<PresignedUpload, BusinessRuleViolation | InvalidInput>> {
+    if (this.client === null || !this.bucket)
+      return Result.fail(new BusinessRuleViolation('Chưa cấu hình kho lưu trữ hình ảnh.'));
+    if (!IMAGE_CONTENT_TYPES.includes(input.contentType as (typeof IMAGE_CONTENT_TYPES)[number])) {
+      return Result.fail(new InvalidInput('Ảnh đại diện chỉ hỗ trợ PNG, JPEG hoặc WebP.'));
+    }
+    if (input.sizeBytes <= 0 || input.sizeBytes > this.maxImageUploadBytes) {
+      return Result.fail(
+        new InvalidInput(`Ảnh tối đa ${Math.round(this.maxImageUploadBytes / 1024 / 1024)} MB`),
+      );
+    }
+
+    const objectKey = [
+      this.imagePrefix,
       input.prefix.replace(/^\/+|\/+$/g, ''),
       `${randomUUID()}${extensionOf(input.filename)}`,
     ]

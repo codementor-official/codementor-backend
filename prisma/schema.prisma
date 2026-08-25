@@ -408,23 +408,40 @@ model group_role_permissions {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model learning_preferences {
-  user_id                   String            @id @db.Uuid
-  learning_goal             String?
-  career_goal               String?
-  current_level             current_level?
-  content_priority          content_priority?
-  weekly_study_hours        Int?
-  interested_fields         roadmap_field[]   @default([])
-  preferred_learning_styles learning_style[]  @default([])
-  reminders_enabled         Boolean           @default(true)
-  reminder_time             DateTime?         @db.Time(6)
-  adaptive_recommendations  Boolean           @default(true)
-  completed_at              DateTime?         @db.Timestamptz(6)
-  created_at                DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime          @default(now()) @db.Timestamptz(6)
-  users                     users             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_id                    String            @id @db.Uuid
+  learning_goal              String?
+  career_goal                String?
+  current_level              current_level?
+  content_priority           content_priority?
+  weekly_study_hours         Int?
+  interested_fields          roadmap_field[]   @default([])
+  interested_technologies    String[]          @default([])
+  preferred_learning_styles  learning_style[]  @default([])
+  preferred_learning_formats String[]          @default([])
+  reminders_enabled          Boolean           @default(true)
+  reminder_time              DateTime?         @db.Time(6)
+  adaptive_recommendations   Boolean           @default(true)
+  completed_at               DateTime?         @db.Timestamptz(6)
+  created_at                 DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime          @default(now()) @db.Timestamptz(6)
+  users                      users             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([interested_fields], map: "idx_learning_preferences_fields", type: Gin)
+}
+
+model user_settings {
+  user_id                 String   @id @db.Uuid
+  email_notifications     Boolean  @default(true)
+  workspace_notifications Boolean  @default(true)
+  learning_reminders      Boolean  @default(true)
+  weekly_digest           Boolean  @default(true)
+  public_profile          Boolean  @default(false)
+  show_learning_progress  Boolean  @default(true)
+  allow_workspace_invites Boolean  @default(true)
+  theme                   String   @default("system")
+  created_at              DateTime @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime @default(now()) @db.Timestamptz(6)
+  users                   users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -796,6 +813,7 @@ model users {
   group_exercises                                    group_exercises[]
   group_members                                      group_members[]
   learning_preferences                               learning_preferences?
+  user_settings                                      user_settings?
   lesson_progress                                    lesson_progress[]
   roadmap_enrollments                                roadmap_enrollments[]
   roadmaps                                           roadmaps[]

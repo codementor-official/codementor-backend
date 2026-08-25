@@ -7,6 +7,7 @@ import {
   LoggingModule,
   MongoModule,
   PrismaModule,
+  StorageModule,
 } from '@codementor/platform';
 import { MessagingModule } from '@codementor/messaging';
 import { IdentityModule } from './contexts/identity/identity.module';
@@ -28,6 +29,7 @@ import { CatalogModule } from './contexts/catalog/catalog.module';
     ConfigModule,
     LoggingModule,
     PrismaModule,
+    StorageModule,
     MongoModule,
     MessagingModule.forRoot({ serviceName: 'core-service' }),
     HttpModule,

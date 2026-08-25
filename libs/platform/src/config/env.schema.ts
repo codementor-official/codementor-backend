@@ -74,6 +74,7 @@ export const envSchema = z.object({
   /** Thư mục gốc của video trong bucket. Khoá đối tượng = prefix này + đường của bài. */
   AWS_S3_VIDEO_PREFIX: z.string().default('public/videos'),
   AWS_S3_DOCUMENT_PREFIX: z.string().default('public/workspace-documents'),
+  AWS_S3_IMAGE_PREFIX: z.string().default('public/images'),
   /** Đường ĐỌC lại. Bỏ trống = suy từ bucket/region; điền khi có CDN đứng trước. */
   AWS_S3_PUBLIC_URL: z.string().url().optional(),
   /** Hạn của một URL ký sẵn, tính bằng giây. Đủ lâu để tải xong, đủ ngắn để không thành
@@ -89,6 +90,7 @@ export const envSchema = z.object({
   /** Trần dung lượng một video, tính bằng MB. Chặn ở cả hai đầu client và server. */
   VIDEO_MAX_UPLOAD_MB: z.coerce.number().int().positive().default(500),
   DOCUMENT_MAX_UPLOAD_MB: z.coerce.number().int().positive().default(20),
+  IMAGE_MAX_UPLOAD_MB: z.coerce.number().int().positive().default(5),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -1,18 +1,18 @@
-import { Body, Controller, Get, Patch } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiProperty, ApiResponse, ApiTags } from '@nestjs/swagger';
-import {
-  IsIn,
-  IsOptional,
-  IsString,
-  MaxLength,
-  MinLength,
-  ValidateIf,
-} from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
 import { CurrentUser, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { GetProfileUseCase } from '../application/get-profile.usecase';
 import { UpdateProfileUseCase } from '../application/update-profile.usecase';
+import { AccountPreferencesService } from '../application/account-preferences.service';
+import { PresignAvatarUploadUseCase } from '../application/presign-avatar-upload.usecase';
 import { UserResponse } from './dto/user.response';
+import {
+  AvatarUploadDto,
+  UpdatePreferencesDto,
+  UpdateSettingsDto,
+} from './dto/account-preferences.dto';
 
 /**
  * Chỉ cho phép các múi giờ Việt Nam đang dùng. Danh sách IANA đầy đủ là 400+ giá trị
@@ -94,6 +94,8 @@ export class IdentityController {
   constructor(
     private readonly getProfile: GetProfileUseCase,
     private readonly updateProfile: UpdateProfileUseCase,
+    private readonly accountPreferences: AccountPreferencesService,
+    private readonly presignAvatarUpload: PresignAvatarUploadUseCase,
   ) {}
 
   @Get()
@@ -112,5 +114,47 @@ export class IdentityController {
     @Body() dto: UpdateProfileDto,
   ): Promise<UserResponse> {
     return this.updateProfile.execute(requireHumanId(user), dto);
+  }
+
+  @Post('avatar/upload-url')
+  @ApiOperation({ summary: 'Tạo URL S3 tạm thời để tải ảnh đại diện lên' })
+  avatarUploadUrl(@CurrentUser() user: AuthenticatedUser, @Body() dto: AvatarUploadDto) {
+    return this.presignAvatarUpload.execute(requireHumanId(user), dto);
+  }
+
+  @Get('settings')
+  @ApiOperation({ summary: 'Cài đặt của tài khoản đang đăng nhập' })
+  settings(@CurrentUser() user: AuthenticatedUser) {
+    return this.accountPreferences.getSettings(requireHumanId(user));
+  }
+
+  @Patch('settings')
+  @ApiOperation({ summary: 'Cập nhật cài đặt của tài khoản đang đăng nhập' })
+  updateSettings(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateSettingsDto) {
+    return this.accountPreferences.updateSettings(requireHumanId(user), dto);
+  }
+
+  @Delete('settings')
+  @ApiOperation({ summary: 'Đặt lại cài đặt về mặc định' })
+  resetSettings(@CurrentUser() user: AuthenticatedUser) {
+    return this.accountPreferences.resetSettings(requireHumanId(user));
+  }
+
+  @Get('preferences')
+  @ApiOperation({ summary: 'Cấu hình cá nhân hoá của tài khoản đang đăng nhập' })
+  preferences(@CurrentUser() user: AuthenticatedUser) {
+    return this.accountPreferences.getPreferences(requireHumanId(user));
+  }
+
+  @Patch('preferences')
+  @ApiOperation({ summary: 'Lưu cấu hình cá nhân hoá, chưa kích hoạt recommendation engine' })
+  updatePreferences(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdatePreferencesDto) {
+    return this.accountPreferences.updatePreferences(requireHumanId(user), dto);
+  }
+
+  @Get('stats')
+  @ApiOperation({ summary: 'Thống kê học tập đã lưu của tài khoản đang đăng nhập' })
+  stats(@CurrentUser() user: AuthenticatedUser) {
+    return this.accountPreferences.getStats(requireHumanId(user));
   }
 }
