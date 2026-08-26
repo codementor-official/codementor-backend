@@ -16,6 +16,8 @@ export interface ExerciseView {
   timeLimitMs: number;
   memoryLimitKb: number;
   authorId: string | null;
+  /** Id chủ đề; tên lấy từ `GET /tags` bên core-service, không lặp lại ở đây. */
+  tagIds: string[];
   forkedFromId: string | null;
   rejectionReason: string | null;
   removalRequested: boolean;
@@ -40,6 +42,7 @@ export function toExerciseView(exercise: Exercise, content?: ExerciseContent | n
     timeLimitMs: exercise.timeLimitMs,
     memoryLimitKb: exercise.memoryLimitKb,
     authorId: exercise.authorId,
+    tagIds: exercise.tagIds,
     forkedFromId: exercise.forkedFromId,
     rejectionReason: exercise.rejectionReason,
     removalRequested: exercise.removalRequested,

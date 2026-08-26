@@ -9,6 +9,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -114,6 +115,15 @@ export class UpdateExerciseDto {
   @Min(1024)
   @Max(4_194_304)
   memoryLimitKb?: number;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Thay TOÀN BỘ danh sách chủ đề. Mảng rỗng gỡ hết; vắng mặt giữ nguyên.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  tagIds?: string[];
 }
 
 // Các lớp dưới đây phải khớp CHÍNH XÁC validator của collection `exercise_contents`:

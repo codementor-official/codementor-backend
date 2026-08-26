@@ -30,6 +30,7 @@ interface ExerciseRow {
   memory_limit_kb: number;
   author_id: string | null;
   content_ref: string | null;
+  tag_ids: string[] | null;
   forked_from_id: string | null;
   rejection_reason: string | null;
   published_at: Date | null;
@@ -43,10 +44,15 @@ export class PrismaExerciseRepository implements ExerciseRepository {
 
   async findById(id: string): Promise<Exercise | null> {
     const rows = await this.prisma.$queryRaw<ExerciseRow[]>`
-      SELECT id, slug, title, summary, kind::text, difficulty::text, status::text,
-             visibility::text, xp_reward, estimated_minutes, time_limit_ms, memory_limit_kb,
-             author_id, content_ref, forked_from_id, rejection_reason, published_at, updated_at
-      FROM exercises WHERE id = ${id}::uuid LIMIT 1`;
+      SELECT e.id, e.slug, e.title, e.summary, e.kind::text, e.difficulty::text, e.status::text,
+             e.visibility::text, e.xp_reward, e.estimated_minutes, e.time_limit_ms,
+             e.memory_limit_kb, e.author_id, e.content_ref, e.forked_from_id, e.rejection_reason,
+             e.published_at, e.updated_at,
+             COALESCE(
+               (SELECT array_agg(et.tag_id::text ORDER BY et.tag_id)
+                FROM exercise_tags et WHERE et.exercise_id = e.id),
+               '{}') AS tag_ids
+      FROM exercises e WHERE e.id = ${id}::uuid LIMIT 1`;
     return rows[0] ? this.toDomain(rows[0]) : null;
   }
 
@@ -114,7 +120,11 @@ export class PrismaExerciseRepository implements ExerciseRepository {
 
   async save(exercise: Exercise): Promise<void> {
     try {
-      await this.prisma.$executeRaw`
+      // Một giao dịch: bài và chủ đề của nó phải cùng sống hoặc cùng chết. Lưu bài xong
+      // mà chèn chủ đề hỏng thì bản ghi còn lại mang danh sách chủ đề của lần lưu TRƯỚC,
+      // và không ai nhìn màn hình biết được điều đó.
+      await this.prisma.$transaction([
+        this.prisma.$executeRaw`
         INSERT INTO exercises (id, slug, title, summary, kind, difficulty, status, visibility,
                                xp_reward, estimated_minutes, time_limit_ms, memory_limit_kb,
                                author_id, content_ref, forked_from_id, rejection_reason, published_at)
@@ -139,7 +149,17 @@ export class PrismaExerciseRepository implements ExerciseRepository {
           content_ref       = EXCLUDED.content_ref,
           rejection_reason  = EXCLUDED.rejection_reason,
           published_at      = EXCLUDED.published_at,
-          updated_at        = now()`;
+          updated_at        = now()`,
+        this.prisma.$executeRaw`
+          DELETE FROM exercise_tags
+          WHERE exercise_id = ${exercise.id}::uuid
+            AND tag_id <> ALL (${exercise.tagIds}::uuid[])`,
+        this.prisma.$executeRaw`
+          INSERT INTO exercise_tags (exercise_id, tag_id)
+          SELECT ${exercise.id}::uuid, tag_id
+          FROM unnest(${exercise.tagIds}::uuid[]) AS tag_id
+          ON CONFLICT DO NOTHING`,
+      ]);
     } catch (error) {
       throw mapDatabaseError(error) ?? error;
     }
@@ -182,6 +202,7 @@ export class PrismaExerciseRepository implements ExerciseRepository {
       memoryLimitKb: row.memory_limit_kb,
       authorId: row.author_id,
       contentRef: row.content_ref,
+      tagIds: row.tag_ids ?? [],
       forkedFromId: row.forked_from_id,
       rejectionReason: row.rejection_reason,
       publishedAt: row.published_at,
