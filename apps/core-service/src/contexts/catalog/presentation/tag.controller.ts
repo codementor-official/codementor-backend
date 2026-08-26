@@ -1,11 +1,39 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { PrismaService } from '@codementor/platform';
+import { Body, Controller, Get, Post } from '@nestjs/common';
+import { IsString, MaxLength, MinLength } from 'class-validator';
+import { ApiBearerAuth, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
+import { InvalidInput } from '@codementor/kernel';
+import { PrismaService, Roles } from '@codementor/platform';
 
 interface TagRow {
   id: string;
   slug: string;
   name: string;
+}
+
+class CreateTagDto {
+  @ApiProperty({ example: 'Quy hoạch động' })
+  @IsString()
+  @MinLength(2)
+  @MaxLength(60)
+  name!: string;
+}
+
+/**
+ * Slug sinh từ tên, bỏ dấu trước khi lọc ký tự — không bỏ thì "Đệ quy" rụng còn "quy".
+ *
+ * Bản rút gọn của `Slug.fromTitle` bên exercise-service. Không import qua: đó là value
+ * object của một aggregate ở service khác, và `docs/02-service-architecture.md §5` cấm
+ * apps kéo code của nhau.
+ */
+function slugify(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/gi, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 70);
 }
 
 /**
@@ -30,5 +58,29 @@ export class TagController {
   list(): Promise<TagRow[]> {
     return this.prisma.$queryRaw<TagRow[]>`
       SELECT id, slug, name FROM tags ORDER BY name`;
+  }
+
+  /**
+   * Thêm chủ đề mới.
+   *
+   * Trùng slug thì TRẢ VỀ cái đã có thay vì 409: người soạn gõ "Đệ quy" không cần biết
+   * ai đó đã tạo nó trước, họ chỉ cần gắn được chủ đề đó vào bài. Không có đường sửa hay
+   * xoá — từ vựng dùng chung mà ai cũng đổi tên được thì mọi thứ đã gắn đều lệch nghĩa.
+   */
+  @Post()
+  @Roles('admin', 'lecturer')
+  @ApiOperation({ summary: 'Thêm chủ đề; trùng tên thì trả về chủ đề đã có' })
+  async create(@Body() dto: CreateTagDto): Promise<TagRow> {
+    const name = dto.name.trim();
+    const slug = slugify(name);
+    if (slug.length < 2) {
+      throw new InvalidInput('Tên chủ đề phải có ít nhất hai ký tự chữ hoặc số', { name });
+    }
+
+    const rows = await this.prisma.$queryRaw<TagRow[]>`
+      INSERT INTO tags (slug, name) VALUES (${slug}::citext, ${name})
+      ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug
+      RETURNING id, slug, name`;
+    return rows[0];
   }
 }
