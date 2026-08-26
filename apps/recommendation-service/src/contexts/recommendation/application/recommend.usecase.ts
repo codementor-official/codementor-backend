@@ -59,30 +59,15 @@ export class RecommendUseCase {
   ) {}
 
   roadmaps(userId: string, limit: number): Promise<RecommendationList> {
-    return this.rank(
-      userId,
-      limit,
-      (id, excludeSeen) => this.candidates.listRoadmaps(id, excludeSeen),
-      true,
-    );
+    return this.rank(userId, limit, (id, seen) => this.candidates.listRoadmaps(id, seen));
   }
 
   courses(userId: string, limit: number): Promise<RecommendationList> {
-    return this.rank(
-      userId,
-      limit,
-      (id, excludeSeen) => this.candidates.listCourses(id, excludeSeen),
-      true,
-    );
+    return this.rank(userId, limit, (id, seen) => this.candidates.listCourses(id, seen));
   }
 
   exercises(userId: string, limit: number): Promise<RecommendationList> {
-    return this.rank(
-      userId,
-      limit,
-      (id, excludeSeen) => this.candidates.listExercises(id, excludeSeen),
-      true,
-    );
+    return this.rank(userId, limit, (id, seen) => this.candidates.listExercises(id, seen));
   }
 
   /**
@@ -129,16 +114,13 @@ export class RecommendUseCase {
     userId: string,
     limit: number,
     load: (userId: string, excludeSeen: boolean) => Promise<Candidate[]>,
-    /**
-     * Đếm chủ đề học viên đã đụng tới. Cả ba loại đều dùng: lộ trình và khóa học không tự
-     * gắn đủ chủ đề, nhưng gom được chủ đề của thứ nằm bên trong chúng.
-     */
-    withAffinity = false,
   ): Promise<RecommendationList> {
+    // Cả ba loại đều chấm theo chủ đề: lộ trình và khóa học ít khi tự gắn đủ, nhưng gom
+    // được chủ đề của thứ nằm bên trong chúng.
     const [fresh, preferences, affinity] = await Promise.all([
       load(userId, true),
       this.candidates.findPreferences(userId),
-      withAffinity ? this.tagAffinity(userId) : Promise.resolve<TagAffinityMap>(new Map()),
+      this.tagAffinity(userId),
     ]);
     const pool = fresh.length > 0 ? fresh : await load(userId, false);
     return {

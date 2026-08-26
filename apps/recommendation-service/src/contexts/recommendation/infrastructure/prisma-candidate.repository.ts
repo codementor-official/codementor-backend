@@ -29,18 +29,15 @@ interface PreferencesRow {
  * Trần ứng viên mỗi lần truy vấn. Chấm điểm chạy trong bộ nhớ nên phải có trần; 200 là
  * thừa sức cho catalog cỡ khóa luận mà vẫn là một truy vấn có index, không phải quét bảng.
  *
+ * Trần phải đi kèm THỨ TỰ — mỗi truy vấn bên dưới sắp `"popularityRaw" DESC, id` ngay
+ * trước `LIMIT`. Không có nó, Postgres cắt 200 dòng tuỳ ý: catalog vượt trần thì mỗi lần
+ * gọi lấy một tập ứng viên khác nhau và đề xuất nhảy loạn không lý do. `id` là chốt cuối
+ * vì rất nhiều dòng cùng độ phổ biến bằng 0 — một mình popularity không phải thứ tự toàn phần.
+ *
  * ponytail: khi catalog vượt quá con số này, cắt trước bằng lĩnh vực/trình độ trong SQL
  * (chỉ lấy ứng viên có `field` nằm trong `interested_fields`) rồi mới chấm điểm phần còn lại.
  */
 const CANDIDATE_LIMIT = 200;
-
-/*
- * Trần phải đi kèm thứ tự — mỗi truy vấn bên dưới có `ORDER BY "popularityRaw" DESC, id`
- * ngay trước `LIMIT`. Không có nó, Postgres cắt 200 dòng TÙY Ý: catalog vượt trần thì mỗi
- * lần gọi lấy một tập ứng viên khác nhau và đề xuất nhảy loạn không lý do. Lấy phần phổ
- * biến nhất — cũng là phần nhiều khả năng trụ lại sau khi chấm điểm. `id` là chốt cuối để
- * hai ứng viên cùng độ phổ biến (rất thường gặp: cả hai bằng 0) vẫn ra cùng thứ tự.
- */
 
 function toCandidate(row: CandidateRow, kind: Candidate['kind']): Candidate {
   return {
