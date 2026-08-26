@@ -26,6 +26,7 @@ function repositoryWithNothingFresh(calls: boolean[]): CandidateRepository {
   return {
     findPreferences: async () => null,
     findTagAffinity: async () => [],
+    findExerciseTags: async () => [],
     listRoadmaps: list,
     listCourses: list,
     listExercises: list,
@@ -48,6 +49,7 @@ describe('RecommendUseCase', () => {
     const repository: CandidateRepository = {
       findPreferences: async () => null,
       findTagAffinity: async () => [],
+      findExerciseTags: async () => [],
       listRoadmaps: async () => [],
       listCourses: async (_userId, excludeSeen) => {
         calls.push(excludeSeen);

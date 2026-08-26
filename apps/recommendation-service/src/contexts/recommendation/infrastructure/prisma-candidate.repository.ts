@@ -185,4 +185,13 @@ export class PrismaCandidateRepository implements CandidateRepository {
       WHERE ep.user_id = ${userId}::uuid
       GROUP BY tg.name`;
   }
+
+  async findExerciseTags(exerciseId: string): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ tag: string }[]>`
+      SELECT tg.name AS tag
+      FROM exercise_tags ext
+      JOIN tags tg ON tg.id = ext.tag_id
+      WHERE ext.exercise_id = ${exerciseId}::uuid`;
+    return rows.map((row) => row.tag);
+  }
 }

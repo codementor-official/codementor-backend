@@ -185,6 +185,27 @@ export function normalizePopularity(candidates: Candidate[]): Map<string, number
 }
 
 /**
+ * Gộp chủ đề của bài VỪA nộp đạt vào bản đồ đã đọc từ CSDL.
+ *
+ * `exercise_progress` cập nhật qua sự kiện, không đồng bộ với response, nên lúc hộp thoại
+ * chúc mừng hỏi bài kế tiếp thì bài vừa xong vẫn đang là "chưa đụng tới". Không gộp thì
+ * gợi ý ngay sau đó nhìn ngược đời: chủ đề vừa chinh phục xong lại được chào là "bạn còn
+ * dở dang". Đếm nó như một lần giải được — đúng chuyện vừa xảy ra.
+ */
+export function withJustSolved(affinity: TagAffinityMap, tags: string[]): TagAffinityMap {
+  if (tags.length === 0) return affinity;
+  const merged = new Map(affinity);
+  for (const tag of tags) {
+    const seen = merged.get(tag);
+    merged.set(tag, {
+      solved: (seen?.solved ?? 0) + 1,
+      attempted: seen?.attempted ?? 0,
+    });
+  }
+  return merged;
+}
+
+/**
  * Điểm khớp giữa một ứng viên và hồ sơ cá nhân hóa, kèm lý do hiện lên thẻ ngoài giao diện.
  *
  * `popularity` là giá trị đã chuẩn hóa 0..100 từ `normalizePopularity`.

@@ -27,6 +27,8 @@ export interface CandidateRepository {
    * và với mọi bài chưa được gắn chủ đề.
    */
   findTagAffinity(userId: string): Promise<TagAffinityRow[]>;
+  /** Chủ đề của MỘT bài, theo tên. Dùng cho bài vừa nộp đạt, xem `withJustSolved`. */
+  findExerciseTags(exerciseId: string): Promise<string[]>;
 }
 
 export const CANDIDATE_REPOSITORY = Symbol('CANDIDATE_REPOSITORY');

@@ -9,6 +9,7 @@ import {
   type Candidate,
   type ScoredItem,
   type TagAffinityMap,
+  withJustSolved,
 } from '../domain/model/scoring';
 
 /** Đúng những gì thẻ đề xuất ngoài giao diện cần — không trả cả hàng CSDL ra ngoài. */
@@ -80,27 +81,31 @@ export class RecommendUseCase {
   }
 
   /**
-   * Gợi ý một bài kế tiếp ngay sau khi nộp đạt. Cùng danh sách ứng viên và cùng luật xếp
-   * hạng, chỉ khác là bỏ chính bài vừa làm ra — bài đó chưa kịp có `exercise_progress`
-   * ở trạng thái `solved` lúc hộp thoại chúc mừng hiện lên, nên bộ lọc chung chưa loại nó.
+   * Gợi ý một bài kế tiếp ngay sau khi nộp đạt.
+   *
+   * Cùng luật xếp hạng, khác hai chỗ, cả hai vì `exercise_progress` chạy sau qua sự kiện
+   * nên lúc này CHƯA biết bài vừa xong đã được giải: phải tự bỏ bài đó khỏi danh sách, và
+   * phải tự cộng chủ đề của nó vào phần đã giải.
    */
   async nextExercise(userId: string, exerciseId: string): Promise<RecommendationList> {
-    const [candidates, preferences, affinity] = await Promise.all([
+    const [candidates, preferences, affinity, justSolvedTags] = await Promise.all([
       this.candidates.listExercises(userId, true),
       this.candidates.findPreferences(userId),
       this.tagAffinity(userId),
+      this.candidates.findExerciseTags(exerciseId),
     ]);
     const pool = candidates.filter((c) => c.id !== exerciseId);
     return {
       personalized: isPersonalized(preferences),
-      items: rankCandidates(pool, preferences, { affinity }).slice(0, 1).map(toItem),
+      items: rankCandidates(pool, preferences, {
+        affinity: withJustSolved(affinity, justSolvedTags),
+      })
+        .slice(0, 1)
+        .map(toItem),
     };
   }
 
-  /**
-   * Chủ đề học viên đã giải / còn mắc. Bài vừa nộp đạt CHƯA nằm trong đây khi hộp thoại
-   * chúc mừng gọi tới: `exercise_progress` cập nhật qua sự kiện, không đồng bộ với response.
-   */
+  /** Chủ đề học viên đã giải / còn mắc, đọc từ trạng thái đã lưu. */
   private async tagAffinity(userId: string): Promise<TagAffinityMap> {
     const rows = await this.candidates.findTagAffinity(userId);
     return new Map(rows.map((row) => [row.tag, { solved: row.solved, attempted: row.attempted }]));

@@ -7,6 +7,7 @@ import {
   scoreCandidate,
   techKeys,
   titleTechMatch,
+  withJustSolved,
 } from './scoring';
 
 function candidate(overrides: Partial<Candidate> = {}): Candidate {
@@ -249,5 +250,42 @@ describe('scoreCandidate — chủ đề theo hành vi', () => {
 
     expect(score).toBe(0);
     expect(reasons).toEqual([POPULAR_REASON]);
+  });
+});
+
+describe('withJustSolved', () => {
+  it('đếm bài vừa nộp đạt như một lần giải được, dù CSDL chưa kịp biết', () => {
+    const merged = withJustSolved(new Map(), ['Đồ thị']);
+
+    expect(merged.get('Đồ thị')).toEqual({ solved: 1, attempted: 0 });
+  });
+
+  it('chủ đề vừa chinh phục thôi không còn bị chào là dở dang', () => {
+    const before = new Map([['Đồ thị', { solved: 0, attempted: 2 }]]);
+    const item = candidate({ kind: 'exercise', field: null, level: null, tags: ['Đồ thị'] });
+    const preferences = {
+      currentLevel: null,
+      careerGoal: null,
+      contentPriority: null,
+      interestedFields: [],
+      interestedTechnologies: [],
+      adaptiveRecommendations: true,
+      completed: true,
+    };
+
+    expect(scoreCandidate(item, preferences, 0, { affinity: before }).reasons).toEqual([
+      'Bạn còn dở dang ở chủ đề Đồ thị',
+    ]);
+    expect(
+      scoreCandidate(item, preferences, 0, { affinity: withJustSolved(before, ['Đồ thị']) })
+        .reasons,
+    ).toEqual(['Cùng chủ đề Đồ thị bạn đang luyện']);
+  });
+
+  it('không đụng tới bản đồ gốc', () => {
+    const before = new Map([['Mảng', { solved: 1, attempted: 0 }]]);
+    withJustSolved(before, ['Mảng']);
+
+    expect(before.get('Mảng')).toEqual({ solved: 1, attempted: 0 });
   });
 });
