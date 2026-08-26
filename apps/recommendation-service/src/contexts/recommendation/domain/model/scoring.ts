@@ -13,6 +13,11 @@ export type ItemKind = 'roadmap' | 'course' | 'exercise';
 /** Cấu hình được — chỉnh mà không phải đụng vào phần logic cộng điểm. */
 export const RECOMMENDATION_WEIGHTS = {
   field: 34,
+  /**
+   * Chủ đề đứng trên công nghệ và trình độ: nó đến từ việc học viên đã LÀM gì, còn hai cái
+   * kia là thứ họ khai một lần lúc onboarding rồi hiếm khi ngó lại.
+   */
+  topic: 22,
   level: 20,
   technology: 20,
   careerGoal: 14,
@@ -36,6 +41,22 @@ export interface LearnerPreferences {
   completed: boolean;
 }
 
+/** Dấu vết học viên để lại trên một chủ đề, đếm từ `exercise_progress`. */
+export interface TagAffinity {
+  /** Số bài mang chủ đề này đã giải xong. */
+  solved: number;
+  /** Đã mở ra thử mà chưa giải được bài nào. */
+  attempted: number;
+}
+
+/** Khóa là TÊN chủ đề — cùng từ vựng với `Candidate.tags`, và hiện thẳng lên thẻ được. */
+export type TagAffinityMap = ReadonlyMap<string, TagAffinity>;
+
+export interface ScoringOptions {
+  weights?: Weights;
+  affinity?: TagAffinityMap;
+}
+
 export interface Candidate {
   id: string;
   slug: string;
@@ -52,6 +73,8 @@ export interface Candidate {
    * dòng nào, xem `titleTechMatch` để biết chỗ này bù bằng gì.
    */
   technologies: string[];
+  /** Tên chủ đề (`exercise_tags`). Chỉ bài tập có; lộ trình và khóa học không gắn chủ đề. */
+  tags: string[];
   /**
    * Tín hiệu phổ biến THÔ, mỗi loại một đơn vị khác nhau (số người ghi danh, số người
    * giải được). Chuẩn hóa về 0..100 bằng `normalizePopularity` trước khi chấm điểm.
@@ -93,6 +116,8 @@ const CAREER_GOAL_KEYWORDS: Record<string, string> = {
 };
 
 export const POPULAR_REASON = 'Phổ biến trên hệ thống';
+
+const EMPTY_AFFINITY: TagAffinityMap = new Map();
 
 function levelDistance(a: string, b: string): number {
   return Math.abs(LEVEL_ORDER.indexOf(a) - LEVEL_ORDER.indexOf(b));
@@ -168,8 +193,10 @@ export function scoreCandidate(
   candidate: Candidate,
   preferences: LearnerPreferences,
   popularity: number,
-  weights: Weights = RECOMMENDATION_WEIGHTS,
+  options: ScoringOptions = {},
 ): { score: number; reasons: string[] } {
+  const weights = options.weights ?? RECOMMENDATION_WEIGHTS;
+  const affinity = options.affinity ?? EMPTY_AFFINITY;
   let score = 0;
   const reasons: string[] = [];
 
@@ -222,6 +249,28 @@ export function scoreCandidate(
     }
   }
 
+  // Chủ đề đã đụng tới. Hai chiều, và chiều DỞ DANG thắng: một chủ đề học viên mở ra thử
+  // rồi bỏ dở là chỗ họ đang mắc, đáng gợi hơn chủ đề họ đã giải trôi chảy. Chỉ khi không
+  // có chủ đề dở dang nào thì mới gợi tiếp thứ họ đang luyện, và ăn ít điểm hơn — "cùng
+  // chủ đề" là lý do yếu hơn "bạn đang mắc ở đây".
+  if (candidate.tags.length > 0 && affinity.size > 0) {
+    const stuck = candidate.tags.find((tag) => {
+      const seen = affinity.get(tag);
+      return seen !== undefined && seen.attempted > 0 && seen.solved === 0;
+    });
+
+    if (stuck) {
+      score += weights.topic;
+      reasons.push(`Bạn còn dở dang ở chủ đề ${stuck}`);
+    } else {
+      const familiar = candidate.tags.filter((tag) => (affinity.get(tag)?.solved ?? 0) > 0);
+      if (familiar.length > 0) {
+        score += weights.topic * 0.6 * (familiar.length / candidate.tags.length);
+        reasons.push(`Cùng chủ đề ${familiar[0]} bạn đang luyện`);
+      }
+    }
+  }
+
   const keyword = preferences.careerGoal
     ? CAREER_GOAL_KEYWORDS[preferences.careerGoal]
     : undefined;
@@ -253,7 +302,7 @@ export function scoreCandidate(
 export function rankCandidates(
   candidates: Candidate[],
   preferences: LearnerPreferences | null,
-  weights: Weights = RECOMMENDATION_WEIGHTS,
+  options: ScoringOptions = {},
 ): ScoredItem[] {
   const popularity = normalizePopularity(candidates);
   const personalized = preferences !== null && preferences.adaptiveRecommendations && preferences.completed;
@@ -262,7 +311,7 @@ export function rankCandidates(
     .map((candidate) => {
       const popular = popularity.get(candidate.id) ?? 0;
       const result = personalized
-        ? scoreCandidate(candidate, preferences, popular, weights)
+        ? scoreCandidate(candidate, preferences, popular, options)
         : { score: Math.round(popular), reasons: [POPULAR_REASON] };
       return { ...candidate, ...result };
     })

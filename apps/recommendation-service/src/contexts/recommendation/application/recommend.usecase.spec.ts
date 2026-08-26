@@ -12,6 +12,7 @@ function candidate(id: string): Candidate {
     level: 'basic',
     difficulty: null,
     technologies: [],
+    tags: [],
     popularityRaw: 10,
   };
 }
@@ -24,6 +25,7 @@ function repositoryWithNothingFresh(calls: boolean[]): CandidateRepository {
   };
   return {
     findPreferences: async () => null,
+    findTagAffinity: async () => [],
     listRoadmaps: list,
     listCourses: list,
     listExercises: list,
@@ -45,6 +47,7 @@ describe('RecommendUseCase', () => {
     const calls: boolean[] = [];
     const repository: CandidateRepository = {
       findPreferences: async () => null,
+      findTagAffinity: async () => [],
       listRoadmaps: async () => [],
       listCourses: async (_userId, excludeSeen) => {
         calls.push(excludeSeen);

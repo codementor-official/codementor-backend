@@ -3,7 +3,13 @@ import {
   CANDIDATE_REPOSITORY,
   type CandidateRepository,
 } from '../domain/port/candidate.repository';
-import { isPersonalized, rankCandidates, type Candidate, type ScoredItem } from '../domain/model/scoring';
+import {
+  isPersonalized,
+  rankCandidates,
+  type Candidate,
+  type ScoredItem,
+  type TagAffinityMap,
+} from '../domain/model/scoring';
 
 /** Đúng những gì thẻ đề xuất ngoài giao diện cần — không trả cả hàng CSDL ra ngoài. */
 export interface RecommendedItem {
@@ -64,8 +70,12 @@ export class RecommendUseCase {
   }
 
   exercises(userId: string, limit: number): Promise<RecommendationList> {
-    return this.rank(userId, limit, (id, excludeSeen) =>
-      this.candidates.listExercises(id, excludeSeen),
+    return this.rank(
+      userId,
+      limit,
+      (id, excludeSeen) => this.candidates.listExercises(id, excludeSeen),
+      // Chỉ bài tập mới có chủ đề, nên chỉ ở đây mới bỏ công đếm chủ đề đã đụng tới.
+      true,
     );
   }
 
@@ -75,14 +85,25 @@ export class RecommendUseCase {
    * ở trạng thái `solved` lúc hộp thoại chúc mừng hiện lên, nên bộ lọc chung chưa loại nó.
    */
   async nextExercise(userId: string, exerciseId: string): Promise<RecommendationList> {
-    const pool = (await this.candidates.listExercises(userId, true)).filter(
-      (c) => c.id !== exerciseId,
-    );
-    const preferences = await this.candidates.findPreferences(userId);
+    const [candidates, preferences, affinity] = await Promise.all([
+      this.candidates.listExercises(userId, true),
+      this.candidates.findPreferences(userId),
+      this.tagAffinity(userId),
+    ]);
+    const pool = candidates.filter((c) => c.id !== exerciseId);
     return {
       personalized: isPersonalized(preferences),
-      items: rankCandidates(pool, preferences).slice(0, 1).map(toItem),
+      items: rankCandidates(pool, preferences, { affinity }).slice(0, 1).map(toItem),
     };
+  }
+
+  /**
+   * Chủ đề học viên đã giải / còn mắc. Bài vừa nộp đạt CHƯA nằm trong đây khi hộp thoại
+   * chúc mừng gọi tới: `exercise_progress` cập nhật qua sự kiện, không đồng bộ với response.
+   */
+  private async tagAffinity(userId: string): Promise<TagAffinityMap> {
+    const rows = await this.candidates.findTagAffinity(userId);
+    return new Map(rows.map((row) => [row.tag, { solved: row.solved, attempted: row.attempted }]));
   }
 
   /**
@@ -98,15 +119,17 @@ export class RecommendUseCase {
     userId: string,
     limit: number,
     load: (userId: string, excludeSeen: boolean) => Promise<Candidate[]>,
+    withAffinity = false,
   ): Promise<RecommendationList> {
-    const [fresh, preferences] = await Promise.all([
+    const [fresh, preferences, affinity] = await Promise.all([
       load(userId, true),
       this.candidates.findPreferences(userId),
+      withAffinity ? this.tagAffinity(userId) : Promise.resolve<TagAffinityMap>(new Map()),
     ]);
     const pool = fresh.length > 0 ? fresh : await load(userId, false);
     return {
       personalized: isPersonalized(preferences),
-      items: rankCandidates(pool, preferences).slice(0, limit).map(toItem),
+      items: rankCandidates(pool, preferences, { affinity }).slice(0, limit).map(toItem),
     };
   }
 }

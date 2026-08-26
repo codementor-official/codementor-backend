@@ -19,6 +19,7 @@ function candidate(overrides: Partial<Candidate> = {}): Candidate {
     level: 'intermediate',
     difficulty: null,
     technologies: ['nodejs'],
+    tags: [],
     popularityRaw: 0,
     ...overrides,
   };
@@ -184,6 +185,69 @@ describe('scoreCandidate — khớp công nghệ qua tiêu đề', () => {
     const item = candidate({ title: 'Nhập môn Node.js', technologies: ['react'], popularityRaw: 0 });
     const { reasons } = scoreCandidate(item, preferences, 0);
 
+    expect(reasons).toEqual([POPULAR_REASON]);
+  });
+});
+
+describe('scoreCandidate — chủ đề theo hành vi', () => {
+  const neutral = {
+    currentLevel: null,
+    careerGoal: null,
+    contentPriority: null,
+    interestedFields: [],
+    interestedTechnologies: [],
+    adaptiveRecommendations: true,
+    completed: true,
+  };
+
+  const affinity = new Map([
+    ['Đồ thị', { solved: 0, attempted: 3 }],
+    ['Mảng', { solved: 4, attempted: 0 }],
+  ]);
+
+  it('cộng đủ trọng số cho chủ đề còn dở dang', () => {
+    const item = candidate({ kind: 'exercise', field: null, level: null, tags: ['Đồ thị'] });
+    const { score, reasons } = scoreCandidate(item, neutral, 0, { affinity });
+
+    expect(score).toBe(22);
+    expect(reasons).toEqual(['Bạn còn dở dang ở chủ đề Đồ thị']);
+  });
+
+  it('chủ đề đã giải được cộng ít hơn chủ đề còn mắc', () => {
+    const stuck = scoreCandidate(
+      candidate({ kind: 'exercise', field: null, level: null, tags: ['Đồ thị'] }),
+      neutral,
+      0,
+      { affinity },
+    );
+    const familiar = scoreCandidate(
+      candidate({ kind: 'exercise', field: null, level: null, tags: ['Mảng'] }),
+      neutral,
+      0,
+      { affinity },
+    );
+
+    expect(familiar.score).toBeGreaterThan(0);
+    expect(familiar.score).toBeLessThan(stuck.score);
+    expect(familiar.reasons).toEqual(['Cùng chủ đề Mảng bạn đang luyện']);
+  });
+
+  it('một chủ đề còn mắc thắng cả những chủ đề đã giải trên cùng bài', () => {
+    const { reasons } = scoreCandidate(
+      candidate({ kind: 'exercise', field: null, level: null, tags: ['Mảng', 'Đồ thị'] }),
+      neutral,
+      0,
+      { affinity },
+    );
+
+    expect(reasons).toEqual(['Bạn còn dở dang ở chủ đề Đồ thị']);
+  });
+
+  it('học viên chưa làm bài nào thì chủ đề không đổi gì', () => {
+    const item = candidate({ kind: 'exercise', field: null, level: null, tags: ['Đồ thị'] });
+    const { score, reasons } = scoreCandidate(item, neutral, 0);
+
+    expect(score).toBe(0);
     expect(reasons).toEqual([POPULAR_REASON]);
   });
 });

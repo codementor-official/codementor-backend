@@ -1,5 +1,12 @@
 import type { Candidate, LearnerPreferences } from '../model/scoring';
 
+/** Một chủ đề học viên đã đụng tới, đếm trên `exercise_progress`. */
+export interface TagAffinityRow {
+  tag: string;
+  solved: number;
+  attempted: number;
+}
+
 /**
  * Nguồn ứng viên để chấm điểm. Là một cổng riêng chứ không gọi Prisma thẳng trong use case
  * vì đây là chỗ DUY NHẤT chạm vào bảng của service khác — đổi sang đọc qua view hay qua
@@ -15,6 +22,11 @@ export interface CandidateRepository {
   listRoadmaps(userId: string, excludeSeen: boolean): Promise<Candidate[]>;
   listCourses(userId: string, excludeSeen: boolean): Promise<Candidate[]>;
   listExercises(userId: string, excludeSeen: boolean): Promise<Candidate[]>;
+  /**
+   * Chủ đề học viên đã giải / đã thử mà chưa giải được. Rỗng với người chưa làm bài nào,
+   * và với mọi bài chưa được gắn chủ đề.
+   */
+  findTagAffinity(userId: string): Promise<TagAffinityRow[]>;
 }
 
 export const CANDIDATE_REPOSITORY = Symbol('CANDIDATE_REPOSITORY');

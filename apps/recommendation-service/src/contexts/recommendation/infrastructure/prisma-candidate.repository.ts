@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@codementor/platform';
-import type { CandidateRepository } from '../domain/port/candidate.repository';
+import type { CandidateRepository, TagAffinityRow } from '../domain/port/candidate.repository';
 import type { Candidate, LearnerPreferences } from '../domain/model/scoring';
 
 interface CandidateRow {
@@ -11,6 +11,7 @@ interface CandidateRow {
   level: string | null;
   difficulty: string | null;
   technologies: string[] | null;
+  tags?: string[] | null;
   popularityRaw: number | null;
 }
 
@@ -51,6 +52,7 @@ function toCandidate(row: CandidateRow, kind: Candidate['kind']): Candidate {
     level: row.level,
     difficulty: row.difficulty,
     technologies: row.technologies ?? [],
+    tags: row.tags ?? [],
     popularityRaw: row.popularityRaw ?? 0,
   };
 }
@@ -149,10 +151,13 @@ export class PrismaCandidateRepository implements CandidateRepository {
       SELECT e.id::text AS id, e.slug, e.title,
              NULL::text AS field, NULL::text AS level, e.difficulty::text AS difficulty,
              e.solver_count AS "popularityRaw",
-             COALESCE(array_agg(DISTINCT t.slug) FILTER (WHERE t.slug IS NOT NULL), '{}') AS technologies
+             COALESCE(array_agg(DISTINCT t.slug) FILTER (WHERE t.slug IS NOT NULL), '{}') AS technologies,
+             COALESCE(array_agg(DISTINCT tg.name) FILTER (WHERE tg.name IS NOT NULL), '{}') AS tags
       FROM exercises e
       LEFT JOIN exercise_technologies et ON et.exercise_id = e.id
       LEFT JOIN technologies t ON t.id = et.technology_id
+      LEFT JOIN exercise_tags ext ON ext.exercise_id = e.id
+      LEFT JOIN tags tg ON tg.id = ext.tag_id
       WHERE e.status = 'published' AND e.visibility = 'public'
         AND (NOT ${excludeSeen}::boolean OR NOT EXISTS (
           SELECT 1 FROM exercise_progress mine
@@ -163,5 +168,21 @@ export class PrismaCandidateRepository implements CandidateRepository {
       LIMIT ${CANDIDATE_LIMIT}`;
 
     return rows.map((row) => toCandidate(row, 'exercise'));
+  }
+
+  /**
+   * Chủ đề đọc từ trạng thái mới nhất (`exercise_progress`), không từ chuỗi `submissions`:
+   * ở đây chỉ cần biết học viên đã qua hay còn mắc, không cần biết họ mắc từ lần thử nào.
+   */
+  async findTagAffinity(userId: string): Promise<TagAffinityRow[]> {
+    return this.prisma.$queryRaw<TagAffinityRow[]>`
+      SELECT tg.name AS tag,
+             count(*) FILTER (WHERE ep.status = 'solved')::int    AS solved,
+             count(*) FILTER (WHERE ep.status = 'attempted')::int AS attempted
+      FROM exercise_progress ep
+      JOIN exercise_tags ext ON ext.exercise_id = ep.exercise_id
+      JOIN tags tg ON tg.id = ext.tag_id
+      WHERE ep.user_id = ${userId}::uuid
+      GROUP BY tg.name`;
   }
 }
