@@ -62,18 +62,30 @@ export class RemoteIdentityProvisioning implements IdentityProvisioning {
     return user;
   }
 
+  private getMe(accessToken: string): Promise<Response> {
+    return fetch(`${this.coreUrl}/api/v1/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(5000),
+    });
+  }
+
   private async fetchProfile(accessToken: string) {
     let response: Response;
     try {
-      response = await fetch(`${this.coreUrl}/api/v1/me`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        signal: AbortSignal.timeout(5000),
-      });
-    } catch (cause) {
-      // Core chết thì đây là lỗi hạ tầng, không phải lỗi xác thực của người dùng —
-      // trả 401 sẽ khiến frontend đá họ ra màn đăng nhập một cách vô nghĩa.
-      this.logger.error(`Không gọi được core-service tại ${this.coreUrl}`, cause as Error);
-      throw new ServiceUnavailableException('Không phân giải được danh tính');
+      response = await this.getMe(accessToken);
+    } catch {
+      // Thử LẠI đúng một lần. Node giữ kết nối tới core mở giữa các request; core đóng nó
+      // sau vài giây rảnh, và request đầu tiên sau quãng nghỉ đó rơi vào cái socket vừa
+      // chết — đọc lại là hỏng ngay, dù core vẫn sống. Đây là GET không phụ tác, gọi lại
+      // an toàn: lượt thứ hai mở kết nối mới.
+      try {
+        response = await this.getMe(accessToken);
+      } catch (cause) {
+        // Core chết thì đây là lỗi hạ tầng, không phải lỗi xác thực của người dùng —
+        // trả 401 sẽ khiến frontend đá họ ra màn đăng nhập một cách vô nghĩa.
+        this.logger.error(`Không gọi được core-service tại ${this.coreUrl}`, cause as Error);
+        throw new ServiceUnavailableException('Không phân giải được danh tính');
+      }
     }
 
     if (response.status === 401 || response.status === 403) {
