@@ -104,7 +104,20 @@ export class PrismaCandidateRepository implements CandidateRepository {
              -- popularity_score hiện không có gì nuôi (không trigger, không service nào ghi),
              -- nên lấy số người ghi danh làm nền: cột kia chỉ còn tác dụng khi ai đó set tay.
              GREATEST(r.popularity_score, count(DISTINCT re.id)::int) AS "popularityRaw",
-             COALESCE(array_agg(DISTINCT t.slug) FILTER (WHERE t.slug IS NOT NULL), '{}') AS technologies
+             COALESCE(array_agg(DISTINCT t.slug) FILTER (WHERE t.slug IS NOT NULL), '{}') AS technologies,
+             -- Chủ đề của lộ trình = tác giả tự gắn HỢP với chủ đề của các khóa bên trong.
+             -- Gom lúc đọc chứ không lưu: thêm một khóa vào lộ trình là chủ đề đổi theo, và
+             -- một bản sao đã lưu thì lệch ngay từ lần sửa chương trình học đầu tiên.
+             COALESCE(
+               (SELECT array_agg(DISTINCT tg.name)
+                FROM tags tg
+                WHERE tg.id IN (
+                  SELECT rt.tag_id FROM roadmap_tags rt WHERE rt.roadmap_id = r.id
+                  UNION
+                  SELECT ct.tag_id FROM roadmap_courses rc
+                    JOIN course_tags ct ON ct.course_id = rc.course_id
+                  WHERE rc.roadmap_id = r.id)),
+               '{}') AS tags
       FROM roadmaps r
       LEFT JOIN roadmap_technologies rt ON rt.roadmap_id = r.id
       LEFT JOIN technologies t ON t.id = rt.technology_id
@@ -131,7 +144,18 @@ export class PrismaCandidateRepository implements CandidateRepository {
               ORDER BY rc.position LIMIT 1) AS field,
              c.level::text AS level, NULL::text AS difficulty,
              c.enrollment_count AS "popularityRaw",
-             COALESCE(array_agg(DISTINCT t.slug) FILTER (WHERE t.slug IS NOT NULL), '{}') AS technologies
+             COALESCE(array_agg(DISTINCT t.slug) FILTER (WHERE t.slug IS NOT NULL), '{}') AS technologies,
+             -- Chủ đề của khóa = tác giả tự gắn HỢP với chủ đề của bài tập trong các bài học.
+             COALESCE(
+               (SELECT array_agg(DISTINCT tg.name)
+                FROM tags tg
+                WHERE tg.id IN (
+                  SELECT ct.tag_id FROM course_tags ct WHERE ct.course_id = c.id
+                  UNION
+                  SELECT ext.tag_id FROM lessons l
+                    JOIN exercise_tags ext ON ext.exercise_id = l.exercise_id
+                  WHERE l.course_id = c.id)),
+               '{}') AS tags
       FROM courses c
       LEFT JOIN course_technologies ct ON ct.course_id = c.id
       LEFT JOIN technologies t ON t.id = ct.technology_id

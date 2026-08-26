@@ -59,14 +59,20 @@ export class RecommendUseCase {
   ) {}
 
   roadmaps(userId: string, limit: number): Promise<RecommendationList> {
-    return this.rank(userId, limit, (id, excludeSeen) =>
-      this.candidates.listRoadmaps(id, excludeSeen),
+    return this.rank(
+      userId,
+      limit,
+      (id, excludeSeen) => this.candidates.listRoadmaps(id, excludeSeen),
+      true,
     );
   }
 
   courses(userId: string, limit: number): Promise<RecommendationList> {
-    return this.rank(userId, limit, (id, excludeSeen) =>
-      this.candidates.listCourses(id, excludeSeen),
+    return this.rank(
+      userId,
+      limit,
+      (id, excludeSeen) => this.candidates.listCourses(id, excludeSeen),
+      true,
     );
   }
 
@@ -75,7 +81,6 @@ export class RecommendUseCase {
       userId,
       limit,
       (id, excludeSeen) => this.candidates.listExercises(id, excludeSeen),
-      // Chỉ bài tập mới có chủ đề, nên chỉ ở đây mới bỏ công đếm chủ đề đã đụng tới.
       true,
     );
   }
@@ -124,6 +129,10 @@ export class RecommendUseCase {
     userId: string,
     limit: number,
     load: (userId: string, excludeSeen: boolean) => Promise<Candidate[]>,
+    /**
+     * Đếm chủ đề học viên đã đụng tới. Cả ba loại đều dùng: lộ trình và khóa học không tự
+     * gắn đủ chủ đề, nhưng gom được chủ đề của thứ nằm bên trong chúng.
+     */
     withAffinity = false,
   ): Promise<RecommendationList> {
     const [fresh, preferences, affinity] = await Promise.all([

@@ -19,6 +19,8 @@ interface CourseProps {
   totalChapters: number;
   /** Do trigger `trg_lessons_curriculum_count` giữ. Chỉ đọc. */
   totalLessons: number;
+  /** Chủ đề tác giả tự gắn (`course_tags`). Chủ đề của bài tập bên trong KHÔNG nằm ở đây. */
+  tagIds: string[];
   updatedAt: Date;
 }
 
@@ -31,9 +33,14 @@ export interface CourseEdit {
   instructorId?: string | null;
   prerequisiteNote?: string | null;
   progressionMode?: ProgressionMode;
+  /** Thay TOÀN BỘ danh sách chủ đề. Mảng rỗng = gỡ hết, vắng mặt = giữ nguyên. */
+  tagIds?: string[];
 }
 
 const MAX_TITLE = 200;
+
+/** Cùng trần với bài tập: quá số này thì chủ đề hết còn phân biệt được gì. */
+const MAX_TAGS = 8;
 const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])$/;
 
 function checkImageUrl(raw: string): InvalidInput | null {
@@ -99,6 +106,7 @@ export class Course extends AggregateRoot<string> {
         // the dependency graph.
         progressionMode: 'linear',
         status: 'draft',
+        tagIds: [],
         createdBy: params.createdBy,
         rejectionReason: null,
         publishedAt: null,
@@ -153,6 +161,9 @@ export class Course extends AggregateRoot<string> {
   }
   get totalLessons(): number {
     return this.props.totalLessons;
+  }
+  get tagIds(): string[] {
+    return this.props.tagIds;
   }
   get updatedAt(): Date {
     return this.props.updatedAt;
@@ -226,6 +237,16 @@ export class Course extends AggregateRoot<string> {
     if (edit.level !== undefined) this.props.level = edit.level;
     if (edit.instructorId !== undefined) this.props.instructorId = edit.instructorId;
     if (edit.progressionMode !== undefined) this.props.progressionMode = edit.progressionMode;
+
+    if (edit.tagIds !== undefined) {
+      // Bỏ trùng tại đây: cùng một chủ đề gửi lên hai lần là lỗi của form, để nó chạm tới
+      // CSDL thì nhận về 23505 thay vì một danh sách đã sạch.
+      const unique = [...new Set(edit.tagIds)];
+      if (unique.length > MAX_TAGS) {
+        return Result.fail(new InvalidInput(`Mỗi khóa học tối đa ${MAX_TAGS} chủ đề`));
+      }
+      this.props.tagIds = unique;
+    }
 
     this.props.updatedAt = new Date();
     return Result.ok(true);
