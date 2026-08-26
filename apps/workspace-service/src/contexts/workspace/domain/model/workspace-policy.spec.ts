@@ -2,7 +2,11 @@ import { resolveWorkspacePermissions } from './workspace-policy';
 
 describe('Workspace permission policy', () => {
   it('Owner luôn có mọi quyền, không thể bị override bởi dữ liệu lưu trữ', () => {
-    const permissions = resolveWorkspacePermissions('owner', [], [{ permission: 'remove_member', allowed: false }]);
+    const permissions = resolveWorkspacePermissions(
+      'owner',
+      [],
+      [{ permission: 'remove_member', allowed: false }],
+    );
     expect(Object.values(permissions).every(Boolean)).toBe(true);
   });
 
@@ -20,9 +24,9 @@ describe('Workspace permission policy', () => {
     expect(permissions.view_doc).toBe(true);
     expect(permissions.upload_doc).toBe(true);
     expect(permissions.edit_own_doc).toBe(true);
-    expect(permissions.manage_doc).toBe(false);
+    expect(permissions.edit_doc).toBe(false);
     expect(permissions.view_exercise).toBe(true);
-    expect(permissions.manage_exercise).toBe(false);
+    expect(permissions.delete_exercise).toBe(false);
   });
 
   it('member override có thể thu hồi một quyền mặc định granular', () => {

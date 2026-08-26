@@ -78,16 +78,19 @@ export class WorkspaceContentService {
   async documents(userId: string, slug: string, query: WorkspaceContentQueryDto) {
     const detail = await this.workspaces.detail(userId, slug);
     this.requireAny(detail, ['view_doc']);
-    const manager = this.canAny(detail, ['manage_doc', 'approve_doc', 'delete_doc']);
+    const canEditAny = this.canAny(detail, ['edit_doc']);
+    const canApprove = this.canAny(detail, ['approve_doc']);
+    const canDeleteAny = this.canAny(detail, ['delete_doc']);
+    const canViewUnpublished = canEditAny || canApprove || canDeleteAny;
     const removedOnly = query.status === 'removed';
-    if (removedOnly && !manager) throw new NotAuthorized('Bạn không có quyền xem thùng rác');
+    if (removedOnly && !canDeleteAny) throw new NotAuthorized('Bạn không có quyền xem thùng rác');
     const page = await this.content.listDocuments(detail.id, {
       page: query.page ?? 1,
       limit: query.limit ?? 20,
       q: clean(query.search ?? query.q),
       status: clean(query.status),
       type: clean(query.type),
-      publishedOnly: !manager,
+      publishedOnly: !canViewUnpublished,
       removedOnly,
     });
     return {
@@ -95,16 +98,18 @@ export class WorkspaceContentService {
       items: page.items.map((document) => ({
         ...document,
         canEdit:
-          manager || (document.uploaderId === userId && this.canAny(detail, ['edit_own_doc'])),
+          canEditAny || (document.uploaderId === userId && this.canAny(detail, ['edit_own_doc'])),
         canDelete:
-          manager || (document.uploaderId === userId && this.canAny(detail, ['delete_own_doc'])),
-        canApprove: this.canAny(detail, ['approve_doc', 'manage_doc', 'delete_doc']),
+          canDeleteAny ||
+          (document.uploaderId === userId && this.canAny(detail, ['delete_own_doc'])),
+        canApprove,
+        canViewUnpublished,
       })),
     };
   }
   async pendingDocumentCount(userId: string, slug: string) {
     const detail = await this.workspaces.detail(userId, slug);
-    this.requireAny(detail, ['approve_doc', 'manage_doc', 'delete_doc']);
+    this.requireAny(detail, ['approve_doc']);
     return { count: await this.content.pendingDocumentCount(detail.id) };
   }
   async createDocument(userId: string, slug: string, dto: CreateWorkspaceDocumentDto) {
@@ -132,11 +137,16 @@ export class WorkspaceContentService {
     const detail = await this.workspaces.detail(userId, slug);
     const existing = await this.content.findDocument(detail.id, id);
     if (!existing || existing.deletedAt) throw new NotFound('Tài liệu', id);
-    const manager = this.canAny(detail, ['manage_doc', 'delete_doc']);
-    const own = existing.uploaderId === userId && this.canAny(detail, ['edit_own_doc']);
-    if (!manager && !own) throw new NotAuthorized('Bạn không có quyền sửa tài liệu này');
-    if (dto.status && !this.canAny(detail, ['approve_doc', 'manage_doc', 'delete_doc']))
+    const canEditAny = this.canAny(detail, ['edit_doc']);
+    const canEditOwn = existing.uploaderId === userId && this.canAny(detail, ['edit_own_doc']);
+    const hasMetadataPatch = dto.title !== undefined || dto.topic !== undefined;
+    const hasStatusPatch = dto.status !== undefined;
+    if (hasMetadataPatch && !canEditAny && !canEditOwn)
+      throw new NotAuthorized('Bạn không có quyền sửa tài liệu này');
+    if (hasStatusPatch && !this.canAny(detail, ['approve_doc']))
       throw new NotAuthorized('Bạn không có quyền duyệt tài liệu');
+    if (!hasMetadataPatch && !hasStatusPatch)
+      throw new BusinessRuleViolation('Không có thay đổi hợp lệ');
     const updated = await this.content.updateDocument(detail.id, id, {
       title: dto.title?.trim(),
       topic: dto.topic === undefined ? undefined : (clean(dto.topic) ?? null),
@@ -150,7 +160,7 @@ export class WorkspaceContentService {
     const existing = await this.content.findDocument(detail.id, id);
     if (!existing || existing.deletedAt) throw new NotFound('Tài liệu', id);
     const allowed =
-      this.canAny(detail, ['manage_doc', 'delete_doc']) ||
+      this.canAny(detail, ['delete_doc']) ||
       (existing.uploaderId === userId && this.canAny(detail, ['delete_own_doc']));
     if (!allowed) throw new NotAuthorized('Bạn không có quyền xóa tài liệu này');
     if (!(await this.content.softDeleteDocument(detail.id, id, userId, clean(dto?.reason))))
@@ -158,13 +168,13 @@ export class WorkspaceContentService {
   }
   async restoreDocument(userId: string, slug: string, id: string) {
     const detail = await this.workspaces.detail(userId, slug);
-    this.requireAny(detail, ['manage_doc', 'delete_doc']);
+    this.requireAny(detail, ['delete_doc']);
     if (!(await this.content.restoreDocument(detail.id, id))) throw new NotFound('Tài liệu', id);
     return { restored: true };
   }
   async purgeDocument(userId: string, slug: string, id: string) {
     const detail = await this.workspaces.detail(userId, slug);
-    this.requireAny(detail, ['manage_doc', 'delete_doc']);
+    this.requireAny(detail, ['delete_doc']);
     const removed = await this.content.purgeDocument(detail.id, id);
     if (!removed) throw new NotFound('Tài liệu đã xóa', id);
     if (removed.storageKey) await this.storage.deleteObject(removed.storageKey);
@@ -194,8 +204,8 @@ export class WorkspaceContentService {
     this.requireAny(detail, ['view_doc']);
     const document = await this.content.findDocument(detail.id, id);
     if (!document) throw new NotFound('Tài liệu', id);
-    const manager = this.canAny(detail, ['manage_doc', 'approve_doc', 'delete_doc']);
-    if (document.deletedAt || (!manager && document.status !== 'published'))
+    const canViewUnpublished = this.canAny(detail, ['edit_doc', 'approve_doc', 'delete_doc']);
+    if (document.deletedAt || (!canViewUnpublished && document.status !== 'published'))
       throw new NotFound('Tài liệu', id);
     if (!document.storageKey) return { url: document.url, expiresInSeconds: null };
     const result = await this.storage.presignDownload(
@@ -210,8 +220,9 @@ export class WorkspaceContentService {
   async exercises(userId: string, slug: string, query: WorkspaceContentQueryDto) {
     const detail = await this.workspaces.detail(userId, slug);
     this.requireAny(detail, ['view_exercise']);
-    const manager = this.canAny(detail, ['manage_exercise', 'edit_exercise']);
-    if (query.status === 'removed' && !manager)
+    const canDeleteAny = this.canAny(detail, ['delete_exercise']);
+    const canEditAny = this.canAny(detail, ['edit_exercise']);
+    if (query.status === 'removed' && !canDeleteAny)
       throw new NotAuthorized('Bạn không có quyền xem thùng rác');
     const page = await this.content.listExercises(detail.id, {
       page: query.page ?? 1,
@@ -221,7 +232,7 @@ export class WorkspaceContentService {
       difficulty: clean(query.difficulty),
       scope: query.scope,
       memberId: detail.currentMembership.id,
-      publishedOnly: !manager,
+      publishedOnly: !canEditAny,
       removedOnly: query.status === 'removed',
     });
     return {
@@ -229,9 +240,12 @@ export class WorkspaceContentService {
       items: page.items.map((exercise) => ({
         ...exercise,
         canEdit:
-          manager || (exercise.authorId === userId && this.canAny(detail, ['edit_own_exercise'])),
+          canEditAny ||
+          (exercise.authorId === userId && this.canAny(detail, ['edit_own_exercise'])),
         canDelete:
-          manager || (exercise.authorId === userId && this.canAny(detail, ['delete_own_exercise'])),
+          canDeleteAny ||
+          (exercise.authorId === userId && this.canAny(detail, ['delete_own_exercise'])),
+        canRestore: canDeleteAny,
       })),
     };
   }
@@ -239,11 +253,12 @@ export class WorkspaceContentService {
     const detail = await this.workspaces.detail(userId, slug);
     const exercise = await this.content.exerciseDetail(detail.id, id);
     if (!exercise) throw new NotFound('Bài tập nhóm', id);
-    const canManageAll = this.canAny(detail, ['manage_exercise', 'edit_exercise']);
-    const canManage =
-      canManageAll || (exercise.authorId === userId && this.canAny(detail, ['edit_own_exercise']));
-    if (exercise.publicationStatus === 'hidden' && !canManage)
-      throw new NotFound('Bài tập nhóm', id);
+    const canDeleteAny = this.canAny(detail, ['delete_exercise']);
+    const canEdit =
+      this.canAny(detail, ['edit_exercise']) ||
+      (exercise.authorId === userId && this.canAny(detail, ['edit_own_exercise']));
+    const canAssign = this.canAny(detail, ['assign_exercise']);
+    if (exercise.publicationStatus === 'hidden' && !canEdit) throw new NotFound('Bài tập nhóm', id);
     const canReview =
       detail.currentMembership.role === 'owner' ||
       detail.currentMembership.permissions.review_submission;
@@ -274,19 +289,18 @@ export class WorkspaceContentService {
             latestVerdict: mine.latestVerdict,
           }
         : null,
-      assignedMemberIds: canManage ? exercise.assignmentMemberIds : [],
-      canManage,
+      assignedMemberIds: canAssign ? exercise.assignmentMemberIds : [],
+      canManage: canEdit,
+      canEdit,
+      canAssign,
+      canPublish: canDeleteAny,
+      canRestore: canDeleteAny,
       canReview,
     };
   }
   async attachExercise(userId: string, slug: string, dto: AttachWorkspaceExerciseDto) {
     const detail = await this.workspaces.detail(userId, slug);
-    this.requireAny(detail, [
-      'assign_exercise',
-      'create_exercise',
-      'manage_exercise',
-      'edit_exercise',
-    ]);
+    this.requireAny(detail, ['assign_exercise']);
     if (!(await this.content.publicExerciseExists(dto.exerciseId)))
       throw new NotFound('Bài tập', dto.exerciseId);
     await this.content.attachExercise(detail.id, userId, {
@@ -302,10 +316,7 @@ export class WorkspaceContentService {
   async createExercise(userId: string, slug: string, dto: CreateWorkspaceExerciseDto) {
     const detail = await this.workspaces.detail(userId, slug);
     this.requireAny(detail, ['create_exercise']);
-    if (
-      dto.memberIds.length &&
-      !this.canAny(detail, ['assign_exercise', 'manage_exercise', 'edit_exercise'])
-    )
+    if (dto.memberIds.length && !this.canAny(detail, ['assign_exercise']))
       throw new NotAuthorized('Bạn không có quyền phân công bài tập');
     return this.content.createExercise(detail.id, userId, {
       title: dto.title.trim(),
@@ -374,16 +385,32 @@ export class WorkspaceContentService {
     const detail = await this.workspaces.detail(userId, slug);
     const existing = await this.content.exerciseDetail(detail.id, id);
     if (!existing) throw new NotFound('Bài tập nhóm', id);
-    const manager = this.canAny(detail, ['manage_exercise', 'edit_exercise']);
-    const own = existing.authorId === userId && this.canAny(detail, ['edit_own_exercise']);
-    if (!manager && !own) throw new NotAuthorized('Bạn không có quyền sửa bài tập này');
-    if (
-      dto.memberIds &&
-      !this.canAny(detail, ['assign_exercise', 'manage_exercise', 'edit_exercise'])
-    )
+    const canDeleteAny = this.canAny(detail, ['delete_exercise']);
+    const canEdit =
+      this.canAny(detail, ['edit_exercise']) ||
+      (existing.authorId === userId && this.canAny(detail, ['edit_own_exercise']));
+    const canAssign = this.canAny(detail, ['assign_exercise']);
+    const hasAssignmentPatch =
+      dto.memberIds !== undefined ||
+      dto.dueAt !== undefined ||
+      dto.attemptLimit !== undefined ||
+      dto.allowRetry !== undefined ||
+      dto.allowLateSubmission !== undefined;
+    const hasContentPatch =
+      dto.title !== undefined ||
+      dto.summary !== undefined ||
+      dto.difficulty !== undefined ||
+      dto.estimatedMinutes !== undefined ||
+      dto.timeLimitMs !== undefined ||
+      dto.memoryLimitKb !== undefined ||
+      dto.content !== undefined;
+    if (hasContentPatch && !canEdit) throw new NotAuthorized('Bạn không có quyền sửa bài tập này');
+    if (hasAssignmentPatch && !canAssign)
       throw new NotAuthorized('Bạn không có quyền phân công bài tập');
-    if (dto.publicationStatus && !manager)
+    if (dto.publicationStatus && !canDeleteAny)
       throw new NotAuthorized('Bạn không có quyền ẩn hoặc xuất bản bài tập');
+    if (!hasContentPatch && !hasAssignmentPatch && dto.publicationStatus === undefined)
+      throw new BusinessRuleViolation('Không có thay đổi hợp lệ');
     const updated = await this.content.updateExercise(detail.id, id, {
       dueAt: dto.dueAt === undefined ? undefined : dto.dueAt ? new Date(dto.dueAt) : null,
       attemptLimit: dto.attemptLimit,
@@ -407,7 +434,7 @@ export class WorkspaceContentService {
     const existing = await this.content.exerciseDetail(detail.id, id);
     if (!existing) throw new NotFound('Bài tập nhóm', id);
     const allowed =
-      this.canAny(detail, ['manage_exercise', 'edit_exercise']) ||
+      this.canAny(detail, ['delete_exercise']) ||
       (existing.authorId === userId && this.canAny(detail, ['delete_own_exercise']));
     if (!allowed) throw new NotAuthorized('Bạn không có quyền xóa bài tập này');
     if (!(await this.content.softDeleteExercise(detail.id, id, userId, clean(dto?.reason))))
@@ -415,14 +442,14 @@ export class WorkspaceContentService {
   }
   async restoreExercise(userId: string, slug: string, id: string) {
     const detail = await this.workspaces.detail(userId, slug);
-    this.requireAny(detail, ['manage_exercise', 'edit_exercise']);
+    this.requireAny(detail, ['delete_exercise']);
     if (!(await this.content.restoreExercise(detail.id, id)))
       throw new NotFound('Bài tập nhóm', id);
     return { restored: true };
   }
   async purgeExercise(userId: string, slug: string, id: string) {
     const detail = await this.workspaces.detail(userId, slug);
-    this.requireAny(detail, ['manage_exercise', 'edit_exercise']);
+    this.requireAny(detail, ['delete_exercise']);
     if (!(await this.content.purgeExercise(detail.id, id))) throw new NotFound('Bài tập nhóm', id);
   }
 
@@ -431,14 +458,28 @@ export class WorkspaceContentService {
     const canReview =
       detail.currentMembership.role === 'owner' ||
       detail.currentMembership.permissions.review_submission;
-    return this.content.listAssignments(detail.id, {
+    const canViewAssignments = canReview || this.canAny(detail, ['assign_exercise']);
+    const page = await this.content.listAssignments(detail.id, {
       page: query.page ?? 1,
       limit: query.limit ?? 20,
       q: clean(query.q),
       status: clean(query.status),
-      memberId: canReview ? undefined : detail.currentMembership.id,
+      memberId: canViewAssignments ? undefined : detail.currentMembership.id,
       groupExerciseId: query.groupExerciseId,
     });
+    if (canReview || !canViewAssignments) return page;
+    return {
+      ...page,
+      items: page.items.map((assignment) => ({
+        ...assignment,
+        submissionCount: 0,
+        latestVerdict: null,
+        latestScore: null,
+        latestAttemptNumber: null,
+        latestIsLate: false,
+        latestSubmittedAt: null,
+      })),
+    };
   }
   async submissionHistory(userId: string, slug: string, assignmentId: string) {
     const detail = await this.workspaces.detail(userId, slug);
