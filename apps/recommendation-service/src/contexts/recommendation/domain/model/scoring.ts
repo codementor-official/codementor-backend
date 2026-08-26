@@ -47,7 +47,10 @@ export interface Candidate {
   level: string | null;
   /** easy | medium | hard — chỉ exercise. */
   difficulty: string | null;
-  /** Slug trong bảng `technologies`. */
+  /**
+   * Slug trong bảng `technologies`. Rỗng trên toàn bộ dữ liệu hiện tại — bảng đó chưa có
+   * dòng nào, xem `titleTechMatch` để biết chỗ này bù bằng gì.
+   */
   technologies: string[];
   /**
    * Tín hiệu phổ biến THÔ, mỗi loại một đơn vị khác nhau (số người ghi danh, số người
@@ -121,6 +124,29 @@ export function techKeys(label: string): string[] {
 }
 
 /**
+ * Nhãn công nghệ đầu tiên mà TIÊU ĐỀ nhắc tới, hoặc `null`.
+ *
+ * Đường vòng, và có lý do: bảng `technologies` đang rỗng nên `candidate.technologies` về
+ * rỗng cho mọi thứ, tức cả nhánh khớp công nghệ là code chết trên dữ liệu thật. Tiêu đề là
+ * chỗ duy nhất còn lại có tên công nghệ ("Nhập môn Node.js", "Python cơ bản").
+ *
+ * So khớp theo TỪ đã chuẩn hóa chứ không phải chuỗi con: `"django".includes("go")` là đúng
+ * về chuỗi và sai về ý. Nhãn nhiều từ ("Spring Boot") chỉ tính là khớp khi mọi từ của nó
+ * đều có mặt. Khóa dưới 2 ký tự bị bỏ — "C" trong "C/C++" khớp với quá nhiều thứ.
+ */
+export function titleTechMatch(title: string, labels: string[]): string | null {
+  const tokens = new Set(title.split(/[^\p{L}\p{N}+#.]+/u).flatMap(techKeys));
+  for (const label of labels) {
+    const matched = label.split('/').some((variant) => {
+      const words = variant.trim().split(/\s+/).flatMap(techKeys).filter((k) => k.length >= 2);
+      return words.length > 0 && words.every((word) => tokens.has(word));
+    });
+    if (matched) return label;
+  }
+  return null;
+}
+
+/**
  * Chuẩn hóa tín hiệu phổ biến về 0..100 theo giá trị lớn nhất trong chính danh sách ứng
  * viên. Chia theo max của tập thay vì một hằng số cố định vì đơn vị mỗi loại một khác
  * (số ghi danh khóa học và số người giải bài tập không cùng thang), và vì hệ thống lúc mới
@@ -177,7 +203,7 @@ export function scoreCandidate(
     }
   }
 
-  if (preferences.interestedTechnologies.length > 0 && candidate.technologies.length > 0) {
+  if (preferences.interestedTechnologies.length > 0) {
     const wanted = new Set(preferences.interestedTechnologies.flatMap(techKeys));
     const overlap = candidate.technologies.filter((slug) =>
       techKeys(slug).some((key) => wanted.has(key)),
@@ -185,6 +211,14 @@ export function scoreCandidate(
     if (overlap.length > 0) {
       score += weights.technology * (overlap.length / candidate.technologies.length);
       reasons.push(`Có công nghệ bạn quan tâm: ${overlap.join(', ')}`);
+    } else if (candidate.technologies.length === 0) {
+      // Không có gì gắn nhãn thì đoán từ tiêu đề, và ăn NỬA trọng số: đây là suy đoán từ
+      // văn bản, không phải quan hệ đã khai báo, nên không được ngang hàng với nó.
+      const mentioned = titleTechMatch(candidate.title, preferences.interestedTechnologies);
+      if (mentioned) {
+        score += weights.technology * 0.5;
+        reasons.push(`Liên quan đến ${mentioned} bạn quan tâm`);
+      }
     }
   }
 

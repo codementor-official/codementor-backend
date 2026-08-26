@@ -33,6 +33,14 @@ interface PreferencesRow {
  */
 const CANDIDATE_LIMIT = 200;
 
+/*
+ * Trần phải đi kèm thứ tự — mỗi truy vấn bên dưới có `ORDER BY "popularityRaw" DESC, id`
+ * ngay trước `LIMIT`. Không có nó, Postgres cắt 200 dòng TÙY Ý: catalog vượt trần thì mỗi
+ * lần gọi lấy một tập ứng viên khác nhau và đề xuất nhảy loạn không lý do. Lấy phần phổ
+ * biến nhất — cũng là phần nhiều khả năng trụ lại sau khi chấm điểm. `id` là chốt cuối để
+ * hai ứng viên cùng độ phổ biến (rất thường gặp: cả hai bằng 0) vẫn ra cùng thứ tự.
+ */
+
 function toCandidate(row: CandidateRow, kind: Candidate['kind']): Candidate {
   return {
     id: row.id,
@@ -104,6 +112,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           SELECT 1 FROM roadmap_enrollments mine
           WHERE mine.roadmap_id = r.id AND mine.user_id = ${userId}::uuid))
       GROUP BY r.id
+      ORDER BY "popularityRaw" DESC, r.id
       LIMIT ${CANDIDATE_LIMIT}`;
 
     return rows.map((row) => toCandidate(row, 'roadmap'));
@@ -129,6 +138,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           SELECT 1 FROM course_enrollments mine
           WHERE mine.course_id = c.id AND mine.user_id = ${userId}::uuid))
       GROUP BY c.id
+      ORDER BY "popularityRaw" DESC, c.id
       LIMIT ${CANDIDATE_LIMIT}`;
 
     return rows.map((row) => toCandidate(row, 'course'));
@@ -149,6 +159,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
           WHERE mine.exercise_id = e.id AND mine.user_id = ${userId}::uuid
             AND mine.status = 'solved'))
       GROUP BY e.id
+      ORDER BY "popularityRaw" DESC, e.id
       LIMIT ${CANDIDATE_LIMIT}`;
 
     return rows.map((row) => toCandidate(row, 'exercise'));

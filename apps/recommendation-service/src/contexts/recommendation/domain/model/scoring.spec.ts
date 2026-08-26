@@ -6,6 +6,7 @@ import {
   rankCandidates,
   scoreCandidate,
   techKeys,
+  titleTechMatch,
 } from './scoring';
 
 function candidate(overrides: Partial<Candidate> = {}): Candidate {
@@ -58,9 +59,11 @@ describe('scoreCandidate', () => {
   });
 
   it('trình độ lệch đúng một bậc vẫn được nửa điểm, nhưng không có lý do', () => {
+    // `interestedTechnologies` rỗng để cô lập điểm trình độ: tiêu đề mặc định có nhắc
+    // Node.js, và `titleTechMatch` sẽ cộng thêm nửa trọng số công nghệ vào đây.
     const { score, reasons } = scoreCandidate(
       candidate({ field: null, technologies: [] }),
-      preferences({ currentLevel: 'basic' }),
+      preferences({ currentLevel: 'basic', interestedTechnologies: [] }),
       0,
     );
 
@@ -132,5 +135,55 @@ describe('rankCandidates', () => {
 
   it('mọi mục luôn có ít nhất một lý do để hiện lên thẻ', () => {
     expect(rankCandidates(items, preferences()).every((item) => item.reasons.length > 0)).toBe(true);
+  });
+});
+
+describe('titleTechMatch', () => {
+  it('nhận ra công nghệ nêu trong tiêu đề', () => {
+    expect(titleTechMatch('Nhập môn Node.js', ['Node.js'])).toBe('Node.js');
+    expect(titleTechMatch('Python cơ bản', ['SQL', 'Python'])).toBe('Python');
+  });
+
+  it('đòi đủ mọi từ của nhãn nhiều từ', () => {
+    expect(titleTechMatch('Spring Boot cho người mới', ['Spring Boot'])).toBe('Spring Boot');
+    expect(titleTechMatch('Khởi động với Boot Camp', ['Spring Boot'])).toBeNull();
+  });
+
+  it('không khớp theo chuỗi con, và bỏ qua khóa quá ngắn', () => {
+    // "django" chứa "go" nhưng không phải Go; "C" trong "C/C++" khớp với mọi thứ.
+    expect(titleTechMatch('Django cho người mới', ['Go'])).toBeNull();
+    expect(titleTechMatch('Cấu trúc dữ liệu', ['C/C++'])).toBeNull();
+    expect(titleTechMatch('Lập trình C++ nâng cao', ['C/C++'])).toBe('C/C++');
+  });
+
+  it('không nhầm Java với JavaScript', () => {
+    expect(titleTechMatch('JavaScript cho người mới', ['Java'])).toBeNull();
+  });
+});
+
+describe('scoreCandidate — khớp công nghệ qua tiêu đề', () => {
+  const preferences = {
+    currentLevel: null,
+    careerGoal: null,
+    contentPriority: null,
+    interestedFields: [],
+    interestedTechnologies: ['Node.js'],
+    adaptiveRecommendations: true,
+    completed: true,
+  };
+
+  it('cộng nửa trọng số khi ứng viên không gắn công nghệ nào', () => {
+    const item = candidate({ title: 'Nhập môn Node.js', technologies: [], popularityRaw: 0 });
+    const { score, reasons } = scoreCandidate(item, preferences, 0);
+
+    expect(score).toBe(10);
+    expect(reasons).toEqual(['Liên quan đến Node.js bạn quan tâm']);
+  });
+
+  it('không đoán từ tiêu đề khi ứng viên ĐÃ gắn công nghệ', () => {
+    const item = candidate({ title: 'Nhập môn Node.js', technologies: ['react'], popularityRaw: 0 });
+    const { reasons } = scoreCandidate(item, preferences, 0);
+
+    expect(reasons).toEqual([POPULAR_REASON]);
   });
 });
