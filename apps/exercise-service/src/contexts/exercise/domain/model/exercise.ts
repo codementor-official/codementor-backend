@@ -32,6 +32,8 @@ interface ExerciseProps {
   memoryLimitKb: number;
   authorId: string | null;
   contentRef: string | null;
+  /** Chủ đề (`exercise_tags`). Từ vựng dùng chung do core-service sở hữu. */
+  tagIds: string[];
   forkedFromId: string | null;
   rejectionReason: string | null;
   publishedAt: Date | null;
@@ -47,6 +49,8 @@ export interface ExerciseMetadataEdit {
   estimatedMinutes?: number | null;
   timeLimitMs?: number;
   memoryLimitKb?: number;
+  /** Thay TOÀN BỘ danh sách chủ đề. Mảng rỗng = gỡ hết, khác với vắng mặt = giữ nguyên. */
+  tagIds?: string[];
 }
 
 // Khớp CHECK của cột trong PostgreSQL. Kiểm ở đây để lỗi ra 400 kèm tên trường,
@@ -57,6 +61,12 @@ const LIMITS = {
 } as const;
 
 const MAX_TITLE = 200;
+
+/**
+ * Trần số chủ đề mỗi bài. Không phải giới hạn kỹ thuật — một bài gắn hai chục chủ đề thì
+ * chủ đề hết còn phân biệt được gì, và đề xuất theo chủ đề cũng hết ý nghĩa theo.
+ */
+const MAX_TAGS = 8;
 
 /**
  * Bài tập — phần "xương" quan hệ. Thân bài (đề, testcase, starter code) nằm ở MongoDB
@@ -109,6 +119,7 @@ export class Exercise extends AggregateRoot<string> {
         memoryLimitKb: 262_144,
         authorId: params.authorId,
         contentRef: null,
+        tagIds: [],
         forkedFromId: params.forkedFromId ?? null,
         rejectionReason: null,
         publishedAt: null,
@@ -155,6 +166,9 @@ export class Exercise extends AggregateRoot<string> {
   }
   get contentRef(): string | null {
     return this.props.contentRef;
+  }
+  get tagIds(): string[] {
+    return this.props.tagIds;
   }
   get forkedFromId(): string | null {
     return this.props.forkedFromId;
@@ -227,6 +241,16 @@ export class Exercise extends AggregateRoot<string> {
         return Result.fail(new InvalidInput(`${field} phải nằm trong [${min}, ${max}]`, { [field]: value }));
       }
       this.props[field] = value;
+    }
+
+    if (edit.tagIds !== undefined) {
+      // Bỏ trùng tại đây, không ở SQL: cùng một chủ đề gửi lên hai lần là lỗi của form,
+      // và để nó chạm tới CSDL thì nhận về 23505 thay vì một danh sách đã sạch.
+      const unique = [...new Set(edit.tagIds)];
+      if (unique.length > MAX_TAGS) {
+        return Result.fail(new InvalidInput(`Mỗi bài tối đa ${MAX_TAGS} chủ đề`));
+      }
+      this.props.tagIds = unique;
     }
 
     this.props.updatedAt = new Date();

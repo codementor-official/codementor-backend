@@ -55,6 +55,8 @@ export interface CourseView {
   publishedAt: string | null;
   totalChapters: number;
   totalLessons: number;
+  /** Id chủ đề; tên tra từ `GET /tags`. */
+  tagIds: string[];
   updatedAt: string;
   chapters?: StoredChapter[];
 }
@@ -80,6 +82,7 @@ function toView(course: Course, chapters?: StoredChapter[]): CourseView {
     publishedAt: course.publishedAt?.toISOString() ?? null,
     totalChapters: course.totalChapters,
     totalLessons: course.totalLessons,
+    tagIds: course.tagIds,
     updatedAt: course.updatedAt.toISOString(),
     ...(chapters !== undefined ? { chapters } : {}),
   };

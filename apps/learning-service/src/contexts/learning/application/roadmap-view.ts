@@ -18,6 +18,8 @@ export interface RoadmapView {
   rejectionReason: string | null;
   removalRequested: boolean;
   publishedAt: string | null;
+  /** Id chủ đề; tên tra từ `GET /tags`. */
+  tagIds: string[];
   updatedAt: string;
   courses?: RoadmapCourseItem[];
 }
@@ -40,6 +42,7 @@ export function toRoadmapView(roadmap: Roadmap, courses?: RoadmapCourseItem[]): 
     rejectionReason: roadmap.rejectionReason,
     removalRequested: roadmap.removalRequested,
     publishedAt: roadmap.publishedAt?.toISOString() ?? null,
+    tagIds: roadmap.tagIds,
     updatedAt: roadmap.updatedAt.toISOString(),
     ...(courses !== undefined ? { courses } : {}),
   };

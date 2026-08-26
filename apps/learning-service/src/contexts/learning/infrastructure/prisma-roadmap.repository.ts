@@ -32,6 +32,7 @@ interface RoadmapRow {
   created_by: string | null;
   rejection_reason: string | null;
   published_at: Date | null;
+  tag_ids?: string[] | null;
   updated_at: Date;
 }
 
@@ -41,11 +42,16 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
 
   async findById(id: string): Promise<Roadmap | null> {
     const rows = await this.prisma.$queryRaw<RoadmapRow[]>`
-      SELECT id, slug::text AS slug, title, short_description, description, field::text AS field,
-             level::text AS level, cover_image_url, estimated_hours,
-             progression_mode::text AS progression_mode, prerequisite_note,
-             status::text AS status, created_by, rejection_reason, published_at, updated_at
-      FROM roadmaps WHERE id = ${id}::uuid LIMIT 1`;
+      SELECT r.id, r.slug::text AS slug, r.title, r.short_description, r.description,
+             r.field::text AS field, r.level::text AS level, r.cover_image_url, r.estimated_hours,
+             r.progression_mode::text AS progression_mode, r.prerequisite_note,
+             r.status::text AS status, r.created_by, r.rejection_reason, r.published_at,
+             r.updated_at,
+             COALESCE(
+               (SELECT array_agg(rt.tag_id::text ORDER BY rt.tag_id)
+                FROM roadmap_tags rt WHERE rt.roadmap_id = r.id),
+               '{}') AS tag_ids
+      FROM roadmaps r WHERE r.id = ${id}::uuid LIMIT 1`;
     return rows[0] ? this.toDomain(rows[0]) : null;
   }
 
@@ -135,7 +141,9 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
 
   async save(roadmap: Roadmap): Promise<void> {
     try {
-      await this.prisma.$executeRaw`
+      // Một giao dịch: lộ trình và chủ đề của nó cùng sống hoặc cùng chết.
+      await this.prisma.$transaction([
+        this.prisma.$executeRaw`
         INSERT INTO roadmaps (id, slug, title, short_description, description, field, level,
                               cover_image_url, estimated_hours, progression_mode, prerequisite_note,
                               status, created_by, rejection_reason, published_at)
@@ -159,7 +167,17 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
           status            = EXCLUDED.status,
           rejection_reason  = EXCLUDED.rejection_reason,
           published_at      = EXCLUDED.published_at,
-          updated_at        = now()`;
+          updated_at        = now()`,
+        this.prisma.$executeRaw`
+          DELETE FROM roadmap_tags
+          WHERE roadmap_id = ${roadmap.id}::uuid
+            AND tag_id <> ALL (${roadmap.tagIds}::uuid[])`,
+        this.prisma.$executeRaw`
+          INSERT INTO roadmap_tags (roadmap_id, tag_id)
+          SELECT ${roadmap.id}::uuid, tag_id
+          FROM unnest(${roadmap.tagIds}::uuid[]) AS tag_id
+          ON CONFLICT DO NOTHING`,
+      ]);
     } catch (error) {
       throw mapDatabaseError(error) ?? error;
     }
@@ -186,6 +204,7 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
       coverImageUrl: row.cover_image_url,
       estimatedHours: row.estimated_hours,
       progressionMode: row.progression_mode as ProgressionMode,
+      tagIds: row.tag_ids ?? [],
       prerequisiteNote: row.prerequisite_note,
       status: row.status as ContentStatus,
       createdBy: row.created_by,

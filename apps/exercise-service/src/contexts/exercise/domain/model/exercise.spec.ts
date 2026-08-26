@@ -144,6 +144,7 @@ describe('Exercise — điều kiện fork và xoá', () => {
       memoryLimitKb: 262_144,
       authorId: 'u2',
       contentRef: 'mongo-id',
+      tagIds: [],
       forkedFromId: null,
       rejectionReason: null,
       publishedAt: new Date(),

@@ -29,6 +29,7 @@ const SERVICES = [
   ["realtime", 3009],
   // 3010/3011 là apps/lecturer và apps/admin bên frontend, nên dải backend nhảy qua.
   ["notification", 3012],
+  ["recommendation", 3013],
 ];
 
 function pidOnPort(port) {

@@ -147,6 +147,7 @@ describe('đổi slug', () => {
       createdBy: 'u1',
       rejectionReason: null,
       publishedAt: new Date(),
+      tagIds: [],
       updatedAt: new Date(),
     });
     expect(published.edit({ slug: 'ten-khac' }).isFail).toBe(true);

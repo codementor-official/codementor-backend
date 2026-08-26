@@ -74,6 +74,14 @@ services:
           - /api/v1/notifications
         strip_path: false
 
+  - name: recommendation-service
+    url: http://host.docker.internal:3013
+    routes:
+      - name: recommendation-routes
+        paths:
+          - /api/v1/recommendations
+        strip_path: false
+
   # Judge chạy mã tuỳ ý, và tiến trình của nó giữ socket Docker của host — endpoint này
   # KHÔNG được để công khai. Judge tự kiểm JWT Keycloak trên mọi request (app/auth.py),
   # vì Kong ở đây không có plugin JWT.

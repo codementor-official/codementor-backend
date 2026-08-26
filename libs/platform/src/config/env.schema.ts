@@ -18,6 +18,7 @@ export const envSchema = z.object({
   PORT_REALTIME: z.coerce.number().int().positive().default(3009),
   // Nhảy qua 3010/3011: hai cổng đó là apps/lecturer và apps/admin bên frontend.
   PORT_NOTIFICATION: z.coerce.number().int().positive().default(3012),
+  PORT_RECOMMENDATION: z.coerce.number().int().positive().default(3013),
   API_PREFIX: z.string().default('api'),
 
   // PostgreSQL — schema do codementor-infra sở hữu, backend chỉ đọc qua Prisma.

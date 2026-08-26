@@ -118,6 +118,15 @@
         "tsConfigPath": "libs/contracts/tsconfig.lib.json"
       }
     },
+    "recommendation-service": {
+      "type": "application",
+      "root": "apps/recommendation-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/recommendation-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/recommendation-service/tsconfig.app.json"
+      }
+    },
     "notification-service": {
       "type": "application",
       "root": "apps/notification-service",

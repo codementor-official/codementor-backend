@@ -24,7 +24,7 @@
     "db:pull": "prisma db pull",
     "db:generate": "prisma generate",
     "db:sync": "npm run db:pull && npm run db:generate",
-    "build:all": "nest build core-service && nest build learning-service && nest build exercise-service && nest build workspace-service && nest build document-service && nest build submission-service && nest build ai-service && nest build realtime-service && nest build notification-service",
+    "build:all": "nest build core-service && nest build learning-service && nest build exercise-service && nest build workspace-service && nest build document-service && nest build submission-service && nest build ai-service && nest build realtime-service && nest build notification-service && nest build recommendation-service",
     "start:core": "nest start core-service --watch",
     "start:learning": "nest start learning-service --watch",
     "start:exercise": "nest start exercise-service --watch",
@@ -39,7 +39,8 @@
     "judge:test": "cd apps/judge-service && uv run pytest",
     "judge:lint": "cd apps/judge-service && uv run ruff check .",
     "start:realtime": "nest start realtime-service --watch",
-    "start:notification": "nest start notification-service --watch"
+    "start:notification": "nest start notification-service --watch",
+    "start:recommendation": "nest start recommendation-service --watch"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1113.0",

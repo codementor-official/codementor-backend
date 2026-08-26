@@ -193,6 +193,14 @@ services:
     command: ['node', 'dist/apps/realtime-service/main.js']
     ports: ['3009:3009']
 
+  # Chỉ đọc PostgreSQL, không nghe Kafka — nhưng vẫn dùng `service-base` chung để khỏi có
+  # một biến thể cấu hình riêng phải bảo trì.
+  recommendation-service:
+    <<: *service-base
+    container_name: codementor-recommendation
+    command: ['node', 'dist/apps/recommendation-service/main.js']
+    ports: ['3013:3013']
+
   # -------------------------------------------------------------- service nội bộ
   # Không map cổng ra ngoài: chỉ nhận việc qua Kafka, frontend không gọi trực tiếp.
   # Python/FastAPI, không dùng image Node chung. Chấm bài bằng cách nói chuyện với Docker

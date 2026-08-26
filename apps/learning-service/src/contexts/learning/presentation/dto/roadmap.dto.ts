@@ -107,6 +107,16 @@ export class UpdateRoadmapDto {
   @IsString()
   @MaxLength(1000)
   prerequisiteNote?: string | null;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Thay TOÀN BỘ danh sách chủ đề. Mảng rỗng gỡ hết; vắng mặt giữ nguyên.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  tagIds?: string[];
+
 }
 
 class RoadmapCourseDto {

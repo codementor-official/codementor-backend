@@ -31,6 +31,7 @@ interface CourseRow {
   published_at: Date | null;
   total_chapters: number;
   total_lessons: number;
+  tag_ids?: string[] | null;
   updated_at: Date;
 }
 
@@ -52,11 +53,16 @@ export class PrismaCourseRepository implements CourseRepository {
 
   async findById(id: string): Promise<Course | null> {
     const rows = await this.prisma.$queryRaw<CourseRow[]>`
-      SELECT id, slug::text AS slug, title, description, cover_image_url, level::text AS level,
-             duration_hours, instructor_id, prerequisite_note,
-             progression_mode::text AS progression_mode, status::text AS status,
-             created_by, rejection_reason, published_at, total_chapters, total_lessons, updated_at
-      FROM courses WHERE id = ${id}::uuid LIMIT 1`;
+      SELECT c.id, c.slug::text AS slug, c.title, c.description, c.cover_image_url,
+             c.level::text AS level, c.duration_hours, c.instructor_id, c.prerequisite_note,
+             c.progression_mode::text AS progression_mode, c.status::text AS status,
+             c.created_by, c.rejection_reason, c.published_at, c.total_chapters, c.total_lessons,
+             c.updated_at,
+             COALESCE(
+               (SELECT array_agg(ct.tag_id::text ORDER BY ct.tag_id)
+                FROM course_tags ct WHERE ct.course_id = c.id),
+               '{}') AS tag_ids
+      FROM courses c WHERE c.id = ${id}::uuid LIMIT 1`;
     return rows[0] ? this.toDomain(rows[0]) : null;
   }
 
@@ -269,8 +275,12 @@ export class PrismaCourseRepository implements CourseRepository {
 
   async save(course: Course): Promise<void> {
     try {
+      // Một giao dịch: khóa học và chủ đề của nó cùng sống hoặc cùng chết. Ghi hàng xong
+      // mà chèn chủ đề hỏng thì bản ghi còn lại mang chủ đề của lần lưu TRƯỚC, và không
+      // màn hình nào nói cho ai biết.
       // total_chapters và total_lessons CỐ Ý vắng mặt: trigger giữ chúng.
-      await this.prisma.$executeRaw`
+      await this.prisma.$transaction([
+        this.prisma.$executeRaw`
         INSERT INTO courses (id, slug, title, description, cover_image_url, level, duration_hours,
                              instructor_id, prerequisite_note, progression_mode, status,
                              created_by, rejection_reason, published_at)
@@ -292,7 +302,17 @@ export class PrismaCourseRepository implements CourseRepository {
           status            = EXCLUDED.status,
           rejection_reason  = EXCLUDED.rejection_reason,
           published_at      = EXCLUDED.published_at,
-          updated_at        = now()`;
+          updated_at        = now()`,
+        this.prisma.$executeRaw`
+          DELETE FROM course_tags
+          WHERE course_id = ${course.id}::uuid
+            AND tag_id <> ALL (${course.tagIds}::uuid[])`,
+        this.prisma.$executeRaw`
+          INSERT INTO course_tags (course_id, tag_id)
+          SELECT ${course.id}::uuid, tag_id
+          FROM unnest(${course.tagIds}::uuid[]) AS tag_id
+          ON CONFLICT DO NOTHING`,
+      ]);
     } catch (error) {
       throw mapDatabaseError(error) ?? error;
     }
@@ -332,6 +352,7 @@ export class PrismaCourseRepository implements CourseRepository {
       publishedAt: row.published_at,
       totalChapters: row.total_chapters,
       totalLessons: row.total_lessons,
+      tagIds: row.tag_ids ?? [],
       updatedAt: row.updated_at,
     });
   }

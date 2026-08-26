@@ -35,6 +35,8 @@ interface RoadmapProps {
   createdBy: string | null;
   rejectionReason: string | null;
   publishedAt: Date | null;
+  /** Chủ đề tác giả tự gắn (`roadmap_tags`). Chủ đề của khóa học bên trong KHÔNG ở đây. */
+  tagIds: string[];
   updatedAt: Date;
 }
 
@@ -48,9 +50,13 @@ export interface RoadmapEdit {
   coverImageUrl?: string | null;
   progressionMode?: ProgressionMode;
   prerequisiteNote?: string | null;
+  /** Thay TOÀN BỘ danh sách chủ đề. Mảng rỗng = gỡ hết, vắng mặt = giữ nguyên. */
+  tagIds?: string[];
 }
 
 const MAX_TITLE = 200;
+/** Cùng trần với khóa học và bài tập. */
+const MAX_TAGS = 8;
 const MIN_COURSES_TO_SUBMIT = 2;
 
 /** Chỉ http/https — `javascript:` ở ô ảnh bìa là stored XSS chỗ render. */
@@ -116,6 +122,7 @@ export class Roadmap extends AggregateRoot<string> {
         createdBy: params.createdBy,
         rejectionReason: null,
         publishedAt: null,
+        tagIds: [],
         updatedAt: new Date(),
       }),
     );
@@ -123,6 +130,9 @@ export class Roadmap extends AggregateRoot<string> {
 
   get slug(): string {
     return this.props.slug;
+  }
+  get tagIds(): string[] {
+    return this.props.tagIds;
   }
   get title(): string {
     return this.props.title;
@@ -236,6 +246,14 @@ export class Roadmap extends AggregateRoot<string> {
     if (edit.field !== undefined) this.props.field = edit.field;
     if (edit.level !== undefined) this.props.level = edit.level;
     if (edit.progressionMode !== undefined) this.props.progressionMode = edit.progressionMode;
+
+    if (edit.tagIds !== undefined) {
+      const unique = [...new Set(edit.tagIds)];
+      if (unique.length > MAX_TAGS) {
+        return Result.fail(new InvalidInput(`Mỗi lộ trình tối đa ${MAX_TAGS} chủ đề`));
+      }
+      this.props.tagIds = unique;
+    }
 
     this.props.updatedAt = new Date();
     return Result.ok(true);
