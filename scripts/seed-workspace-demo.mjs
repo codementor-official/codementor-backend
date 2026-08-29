@@ -534,7 +534,7 @@ function seedWorkspace(ownerId) {
     topic: 'Cấu trúc dữ liệu & Giải thuật',
     owner_id: ownerId,
     invite_code: 'KLTNDEMO01',
-    privacy: 'private',
+    privacy: 'public',
     join_policy: 'approval',
     status: 'active',
     last_activity_at: NOW,

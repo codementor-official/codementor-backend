@@ -9,6 +9,10 @@
   },
   "scripts": {
     "seed:workspace-demo": "node --env-file=.env scripts/seed-workspace-demo.mjs",
+    "seed:client-demo": "node --env-file=.env scripts/seed-client-demo.mjs",
+    "migrate:client-support": "node --env-file=.env scripts/migrate-client-support.mjs",
+    "migrate:notification-schema": "node --env-file=.env scripts/migrate-notification-schema.mjs",
+    "verify:client-support": "node --env-file=.env scripts/verify-client-support.mjs",
     "migrate:workspace-content": "node --env-file=.env scripts/migrate-workspace-content.mjs",
     "migrate:workspace-ui": "node --env-file=.env scripts/migrate-workspace-ui.mjs",
     "build": "nest build core-service",
