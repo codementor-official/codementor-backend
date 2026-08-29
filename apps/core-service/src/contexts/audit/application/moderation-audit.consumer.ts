@@ -1,6 +1,12 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { EventConsumer } from '@codementor/messaging';
-import { TOPICS, type ContentModeratedV1, type ReviewableKind } from '@codementor/contracts';
+import {
+  TOPICS,
+  type ContentModeratedV1,
+  type ReviewableKind,
+  type SubmissionEvaluatedV1,
+} from '@codementor/contracts';
+import { PrismaService } from '@codementor/platform';
 import { AuditLogService } from './audit-log.service';
 
 /**
@@ -55,10 +61,12 @@ export class ModerationAuditConsumer implements OnModuleInit {
   constructor(
     private readonly consumer: EventConsumer,
     private readonly audit: AuditLogService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async onModuleInit(): Promise<void> {
     this.consumer.on(TOPICS.CONTENT_MODERATED, (payload) => this.record(payload));
+    this.consumer.on(TOPICS.SUBMISSION_EVALUATED, (payload) => this.recordSolvedExercise(payload));
 
     try {
       await this.consumer.start('core-service');
@@ -68,6 +76,35 @@ export class ModerationAuditConsumer implements OnModuleInit {
       // trở lại — message vẫn nằm đó chờ vì consumer group giữ offset.
       this.logger.error(`không đăng ký được consumer Kafka: ${String(cause)}`);
     }
+  }
+
+  private async recordSolvedExercise(payload: SubmissionEvaluatedV1): Promise<void> {
+    // XP can legitimately be zero. `firstAccepted` is the business fact that decides
+    // whether solved_count and streak advance; using the reward as a proxy skipped those exercises.
+    if (!payload.accepted || !payload.firstAccepted) return;
+
+    await this.prisma.$executeRaw`
+      INSERT INTO user_stats
+        (user_id, xp, solved_count, current_streak_days, longest_streak_days, last_solved_on)
+      VALUES (${payload.userId}::uuid, ${payload.xpAwarded}, 1, 1, 1, CURRENT_DATE)
+      ON CONFLICT (user_id) DO UPDATE SET
+        xp = user_stats.xp + EXCLUDED.xp,
+        solved_count = user_stats.solved_count + 1,
+        current_streak_days = CASE
+          WHEN user_stats.last_solved_on = CURRENT_DATE THEN user_stats.current_streak_days
+          WHEN user_stats.last_solved_on = CURRENT_DATE - 1 THEN user_stats.current_streak_days + 1
+          ELSE 1
+        END,
+        longest_streak_days = GREATEST(
+          user_stats.longest_streak_days,
+          CASE
+            WHEN user_stats.last_solved_on = CURRENT_DATE THEN user_stats.current_streak_days
+            WHEN user_stats.last_solved_on = CURRENT_DATE - 1 THEN user_stats.current_streak_days + 1
+            ELSE 1
+          END
+        ),
+        last_solved_on = CURRENT_DATE,
+        updated_at = now()`;
   }
 
   private async record(payload: ContentModeratedV1): Promise<void> {

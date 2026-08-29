@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -14,6 +15,35 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+
+export const BOOKMARK_TARGETS = {
+  COURSE: 'COURSE',
+  ROADMAP: 'ROADMAP',
+  EXERCISE: 'EXERCISE',
+  POST: 'POST',
+} as const;
+
+export class BookmarkQueryDto {
+  @IsOptional()
+  @IsIn(['COURSE', 'ROADMAP', 'EXERCISE', 'POST'])
+  type?: 'COURSE' | 'ROADMAP' | 'EXERCISE' | 'POST';
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 20;
+}
+
+export class SaveBookmarkDto {
+  @IsIn(['COURSE', 'ROADMAP', 'EXERCISE', 'POST'])
+  targetType!: 'COURSE' | 'ROADMAP' | 'EXERCISE' | 'POST';
+
+  @IsUUID()
+  targetId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  targetRef?: string;
+}
 
 export class UpdateSettingsDto {
   @IsOptional() @IsBoolean() emailNotifications?: boolean;

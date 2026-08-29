@@ -1,6 +1,8 @@
 import type { InvalidInput, Result } from '@codementor/kernel';
 import type {
   AdminAnnouncementCreatedV1,
+  AssignmentCreatedV1,
+  AssignmentReminderV1,
   ArticlePublishedV1,
   ContentModeratedV1,
   ContentRemovalRequestedV1,
@@ -9,6 +11,8 @@ import type {
   ExercisePublishedV1,
   ReviewableKind,
   RoadmapPublishedV1,
+  WorkspaceJoinReviewedV1,
+  WorkspaceMessageCreatedV1,
 } from '@codementor/contracts';
 import { NotificationContent } from '../domain/model/notification-content';
 import type { ReferenceType } from '../domain/model/notification-content';
@@ -44,11 +48,7 @@ export function fromCoursePublished(payload: CoursePublishedV1): Draft {
     referenceType: 'COURSE',
     referenceId: payload.courseId,
     actionLabel: 'Học ngay',
-    // Ứng dụng chưa có trang chi tiết khoá học đứng độc lập — đường duy nhất tới một
-    // khoá học hiện đi qua lộ trình chứa nó (`/paths/{slug}/courses/{slug}`), mà event
-    // này không biết lộ trình nào. Trỏ về danh mục thay vì dựng một URL sẽ 404.
-    // `slug` vẫn nằm trong metadata: có trang chi tiết thì đây là sửa đúng một dòng.
-    actionUrl: '/courses',
+    actionUrl: `/courses/${payload.courseId}`,
     metadata: { slug: payload.slug, lecturerName: payload.lecturerName },
   });
 }
@@ -74,8 +74,7 @@ export function fromRoadmapPublished(payload: RoadmapPublishedV1): Draft {
     referenceType: 'ROADMAP',
     referenceId: payload.roadmapId,
     actionLabel: 'Khám phá lộ trình',
-    // `/paths/[pathId]` nhận SLUG chứ không phải id — xem roadmap-card.tsx bên client.
-    actionUrl: `/paths/${payload.slug}`,
+    actionUrl: `/roadmaps/${payload.roadmapId}`,
     metadata: { slug: payload.slug },
   });
 }
@@ -110,6 +109,100 @@ export function fromAdminAnnouncement(payload: AdminAnnouncementCreatedV1): Draf
     message: payload.message,
     // Không có gì để bấm vào: thông báo bảo trì không dẫn tới trang nào cả.
     metadata: { announcementId: payload.announcementId },
+  });
+}
+
+export function fromWorkspaceJoinReviewed(payload: WorkspaceJoinReviewedV1): Draft {
+  const approved = payload.decision === 'approved';
+  return NotificationContent.create({
+    type: approved ? 'WORKSPACE_JOIN_APPROVED' : 'WORKSPACE_JOIN_REJECTED',
+    audienceType: 'USER',
+    audienceKey: payload.memberExternalId,
+    title: approved
+      ? '✅ Yêu cầu tham gia đã được duyệt'
+      : 'ℹ️ Yêu cầu tham gia chưa được chấp nhận',
+    message: approved
+      ? `Bạn đã trở thành thành viên của ${quoted(payload.workspaceName)}.`
+      : `Chủ nhóm ${quoted(payload.workspaceName)} đã từ chối yêu cầu tham gia của bạn.`,
+    referenceType: 'WORKSPACE',
+    referenceId: payload.groupId,
+    actionLabel: approved ? 'Mở nhóm học tập' : 'Xem thông tin nhóm',
+    actionUrl: `/workspace/${payload.workspaceSlug}`,
+    metadata: { workspaceSlug: payload.workspaceSlug, decision: payload.decision },
+  });
+}
+
+export function fromAssignmentCreated(
+  payload: AssignmentCreatedV1,
+  memberExternalId: string,
+): Draft {
+  const deadline = payload.dueAt
+    ? ` Hạn nộp ${new Date(payload.dueAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}.`
+    : '';
+  return NotificationContent.create({
+    type: 'WORKSPACE_ASSIGNMENT_CREATED',
+    audienceType: 'USER',
+    audienceKey: memberExternalId,
+    title: '📚 Bạn có bài tập mới',
+    message: `${quoted(payload.workspaceName)} vừa giao bài ${quoted(payload.exerciseTitle)}.${deadline}`,
+    referenceType: 'WORKSPACE',
+    referenceId: payload.groupId,
+    actionLabel: 'Mở bài tập',
+    actionUrl: `/workspace/${payload.workspaceSlug}?tab=exercises`,
+    metadata: {
+      workspaceSlug: payload.workspaceSlug,
+      groupExerciseId: payload.groupExerciseId,
+      exerciseId: payload.exerciseId,
+      dueAt: payload.dueAt,
+    },
+  });
+}
+
+export function fromAssignmentReminder(payload: AssignmentReminderV1): Draft {
+  const overdue = payload.kind === 'overdue';
+  const due = new Date(payload.dueAt).toLocaleString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+  });
+  return NotificationContent.create({
+    type: overdue ? 'WORKSPACE_ASSIGNMENT_OVERDUE' : 'WORKSPACE_ASSIGNMENT_DUE_SOON',
+    audienceType: 'USER',
+    audienceKey: payload.memberExternalId,
+    title: overdue ? '⏰ Bài tập đã quá hạn' : '⏳ Bài tập sắp đến hạn',
+    message: overdue
+      ? `${quoted(payload.exerciseTitle)} trong ${quoted(payload.workspaceName)} đã quá hạn từ ${due} và vẫn chưa hoàn thành.`
+      : `${quoted(payload.exerciseTitle)} trong ${quoted(payload.workspaceName)} có hạn nộp ${due}.`,
+    referenceType: 'WORKSPACE',
+    referenceId: payload.groupId,
+    actionLabel: 'Mở bài tập',
+    actionUrl: `/workspace/${payload.workspaceSlug}?tab=exercises`,
+    metadata: {
+      assignmentId: payload.assignmentId,
+      workspaceSlug: payload.workspaceSlug,
+      dueAt: payload.dueAt,
+      reminderKind: payload.kind,
+    },
+  });
+}
+
+export function fromWorkspaceMessage(
+  payload: WorkspaceMessageCreatedV1,
+  recipientExternalId: string,
+): Draft {
+  return NotificationContent.create({
+    type: 'WORKSPACE_MESSAGE',
+    audienceType: 'USER',
+    audienceKey: recipientExternalId,
+    title: `💬 Tin nhắn mới trong ${payload.workspaceName}`,
+    message: `${payload.senderName}: ${payload.contentPreview}`,
+    referenceType: 'WORKSPACE',
+    referenceId: payload.groupId,
+    actionLabel: 'Mở trò chuyện',
+    actionUrl: `/workspace/${payload.workspaceSlug}?tab=chat`,
+    metadata: {
+      workspaceSlug: payload.workspaceSlug,
+      messageId: payload.messageId,
+      senderName: payload.senderName,
+    },
   });
 }
 

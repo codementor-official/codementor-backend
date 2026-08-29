@@ -103,7 +103,8 @@ export class PrismaCourseRepository implements CourseRepository {
       : Prisma.sql`ORDER BY c.updated_at DESC, c.id DESC`;
 
     return this.prisma.$queryRaw<CourseListItem[]>`
-      SELECT c.id, c.slug::text AS slug, c.title, c.level::text AS level, c.status::text AS status,
+      SELECT c.id, c.slug::text AS slug, c.title, c.description,
+             c.cover_image_url AS "coverImageUrl", c.level::text AS level, c.status::text AS status,
              c.duration_hours AS "durationHours", c.total_chapters AS "totalChapters",
              c.total_lessons AS "totalLessons", c.created_by AS "createdBy",
              u.display_name AS "authorName", (c.status = 'published' AND c.rejection_reason IS NOT NULL) AS "removalRequested",

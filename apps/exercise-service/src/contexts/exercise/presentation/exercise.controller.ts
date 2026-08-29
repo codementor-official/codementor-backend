@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -11,7 +12,9 @@ import {
   Post,
   Put,
   Query,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Roles, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
@@ -19,6 +22,7 @@ import { CreateExerciseUseCase } from '../application/create-exercise.usecase';
 import { DeleteExerciseUseCase } from '../application/delete-exercise.usecase';
 import { ForkExerciseUseCase } from '../application/fork-exercise.usecase';
 import { GetExerciseUseCase } from '../application/get-exercise.usecase';
+import { GetExerciseGradingUseCase } from '../application/get-exercise-grading.usecase';
 import { GetExerciseReferencesUseCase } from '../application/get-exercise-references.usecase';
 import { ListExercisesUseCase } from '../application/list-exercises.usecase';
 import { ModerateExerciseUseCase } from '../application/moderate-exercise.usecase';
@@ -50,6 +54,7 @@ export class ExerciseController {
   constructor(
     private readonly listExercises: ListExercisesUseCase,
     private readonly getExercise: GetExerciseUseCase,
+    private readonly getExerciseGrading: GetExerciseGradingUseCase,
     private readonly getExerciseReferences: GetExerciseReferencesUseCase,
     private readonly createExercise: CreateExerciseUseCase,
     private readonly updateExercise: UpdateExerciseUseCase,
@@ -58,7 +63,25 @@ export class ExerciseController {
     private readonly forkExercise: ForkExerciseUseCase,
     private readonly review: ReviewTransitionUseCase,
     private readonly moderate: ModerateExerciseUseCase,
+    private readonly config: ConfigService,
   ) {}
+
+  @Get(':id/grading-content')
+  @ApiOperation({ summary: 'Internal: snapshot chấm bài, không dành cho browser' })
+  gradingContent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-internal-service-token') token?: string,
+  ) {
+    const configured = this.config.get<string>('INTERNAL_SERVICE_TOKEN');
+    const fallback =
+      this.config.get<string>('NODE_ENV') === 'production'
+        ? undefined
+        : 'codementor-local-internal-token';
+    if (!token || token !== (configured ?? fallback)) {
+      throw new UnauthorizedException('Internal service token không hợp lệ');
+    }
+    return this.getExerciseGrading.execute(id);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Kho bài chung — public và đã công khai' })

@@ -686,6 +686,14 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
     return user ? this.toUser(user) : null;
   }
 
+  async findUserExternalId(userId: string) {
+    const user = await this.prisma.users.findUnique({
+      where: { id: userId },
+      select: { external_id: true },
+    });
+    return user?.external_id ?? null;
+  }
+
   async refreshMemberCount(groupId: string) {
     const memberCount = await this.prisma.group_members.count({
       where: { group_id: groupId, status: member_status.active },
@@ -760,6 +768,17 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
   async findJoinRequest(groupId: string, requestId: string) {
     const row = await this.prisma.workspace_join_requests.findFirst({
       where: { id: requestId, group_id: groupId },
+      include: {
+        requester: {
+          select: { id: true, display_name: true, avatar_url: true, handle: true, email: true },
+        },
+      },
+    });
+    return row ? this.toJoinRequest(row) : null;
+  }
+  async findJoinRequestForUser(groupId: string, userId: string) {
+    const row = await this.prisma.workspace_join_requests.findUnique({
+      where: { group_id_user_id: { group_id: groupId, user_id: userId } },
       include: {
         requester: {
           select: { id: true, display_name: true, avatar_url: true, handle: true, email: true },

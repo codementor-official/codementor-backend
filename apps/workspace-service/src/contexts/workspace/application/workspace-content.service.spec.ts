@@ -38,8 +38,10 @@ describe('WorkspaceContentService permission boundaries', () => {
         id: contentId,
         authorId: otherUserId,
         publicationStatus: 'published',
+        assignmentMemberIds: [],
       }),
       updateExercise: jest.fn().mockResolvedValue({ id: contentId }),
+      assignmentNotificationRecipients: jest.fn().mockResolvedValue([]),
       softDeleteExercise: jest.fn().mockResolvedValue(true),
     };
     return {
@@ -48,6 +50,7 @@ describe('WorkspaceContentService permission boundaries', () => {
         content as never,
         {} as never,
         {} as never,
+        { publish: jest.fn() } as never,
       ),
       content,
     };
@@ -103,6 +106,7 @@ describe('WorkspaceContentService permission boundaries', () => {
       id: contentId,
       authorId: userId,
       publicationStatus: 'published',
+      assignmentMemberIds: [],
     });
 
     await expect(

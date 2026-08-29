@@ -8,6 +8,7 @@ import type {
 import {
   ACCOUNT_PREFERENCES_REPOSITORY,
   type AccountPreferencesRepository,
+  type BookmarkTarget,
 } from '../domain/port/account-preferences.repository';
 
 @Injectable()
@@ -44,5 +45,41 @@ export class AccountPreferencesService {
 
   getStats(userId: string): Promise<UserLearningStats> {
     return this.repository.getStats(userId);
+  }
+
+  leaderboard(limit = 5) {
+    return this.repository.leaderboard(Math.min(Math.max(limit, 1), 20));
+  }
+
+  async bookmarks(
+    userId: string,
+    targetType: BookmarkTarget | undefined,
+    page: number,
+    limit: number,
+  ) {
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const result = await this.repository.listBookmarks(userId, {
+      targetType,
+      page: safePage,
+      limit: safeLimit,
+    });
+    return {
+      ...result,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(result.total / safeLimit),
+    };
+  }
+
+  saveBookmark(
+    userId: string,
+    input: { targetType: BookmarkTarget; targetId: string; targetRef?: string },
+  ) {
+    return this.repository.saveBookmark(userId, input);
+  }
+
+  removeBookmark(userId: string, targetType: BookmarkTarget, targetId: string) {
+    return this.repository.removeBookmark(userId, targetType, targetId);
   }
 }

@@ -44,9 +44,20 @@ model assignments {
   group_members     group_members     @relation(fields: [group_id, member_id], references: [group_id, id], onDelete: Cascade, onUpdate: NoAction, map: "assignments_member_in_group")
   users             users?            @relation(fields: [reviewed_by], references: [id], onUpdate: NoAction)
   submissions       submissions[]
+  assignment_reminder_deliveries assignment_reminder_deliveries[]
 
   @@unique([group_exercise_id, member_id])
   @@index([member_id, status], map: "idx_assignments_member")
+}
+
+model assignment_reminder_deliveries {
+  assignment_id String      @db.Uuid
+  kind          String      @db.VarChar(20)
+  sent_at       DateTime    @default(now()) @db.Timestamptz(6)
+  assignments   assignments @relation(fields: [assignment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([assignment_id, kind], map: "pk_assignment_reminder_deliveries")
+  @@index([sent_at(sort: Desc)], map: "idx_assignment_reminder_deliveries_sent")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -814,6 +825,8 @@ model users {
   group_members                                      group_members[]
   learning_preferences                               learning_preferences?
   user_settings                                      user_settings?
+  user_bookmarks                                     user_bookmarks[]
+  content_reports                                    content_reports[]
   lesson_progress                                    lesson_progress[]
   roadmap_enrollments                                roadmap_enrollments[]
   roadmaps                                           roadmaps[]
@@ -821,6 +834,39 @@ model users {
   study_schedule_slots                               study_schedule_slots[]
   submissions                                        submissions[]
   user_stats                                         user_stats?
+}
+
+model user_bookmarks {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String   @db.Uuid
+  target_type String   @db.VarChar(20)
+  target_id   String   @db.Uuid
+  target_ref  String?  @db.VarChar(240)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  users       users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, target_type, target_id])
+  @@index([user_id, created_at(sort: Desc)], map: "idx_user_bookmarks_user_created")
+}
+
+model content_reports {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reporter_id String   @db.Uuid
+  target_type String   @db.VarChar(20)
+  target_id   String   @db.Uuid
+  target_ref  String?  @db.VarChar(240)
+  category    String   @db.VarChar(30)
+  note        String?  @db.VarChar(1000)
+  status      String   @default("PENDING") @db.VarChar(20)
+  resolution_note String? @db.VarChar(1000)
+  resolved_by String? @db.Uuid
+  resolved_at DateTime? @db.Timestamptz(6)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+  users       users    @relation(fields: [reporter_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([reporter_id, target_type, target_id], map: "uq_content_reports_reporter_target")
+  @@index([status, created_at(sort: Desc)], map: "idx_content_reports_status_created")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

@@ -1,6 +1,16 @@
 import { Module } from '@nestjs/common';
-import { AuthModule, RemoteIdentityModule, ConfigModule, HealthModule, HttpModule, LoggingModule, MongoModule, PrismaModule } from '@codementor/platform';
+import {
+  AuthModule,
+  RemoteIdentityModule,
+  ConfigModule,
+  HealthModule,
+  HttpModule,
+  LoggingModule,
+  MongoModule,
+  PrismaModule,
+} from '@codementor/platform';
 import { MessagingModule } from '@codementor/messaging';
+import { SubmissionModule } from './contexts/submission/submission.module';
 
 /**
  * submission-service
@@ -24,6 +34,7 @@ import { MessagingModule } from '@codementor/messaging';
     MongoModule,
     PrismaModule,
     MessagingModule.forRoot({ serviceName: 'submission-service', enableOutbox: true }),
+    SubmissionModule,
   ],
 })
 export class AppModule {}

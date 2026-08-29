@@ -62,6 +62,7 @@ export interface WorkspaceAssignmentRecord {
   exerciseId: string;
   exerciseSlug: string;
   exerciseTitle: string;
+  dueAt: Date | null;
   memberId: string;
   memberName: string;
   status: string;
@@ -75,6 +76,16 @@ export interface WorkspaceAssignmentRecord {
   latestAttemptNumber: number | null;
   latestIsLate: boolean;
   latestSubmittedAt: Date | null;
+}
+
+export interface AssignmentSubmissionContext {
+  assignmentId: string;
+  exerciseId: string;
+  dueAt: Date | null;
+  attemptLimit: number | null;
+  allowRetry: boolean;
+  allowLateSubmission: boolean;
+  submissionCount: number;
 }
 export interface WorkspaceSubmissionRecord {
   id: string;
@@ -175,7 +186,8 @@ export interface WorkspaceContentRepository {
       allowLateSubmission: boolean;
       memberIds: string[];
     },
-  ): Promise<void>;
+  ): Promise<{ groupExerciseId: string; exerciseTitle: string }>;
+  assignmentNotificationRecipients(groupId: string, memberIds: string[]): Promise<string[]>;
   createExercise(
     groupId: string,
     userId: string,
@@ -242,6 +254,10 @@ export interface WorkspaceContentRepository {
     },
   ): Promise<ContentPage<WorkspaceAssignmentRecord>>;
   assignmentExists(groupId: string, id: string, memberId?: string): Promise<boolean>;
+  assignmentSubmissionContext(
+    assignmentId: string,
+    userId: string,
+  ): Promise<AssignmentSubmissionContext | null>;
   submissionHistory(groupId: string, assignmentId: string): Promise<WorkspaceSubmissionRecord[]>;
   updateAssignment(
     groupId: string,

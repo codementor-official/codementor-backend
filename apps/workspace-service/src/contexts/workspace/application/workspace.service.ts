@@ -1,7 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
+import { TOPICS } from '@codementor/contracts';
+import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import {
   assertCanManageWorkspace,
   assertConfigurableRole,
@@ -32,7 +34,12 @@ const DEFAULT_LIMIT = 8;
 /** Application layer: điều phối use case; policy nằm ở domain, I/O nằm ở repository port. */
 @Injectable()
 export class WorkspaceService {
-  constructor(@Inject(WORKSPACE_REPOSITORY) private readonly workspaces: WorkspaceRepository) {}
+  private readonly logger = new Logger(WorkspaceService.name);
+
+  constructor(
+    @Inject(WORKSPACE_REPOSITORY) private readonly workspaces: WorkspaceRepository,
+    @Inject(EVENT_BUS) private readonly events: EventBus,
+  ) {}
 
   async list(userId: string, query: ListWorkspacesQueryDto) {
     const limit = clamp(query.limit, DEFAULT_LIMIT, 50);
@@ -121,6 +128,45 @@ export class WorkspaceService {
             }
           : null,
     };
+  }
+
+  async publicDetail(userId: string, slug: string) {
+    const data = await this.workspaces.findDetail(slug, userId);
+    if (!data || data.privacy !== 'public') throw new NotFound('Không tìm thấy nhóm học tập');
+    const request = data.membership
+      ? null
+      : await this.workspaces.findJoinRequestForUser(data.id, userId);
+
+    return {
+      id: data.id,
+      slug: data.slug,
+      name: data.name,
+      description: data.description,
+      topic: data.topic,
+      memberCount: data.memberCount,
+      coverUrl: data.coverUrl,
+      coverPosition: data.coverPosition,
+      coverFit: data.coverFit,
+      coverHeight: data.coverHeight,
+      joinPolicy: data.joinPolicy,
+      createdAt: data.createdAt,
+      lastActivityAt: data.lastActivityAt ?? data.updatedAt,
+      owner: {
+        id: data.owner.id,
+        displayName: data.owner.displayName,
+        avatarUrl: data.owner.avatarUrl,
+        handle: data.owner.handle,
+      },
+      membership: data.membership ? { role: data.membership.role } : null,
+      joinRequestStatus: request?.status ?? null,
+    };
+  }
+
+  /** Internal helper for signing a public cover without exposing its S3 key in the DTO. */
+  async publicCoverSource(userId: string, slug: string) {
+    const data = await this.workspaces.findDetail(slug, userId);
+    if (!data || data.privacy !== 'public') throw new NotFound('Không tìm thấy nhóm học tập');
+    return { coverKey: data.coverKey, coverUrl: data.coverUrl };
   }
 
   async create(userId: string, dto: CreateWorkspaceDto) {
@@ -455,6 +501,22 @@ export class WorkspaceService {
       );
     }
     await this.workspaces.reviewJoinRequest(request.id, userId, decision);
+    const memberExternalId = await this.workspaces.findUserExternalId(request.userId);
+    if (memberExternalId) {
+      try {
+        await this.events.publish(TOPICS.WORKSPACE_JOIN_REVIEWED, {
+          groupId: workspace.id,
+          workspaceSlug: workspace.slug,
+          workspaceName: workspace.name,
+          memberExternalId,
+          decision,
+        });
+      } catch (error) {
+        // The membership decision is authoritative in PostgreSQL. A temporary Kafka
+        // outage must not turn an approved request back into an HTTP error for the owner.
+        this.logger.error('Không phát được thông báo kết quả duyệt thành viên', error as Error);
+      }
+    }
     return { status: decision };
   }
 

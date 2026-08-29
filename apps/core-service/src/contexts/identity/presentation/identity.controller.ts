@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseEnumPipe,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiProperty, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
 import { CurrentUser, requireHumanId } from '@codementor/platform';
@@ -10,9 +21,13 @@ import { PresignAvatarUploadUseCase } from '../application/presign-avatar-upload
 import { UserResponse } from './dto/user.response';
 import {
   AvatarUploadDto,
+  BOOKMARK_TARGETS,
+  BookmarkQueryDto,
+  SaveBookmarkDto,
   UpdatePreferencesDto,
   UpdateSettingsDto,
 } from './dto/account-preferences.dto';
+import type { BookmarkTarget } from '../domain/port/account-preferences.repository';
 
 /**
  * Chỉ cho phép các múi giờ Việt Nam đang dùng. Danh sách IANA đầy đủ là 400+ giá trị
@@ -156,5 +171,33 @@ export class IdentityController {
   @ApiOperation({ summary: 'Thống kê học tập đã lưu của tài khoản đang đăng nhập' })
   stats(@CurrentUser() user: AuthenticatedUser) {
     return this.accountPreferences.getStats(requireHumanId(user));
+  }
+
+  @Get('bookmarks')
+  @ApiOperation({ summary: 'Danh sách nội dung người dùng đã lưu' })
+  bookmarks(@CurrentUser() user: AuthenticatedUser, @Query() query: BookmarkQueryDto) {
+    return this.accountPreferences.bookmarks(
+      requireHumanId(user),
+      query.type,
+      query.page,
+      query.limit,
+    );
+  }
+
+  @Post('bookmarks')
+  @ApiOperation({ summary: 'Lưu một nội dung để xem lại' })
+  saveBookmark(@CurrentUser() user: AuthenticatedUser, @Body() dto: SaveBookmarkDto) {
+    return this.accountPreferences.saveBookmark(requireHumanId(user), dto);
+  }
+
+  @Delete('bookmarks/:type/:targetId')
+  @ApiOperation({ summary: 'Bỏ lưu nội dung' })
+  async removeBookmark(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('type', new ParseEnumPipe(BOOKMARK_TARGETS)) type: BookmarkTarget,
+    @Param('targetId', new ParseUUIDPipe()) targetId: string,
+  ) {
+    await this.accountPreferences.removeBookmark(requireHumanId(user), type, targetId);
+    return { removed: true };
   }
 }

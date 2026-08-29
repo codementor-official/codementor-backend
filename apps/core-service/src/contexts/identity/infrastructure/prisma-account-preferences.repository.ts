@@ -8,7 +8,12 @@ import {
   type UserLearningStats,
   type UserSettings,
 } from '../domain/model/account-preferences';
-import type { AccountPreferencesRepository } from '../domain/port/account-preferences.repository';
+import type {
+  AccountPreferencesRepository,
+  BookmarkTarget,
+  LearningLeaderboardEntry,
+  UserBookmark,
+} from '../domain/port/account-preferences.repository';
 
 interface SettingsRow {
   emailNotifications: boolean;
@@ -217,6 +222,95 @@ export class PrismaAccountPreferencesRepository implements AccountPreferencesRep
     return row
       ? { ...row, lastSolvedOn: row.lastSolvedOn?.toISOString().slice(0, 10) ?? null }
       : { xp: 0, solvedCount: 0, currentStreakDays: 0, longestStreakDays: 0, lastSolvedOn: null };
+  }
+
+  leaderboard(limit: number): Promise<LearningLeaderboardEntry[]> {
+    return this.prisma.$queryRawUnsafe<LearningLeaderboardEntry[]>(
+      `SELECT u.id, u.display_name AS "displayName", u.avatar_url AS "avatarUrl",
+              COALESCE(s.xp, 0)::int AS xp,
+              COALESCE(s.solved_count, 0)::int AS "solvedCount"
+       FROM users u
+       JOIN user_stats s ON s.user_id = u.id
+       WHERE u.status = 'active' AND u.role = 'learner'
+       ORDER BY s.xp DESC, s.solved_count DESC, u.id ASC
+       LIMIT $1`,
+      limit,
+    );
+  }
+
+  async listBookmarks(
+    userId: string,
+    input: { targetType?: BookmarkTarget; page: number; limit: number },
+  ) {
+    const offset = (input.page - 1) * input.limit;
+    const typeFilter = input.targetType ? 'AND target_type = $4' : '';
+    const params: unknown[] = [userId, input.limit, offset];
+    if (input.targetType) params.push(input.targetType);
+    const [items, countRows] = await Promise.all([
+      this.prisma.$queryRawUnsafe<
+        Array<{
+          id: string;
+          targetType: BookmarkTarget;
+          targetId: string;
+          targetRef: string | null;
+          createdAt: Date;
+        }>
+      >(
+        `SELECT id, target_type AS "targetType", target_id AS "targetId",
+                target_ref AS "targetRef", created_at AS "createdAt"
+         FROM user_bookmarks
+         WHERE user_id = $1::uuid ${typeFilter}
+         ORDER BY created_at DESC, id DESC
+         LIMIT $2 OFFSET $3`,
+        ...params,
+      ),
+      this.prisma.$queryRawUnsafe<Array<{ total: bigint }>>(
+        `SELECT count(*) AS total FROM user_bookmarks
+         WHERE user_id = $1::uuid ${input.targetType ? 'AND target_type = $2' : ''}`,
+        ...(input.targetType ? [userId, input.targetType] : [userId]),
+      ),
+    ]);
+    return {
+      items: items.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })),
+      total: Number(countRows[0]?.total ?? 0),
+    };
+  }
+
+  async saveBookmark(
+    userId: string,
+    input: { targetType: BookmarkTarget; targetId: string; targetRef?: string },
+  ): Promise<UserBookmark> {
+    const [row] = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: string;
+        targetType: BookmarkTarget;
+        targetId: string;
+        targetRef: string | null;
+        createdAt: Date;
+      }>
+    >(
+      `INSERT INTO user_bookmarks (user_id, target_type, target_id, target_ref)
+       VALUES ($1::uuid, $2, $3::uuid, $4)
+       ON CONFLICT (user_id, target_type, target_id) DO UPDATE SET
+         target_ref = COALESCE(EXCLUDED.target_ref, user_bookmarks.target_ref)
+       RETURNING id, target_type AS "targetType", target_id AS "targetId",
+                 target_ref AS "targetRef", created_at AS "createdAt"`,
+      userId,
+      input.targetType,
+      input.targetId,
+      input.targetRef?.trim() || null,
+    );
+    return { ...row, createdAt: row.createdAt.toISOString() };
+  }
+
+  async removeBookmark(userId: string, targetType: BookmarkTarget, targetId: string) {
+    await this.prisma.$executeRawUnsafe(
+      `DELETE FROM user_bookmarks
+       WHERE user_id = $1::uuid AND target_type = $2 AND target_id = $3::uuid`,
+      userId,
+      targetType,
+      targetId,
+    );
   }
 
   private async getSchedule(userId: string): Promise<StudyScheduleSlot[]> {

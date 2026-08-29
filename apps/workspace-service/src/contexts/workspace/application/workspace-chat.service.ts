@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
+import { TOPICS } from '@codementor/contracts';
+import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import {
   WORKSPACE_CHAT_REPOSITORY,
   type WorkspaceChatRepository,
@@ -20,6 +22,7 @@ export class WorkspaceChatService {
   constructor(
     private readonly workspaces: WorkspaceService,
     @Inject(WORKSPACE_CHAT_REPOSITORY) private readonly chat: WorkspaceChatRepository,
+    @Inject(EVENT_BUS) private readonly events: EventBus,
   ) {}
 
   async history(userId: string, slug: string, query: ListWorkspaceMessagesQueryDto) {
@@ -41,7 +44,24 @@ export class WorkspaceChatService {
   async create(userId: string, slug: string, dto: CreateWorkspaceMessageDto) {
     const workspace = await this.workspaces.detail(userId, slug);
     const content = normaliseContent(dto.content);
-    return toMessage(await this.chat.createMessage(workspace.id, userId, content));
+    const message = await this.chat.createMessage(workspace.id, userId, content);
+    const recipientExternalIds = await this.chat.notificationRecipients(workspace.id, userId);
+    if (recipientExternalIds.length > 0) {
+      await this.events.publish(
+        TOPICS.WORKSPACE_MESSAGE_CREATED,
+        {
+          groupId: workspace.id,
+          workspaceSlug: workspace.slug,
+          workspaceName: workspace.name,
+          messageId: message.id,
+          senderName: message.sender.displayName,
+          contentPreview: content.length > 160 ? `${content.slice(0, 157)}…` : content,
+          recipientExternalIds,
+        },
+        { actorUserId: userId },
+      );
+    }
+    return toMessage(message);
   }
 
   async update(userId: string, slug: string, messageId: string, dto: UpdateWorkspaceMessageDto) {

@@ -23,6 +23,8 @@ export interface CourseListItem {
   id: string;
   slug: string;
   title: string;
+  description: string | null;
+  coverImageUrl: string | null;
   level: string;
   status: string;
   durationHours: number | null;

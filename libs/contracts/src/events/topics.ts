@@ -91,7 +91,10 @@ export const TOPICS = {
 
   // ---- Workspace ----
   ASSIGNMENT_CREATED: 'evt.assignment.created.v1',
+  ASSIGNMENT_REMINDER: 'evt.assignment.reminder.v1',
   ASSIGNMENT_REVIEWED: 'evt.assignment.reviewed.v1',
+  WORKSPACE_MESSAGE_CREATED: 'evt.workspace.message-created.v1',
+  WORKSPACE_JOIN_REVIEWED: 'evt.workspace.join-reviewed.v1',
 } as const;
 
 export type TopicName = (typeof TOPICS)[keyof typeof TOPICS];
@@ -143,7 +146,10 @@ export const PARTITION_KEY: Record<TopicName, string> = {
   [TOPICS.NOTIFICATION_CREATED]: 'notificationId',
 
   [TOPICS.ASSIGNMENT_CREATED]: 'groupId',
+  [TOPICS.ASSIGNMENT_REMINDER]: 'groupId',
   [TOPICS.ASSIGNMENT_REVIEWED]: 'groupId',
+  [TOPICS.WORKSPACE_MESSAGE_CREATED]: 'groupId',
+  [TOPICS.WORKSPACE_JOIN_REVIEWED]: 'groupId',
 };
 
 /** Topic dạng command — chỉ được có đúng một consumer group. Dùng để kiểm tra lúc đăng ký. */

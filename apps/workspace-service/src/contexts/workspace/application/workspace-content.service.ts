@@ -1,8 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
 import { DOCUMENT_CONTENT_TYPES, ObjectStorageService } from '@codementor/platform';
+import { TOPICS } from '@codementor/contracts';
+import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import {
   WORKSPACE_CONTENT_REPOSITORY,
   type WorkspaceContentRepository,
@@ -27,12 +29,20 @@ type Detail = Awaited<ReturnType<WorkspaceService['detail']>>;
 
 @Injectable()
 export class WorkspaceContentService {
+  private readonly logger = new Logger(WorkspaceContentService.name);
+
   constructor(
     private readonly workspaces: WorkspaceService,
     @Inject(WORKSPACE_CONTENT_REPOSITORY) private readonly content: WorkspaceContentRepository,
     private readonly storage: ObjectStorageService,
     @InjectConnection() private readonly mongo: Connection,
+    @Inject(EVENT_BUS) private readonly events: EventBus,
   ) {}
+
+  /** Internal read used by submission-service; never accepts a user id from the browser body. */
+  assignmentSubmissionContext(userId: string, assignmentId: string) {
+    return this.content.assignmentSubmissionContext(assignmentId, userId);
+  }
 
   async uploadConfig(userId: string, slug: string) {
     const detail = await this.workspaces.detail(userId, slug);
@@ -69,9 +79,16 @@ export class WorkspaceContentService {
     return result.value;
   }
   async coverPreview(userId: string, slug: string) {
-    const detail = await this.workspaces.detail(userId, slug);
-    if (!detail.coverKey) return { url: detail.coverUrl, expiresInSeconds: null };
-    const result = await this.storage.presignDownload(detail.coverKey, 'workspace-cover', 'inline');
+    let cover: { coverKey: string | null; coverUrl: string | null };
+    try {
+      const detail = await this.workspaces.detail(userId, slug);
+      cover = { coverKey: detail.coverKey, coverUrl: detail.coverUrl };
+    } catch (cause) {
+      if (!(cause instanceof NotFound)) throw cause;
+      cover = await this.workspaces.publicCoverSource(userId, slug);
+    }
+    if (!cover.coverKey) return { url: cover.coverUrl, expiresInSeconds: null };
+    const result = await this.storage.presignDownload(cover.coverKey, 'workspace-cover', 'inline');
     if (result.isFail) throw result.error;
     return result.value;
   }
@@ -303,13 +320,19 @@ export class WorkspaceContentService {
     this.requireAny(detail, ['assign_exercise']);
     if (!(await this.content.publicExerciseExists(dto.exerciseId)))
       throw new NotFound('Bài tập', dto.exerciseId);
-    await this.content.attachExercise(detail.id, userId, {
+    const linked = await this.content.attachExercise(detail.id, userId, {
       exerciseId: dto.exerciseId,
       dueAt: dto.dueAt ? new Date(dto.dueAt) : undefined,
       attemptLimit: dto.attemptLimit,
       allowRetry: dto.allowRetry ?? true,
       allowLateSubmission: dto.allowLateSubmission ?? false,
       memberIds: dto.memberIds,
+    });
+    await this.publishAssignmentCreated(detail, {
+      ...linked,
+      exerciseId: dto.exerciseId,
+      memberIds: dto.memberIds,
+      dueAt: dto.dueAt ? new Date(dto.dueAt) : null,
     });
     return { attached: true };
   }
@@ -318,7 +341,7 @@ export class WorkspaceContentService {
     this.requireAny(detail, ['create_exercise']);
     if (dto.memberIds.length && !this.canAny(detail, ['assign_exercise']))
       throw new NotAuthorized('Bạn không có quyền phân công bài tập');
-    return this.content.createExercise(detail.id, userId, {
+    const created = await this.content.createExercise(detail.id, userId, {
       title: dto.title.trim(),
       slug: clean(dto.slug),
       summary: clean(dto.summary),
@@ -335,6 +358,14 @@ export class WorkspaceContentService {
       allowLateSubmission: dto.allowLateSubmission ?? false,
       memberIds: dto.memberIds,
     });
+    await this.publishAssignmentCreated(detail, {
+      groupExerciseId: created.id,
+      exerciseId: created.exerciseId,
+      exerciseTitle: created.title,
+      memberIds: dto.memberIds,
+      dueAt: created.dueAt,
+    });
+    return created;
   }
   async generateExerciseDraft(
     userId: string,
@@ -411,6 +442,8 @@ export class WorkspaceContentService {
       throw new NotAuthorized('Bạn không có quyền ẩn hoặc xuất bản bài tập');
     if (!hasContentPatch && !hasAssignmentPatch && dto.publicationStatus === undefined)
       throw new BusinessRuleViolation('Không có thay đổi hợp lệ');
+    const newlyAssigned =
+      dto.memberIds?.filter((memberId) => !existing.assignmentMemberIds.includes(memberId)) ?? [];
     const updated = await this.content.updateExercise(detail.id, id, {
       dueAt: dto.dueAt === undefined ? undefined : dto.dueAt ? new Date(dto.dueAt) : null,
       attemptLimit: dto.attemptLimit,
@@ -427,6 +460,15 @@ export class WorkspaceContentService {
       content: dto.content,
     });
     if (!updated) throw new NotFound('Bài tập nhóm', id);
+    if (newlyAssigned.length > 0) {
+      await this.publishAssignmentCreated(detail, {
+        groupExerciseId: existing.id,
+        exerciseId: existing.exerciseId,
+        exerciseTitle: dto.title?.trim() || existing.title,
+        memberIds: newlyAssigned,
+        dueAt: dto.dueAt === undefined ? existing.dueAt : dto.dueAt ? new Date(dto.dueAt) : null,
+      });
+    }
     return { updated: true };
   }
   async deleteExercise(userId: string, slug: string, id: string, dto?: RemoveWorkspaceContentDto) {
@@ -533,6 +575,39 @@ export class WorkspaceContentService {
     });
     if (!updated) throw new NotFound('Bài giao', id);
     return { updated: true };
+  }
+
+  private async publishAssignmentCreated(
+    detail: Detail,
+    assignment: {
+      groupExerciseId: string;
+      exerciseId: string;
+      exerciseTitle: string;
+      memberIds: string[];
+      dueAt: Date | null;
+    },
+  ) {
+    if (assignment.memberIds.length === 0) return;
+    const memberExternalIds = await this.content.assignmentNotificationRecipients(
+      detail.id,
+      assignment.memberIds,
+    );
+    if (memberExternalIds.length === 0) return;
+    try {
+      await this.events.publish(TOPICS.ASSIGNMENT_CREATED, {
+        groupId: detail.id,
+        workspaceSlug: detail.slug,
+        workspaceName: detail.name,
+        groupExerciseId: assignment.groupExerciseId,
+        exerciseId: assignment.exerciseId,
+        memberIds: assignment.memberIds,
+        memberExternalIds,
+        exerciseTitle: assignment.exerciseTitle,
+        dueAt: assignment.dueAt?.toISOString() ?? null,
+      });
+    } catch (error) {
+      this.logger.error('Không phát được thông báo bài tập mới', error as Error);
+    }
   }
 
   private require(detail: Detail, permission: keyof Detail['currentMembership']['permissions']) {

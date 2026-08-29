@@ -12,6 +12,9 @@ import { PrismaWorkspaceContentRepository } from './infrastructure/prisma-worksp
 import { WorkspaceChatService } from './application/workspace-chat.service';
 import { WORKSPACE_CHAT_REPOSITORY } from './domain/port/workspace-chat.repository';
 import { PrismaWorkspaceChatRepository } from './infrastructure/prisma-workspace-chat.repository';
+import { AssignmentReminderScheduler } from './application/assignment-reminder.scheduler';
+import { ASSIGNMENT_REMINDER_REPOSITORY } from './domain/port/assignment-reminder.repository';
+import { PrismaAssignmentReminderRepository } from './infrastructure/prisma-assignment-reminder.repository';
 
 @Module({
   controllers: [WorkspaceController],
@@ -20,10 +23,12 @@ import { PrismaWorkspaceChatRepository } from './infrastructure/prisma-workspace
     WorkspaceOverviewService,
     WorkspaceContentService,
     WorkspaceChatService,
+    AssignmentReminderScheduler,
     { provide: WORKSPACE_REPOSITORY, useClass: PrismaWorkspaceRepository },
     { provide: WORKSPACE_OVERVIEW_REPOSITORY, useClass: PrismaWorkspaceOverviewRepository },
     { provide: WORKSPACE_CONTENT_REPOSITORY, useClass: PrismaWorkspaceContentRepository },
     { provide: WORKSPACE_CHAT_REPOSITORY, useClass: PrismaWorkspaceChatRepository },
+    { provide: ASSIGNMENT_REMINDER_REPOSITORY, useClass: PrismaAssignmentReminderRepository },
   ],
 })
 export class WorkspaceModule {}

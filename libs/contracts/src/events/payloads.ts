@@ -158,12 +158,7 @@ export interface JudgeStartedV1 {
 export interface JudgeCompletedV1 {
   submissionId: string;
   verdict:
-    | 'accepted'
-    | 'wrong_answer'
-    | 'compile_error'
-    | 'runtime_error'
-    | 'timeout'
-    | 'memory_exceeded';
+    'accepted' | 'wrong_answer' | 'compile_error' | 'runtime_error' | 'timeout' | 'memory_exceeded';
   score: number;
   passedTests: number;
   totalTests: number;
@@ -186,6 +181,8 @@ export interface SubmissionEvaluatedV1 {
   assignmentId: string | null;
   accepted: boolean;
   score: number;
+  /** True only when this evaluation is the learner's first accepted result for the exercise. */
+  firstAccepted: boolean;
   /** XP thưởng khi lần ĐẦU giải được; 0 nếu người này đã giải bài đó trước đó. */
   xpAwarded: number;
 }
@@ -255,7 +252,6 @@ export interface ArticlePublishedV1 {
   /** Tóm tắt do người viết soạn; bắt buộc phải có mới đăng được bài. */
   excerpt: string | null;
 }
-
 
 /* -------------------------------------------------------------- Kiểm duyệt */
 
@@ -393,10 +389,25 @@ export interface NotificationCreatedV1 {
 
 export interface AssignmentCreatedV1 {
   groupId: string;
+  workspaceSlug: string;
+  workspaceName: string;
   groupExerciseId: string;
   exerciseId: string;
   memberIds: string[];
+  memberExternalIds: string[];
+  exerciseTitle: string;
   dueAt: string | null;
+}
+
+export interface AssignmentReminderV1 {
+  groupId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  assignmentId: string;
+  exerciseTitle: string;
+  memberExternalId: string;
+  dueAt: string;
+  kind: 'due_soon' | 'overdue';
 }
 
 export interface AssignmentReviewedV1 {
@@ -405,6 +416,24 @@ export interface AssignmentReviewedV1 {
   memberId: string;
   reviewStatus: 'approved' | 'needsfix';
   reviewedBy: string;
+}
+
+export interface WorkspaceJoinReviewedV1 {
+  groupId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  memberExternalId: string;
+  decision: 'approved' | 'rejected';
+}
+
+export interface WorkspaceMessageCreatedV1 {
+  groupId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  messageId: string;
+  senderName: string;
+  contentPreview: string;
+  recipientExternalIds: string[];
 }
 
 /* ------------------------------------------------------------------ Mapping */
@@ -446,5 +475,8 @@ export interface TopicPayloadMap {
   [TOPICS.NOTIFICATION_CREATED]: NotificationCreatedV1;
 
   [TOPICS.ASSIGNMENT_CREATED]: AssignmentCreatedV1;
+  [TOPICS.ASSIGNMENT_REMINDER]: AssignmentReminderV1;
   [TOPICS.ASSIGNMENT_REVIEWED]: AssignmentReviewedV1;
+  [TOPICS.WORKSPACE_MESSAGE_CREATED]: WorkspaceMessageCreatedV1;
+  [TOPICS.WORKSPACE_JOIN_REVIEWED]: WorkspaceJoinReviewedV1;
 }

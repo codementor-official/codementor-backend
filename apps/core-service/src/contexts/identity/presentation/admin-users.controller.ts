@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Roles } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
@@ -7,6 +7,7 @@ import { KeycloakAdminService } from '../infrastructure/keycloak-admin.service';
 import { GetAdminUserUseCase } from '../application/get-admin-user.usecase';
 import { MirrorAccountUseCase } from '../application/mirror-account.usecase';
 import { ListUsersUseCase } from '../application/list-users.usecase';
+import { AccountPreferencesService } from '../application/account-preferences.service';
 import {
   CreateUserDto,
   ListUsersQueryDto,
@@ -37,6 +38,7 @@ export class AdminUsersController {
     private readonly profile: GetAdminUserUseCase,
     private readonly audit: AuditLogService,
     private readonly mirror: MirrorAccountUseCase,
+    private readonly accountPreferences: AccountPreferencesService,
   ) {}
 
   @Get()
@@ -58,6 +60,12 @@ export class AdminUsersController {
   @ApiOperation({ summary: 'Tài khoản mới theo tháng, cho biểu đồ tăng trưởng' })
   growth() {
     return this.directory.growth();
+  }
+
+  @Get('leaderboard')
+  @ApiOperation({ summary: 'Bảng xếp hạng XP công khai cho màn Khám phá' })
+  leaderboard(@Query('limit', new DefaultValuePipe(5), ParseIntPipe) limit: number) {
+    return this.accountPreferences.leaderboard(limit);
   }
 
   // Sau `summary`/`growth` và trước mọi route `:id/...`: Nest khớp theo thứ tự khai báo,

@@ -33,6 +33,7 @@ export interface WorkspaceChatRepository {
   deleteMessage(messageId: string): Promise<WorkspaceMessageRecord>;
   unreadCount(groupId: string, membershipId: string, userId: string): Promise<number>;
   markRead(membershipId: string, readAt: Date): Promise<void>;
+  notificationRecipients(groupId: string, senderId: string): Promise<string[]>;
 }
 
 export const WORKSPACE_CHAT_REPOSITORY = Symbol('WORKSPACE_CHAT_REPOSITORY');

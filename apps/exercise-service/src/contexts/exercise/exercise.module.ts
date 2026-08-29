@@ -3,12 +3,14 @@ import { CreateExerciseUseCase } from './application/create-exercise.usecase';
 import { DeleteExerciseUseCase } from './application/delete-exercise.usecase';
 import { ForkExerciseUseCase } from './application/fork-exercise.usecase';
 import { GetExerciseUseCase } from './application/get-exercise.usecase';
+import { GetExerciseGradingUseCase } from './application/get-exercise-grading.usecase';
 import { GetExerciseReferencesUseCase } from './application/get-exercise-references.usecase';
 import { ListExercisesUseCase } from './application/list-exercises.usecase';
 import { ModerateExerciseUseCase } from './application/moderate-exercise.usecase';
 import { ReviewTransitionUseCase } from './application/review-transition.usecase';
 import { SaveContentUseCase } from './application/save-content.usecase';
 import { UpdateExerciseUseCase } from './application/update-exercise.usecase';
+import { SubmissionEvaluatedConsumer } from './application/submission-evaluated.consumer';
 import {
   EXERCISE_CONTENT_REPOSITORY,
   EXERCISE_REPOSITORY,
@@ -22,6 +24,7 @@ import { ExerciseController } from './presentation/exercise.controller';
   providers: [
     ListExercisesUseCase,
     GetExerciseUseCase,
+    GetExerciseGradingUseCase,
     GetExerciseReferencesUseCase,
     CreateExerciseUseCase,
     UpdateExerciseUseCase,
@@ -30,6 +33,7 @@ import { ExerciseController } from './presentation/exercise.controller';
     ForkExerciseUseCase,
     ReviewTransitionUseCase,
     ModerateExerciseUseCase,
+    SubmissionEvaluatedConsumer,
     { provide: EXERCISE_REPOSITORY, useClass: PrismaExerciseRepository },
     { provide: EXERCISE_CONTENT_REPOSITORY, useClass: MongoExerciseContentRepository },
   ],

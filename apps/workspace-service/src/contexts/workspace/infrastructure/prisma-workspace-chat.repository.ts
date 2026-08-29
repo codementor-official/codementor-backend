@@ -87,6 +87,21 @@ export class PrismaWorkspaceChatRepository implements WorkspaceChatRepository {
       DO UPDATE SET last_read_at = EXCLUDED.last_read_at, updated_at = EXCLUDED.updated_at
     `);
   }
+
+  async notificationRecipients(groupId: string, senderId: string) {
+    const rows = await this.prisma.$queryRaw<Array<{ externalId: string }>>(Prisma.sql`
+      SELECT DISTINCT u.external_id AS "externalId"
+      FROM group_members gm
+      JOIN users u ON u.id = gm.user_id
+      LEFT JOIN user_settings settings ON settings.user_id = u.id
+      WHERE gm.group_id = ${groupId}::uuid
+        AND gm.status = 'active'
+        AND gm.user_id <> ${senderId}::uuid
+        AND u.external_id IS NOT NULL
+        AND COALESCE(settings.workspace_notifications, true) = true
+    `);
+    return rows.map((row) => row.externalId);
+  }
 }
 
 interface MessageRow {

@@ -24,14 +24,20 @@ export type NotificationType =
   | 'CONTENT_CHANGES_REQUESTED'
   | 'CONTENT_REJECTED'
   | 'CONTENT_ARCHIVED'
-  | 'REMOVAL_REQUEST_DENIED';
+  | 'REMOVAL_REQUEST_DENIED'
+  | 'WORKSPACE_JOIN_APPROVED'
+  | 'WORKSPACE_JOIN_REJECTED'
+  | 'WORKSPACE_ASSIGNMENT_CREATED'
+  | 'WORKSPACE_ASSIGNMENT_DUE_SOON'
+  | 'WORKSPACE_ASSIGNMENT_OVERDUE'
+  | 'WORKSPACE_MESSAGE';
 
 /**
  * `POST` chứ không phải `ARTICLE`: đây là từ vựng hướng ra ngoài, và yêu cầu nghiệp vụ
  * gọi loại nội dung này là "post". Bên trong hệ thống nó vẫn là `articles` — xem
  * `TOPICS.ARTICLE_PUBLISHED`.
  */
-export type ReferenceType = 'COURSE' | 'EXERCISE' | 'ROADMAP' | 'POST';
+export type ReferenceType = 'COURSE' | 'EXERCISE' | 'ROADMAP' | 'POST' | 'WORKSPACE';
 
 interface ContentProps extends Record<string, unknown> {
   type: NotificationType;

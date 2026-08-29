@@ -204,6 +204,7 @@ export interface WorkspaceRepository {
     permissions: { permission: WorkspacePermission; allowed: boolean | null }[],
   ): Promise<void>;
   findUserByHandle(handle: string): Promise<WorkspaceUser | null>;
+  findUserExternalId(userId: string): Promise<string | null>;
   refreshMemberCount(groupId: string): Promise<number>;
   recordActivity(
     groupId: string,
@@ -222,6 +223,10 @@ export interface WorkspaceRepository {
     status?: 'pending' | 'rejected',
   ): Promise<WorkspaceJoinRequestRecord[]>;
   findJoinRequest(groupId: string, requestId: string): Promise<WorkspaceJoinRequestRecord | null>;
+  findJoinRequestForUser(
+    groupId: string,
+    userId: string,
+  ): Promise<WorkspaceJoinRequestRecord | null>;
   reviewJoinRequest(
     requestId: string,
     reviewerId: string,

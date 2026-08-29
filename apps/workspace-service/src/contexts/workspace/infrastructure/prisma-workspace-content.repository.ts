@@ -371,7 +371,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       memberIds: string[];
     },
   ) {
-    await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const linked = await tx.group_exercises.upsert({
         where: { group_id_exercise_id: { group_id: groupId, exercise_id: input.exerciseId } },
         create: {
@@ -392,6 +392,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
           deleted_by: null,
           delete_reason: null,
         },
+        include: { exercises: { select: { title: true } } },
       });
       const members = await tx.group_members.findMany({
         where: { id: { in: input.memberIds }, group_id: groupId, status: member_status.active },
@@ -414,7 +415,19 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
           target_id: linked.id,
         },
       });
+      return { groupExerciseId: linked.id, exerciseTitle: linked.exercises.title };
     });
+  }
+
+  async assignmentNotificationRecipients(groupId: string, memberIds: string[]) {
+    if (memberIds.length === 0) return [];
+    const members = await this.prisma.group_members.findMany({
+      where: { id: { in: memberIds }, group_id: groupId, status: member_status.active },
+      select: { users: { select: { external_id: true } } },
+    });
+    return members.flatMap((member) =>
+      member.users.external_id ? [member.users.external_id] : [],
+    );
   }
 
   async createExercise(
@@ -764,6 +777,39 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     };
   }
 
+  async assignmentSubmissionContext(assignmentId: string, userId: string) {
+    const assignment = await this.prisma.assignments.findFirst({
+      where: {
+        id: assignmentId,
+        group_members: { user_id: userId, status: member_status.active },
+        group_exercises: { deleted_at: null, publication_status: 'published' },
+      },
+      select: {
+        id: true,
+        _count: { select: { submissions: true } },
+        group_exercises: {
+          select: {
+            exercise_id: true,
+            due_at: true,
+            attempt_limit: true,
+            allow_retry: true,
+            allow_late_submission: true,
+          },
+        },
+      },
+    });
+    if (!assignment) return null;
+    return {
+      assignmentId: assignment.id,
+      exerciseId: assignment.group_exercises.exercise_id,
+      dueAt: assignment.group_exercises.due_at,
+      attemptLimit: assignment.group_exercises.attempt_limit,
+      allowRetry: assignment.group_exercises.allow_retry,
+      allowLateSubmission: assignment.group_exercises.allow_late_submission,
+      submissionCount: assignment._count.submissions,
+    };
+  }
+
   async assignmentExists(groupId: string, id: string, memberId?: string) {
     return (
       (await this.prisma.assignments.count({
@@ -890,7 +936,10 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     feedback: string | null;
     started_at: Date | null;
     updated_at: Date;
-    group_exercises: { exercises: { id: string; slug: string; title: string } };
+    group_exercises: {
+      due_at: Date | null;
+      exercises: { id: string; slug: string; title: string };
+    };
     group_members: { users: { display_name: string } };
     submissions: {
       verdict: string;
@@ -907,6 +956,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       exerciseId: row.group_exercises.exercises.id,
       exerciseSlug: row.group_exercises.exercises.slug,
       exerciseTitle: row.group_exercises.exercises.title,
+      dueAt: row.group_exercises.due_at,
       memberId: row.member_id,
       memberName: row.group_members.users.display_name,
       status: row.status,

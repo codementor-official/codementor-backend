@@ -42,6 +42,10 @@ export const envSchema = z.object({
    */
   CORE_SERVICE_URL: z.string().url().default('http://localhost:3001'),
   WORKSPACE_SERVICE_URL: z.string().url().default('http://localhost:3004'),
+  EXERCISE_SERVICE_URL: z.string().url().default('http://localhost:3003'),
+  JUDGE_SERVICE_URL: z.string().url().default('http://localhost:3007'),
+  /** Shared only by backend services for endpoints that must never be callable by browsers. */
+  INTERNAL_SERVICE_TOKEN: z.string().min(24).optional(),
 
   KAFKA_BROKERS: z.string().default('localhost:9092'),
 

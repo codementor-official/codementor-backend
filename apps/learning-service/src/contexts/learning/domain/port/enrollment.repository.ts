@@ -58,11 +58,53 @@ export interface EnrolledCourseView extends CourseEnrollment {
   totalLessons: number;
 }
 
+export interface RoadmapEnrollment {
+  id: string;
+  userId: string;
+  roadmapId: string;
+  status: EnrollmentStatus;
+  completedCourses: number;
+  progressPercent: number;
+  startedAt: Date;
+  completedAt: Date | null;
+  lastActivityAt: Date | null;
+}
+
+export interface EnrolledRoadmapView extends RoadmapEnrollment {
+  title: string;
+  slug: string;
+  field: string;
+  level: string;
+  coverImageUrl: string | null;
+  estimatedHours: number | null;
+  totalCourses: number;
+}
+
+export interface RoadmapCourseProgress {
+  roadmapCourseId: string;
+  courseId: string;
+  position: number;
+  isOptional: boolean;
+  title: string;
+  slug: string;
+  coverImageUrl: string | null;
+  durationHours: number | null;
+  enrollmentStatus: EnrollmentStatus | null;
+  progressPercent: number;
+  isAvailable: boolean;
+}
+
 export interface EnrollmentRepository {
   findCourseEnrollment(userId: string, courseId: string): Promise<CourseEnrollment | null>;
 
   /** Mọi khoá đã ghi danh của một người, mới hoạt động trước — "Khoá học của tôi". */
   listMine(userId: string): Promise<EnrolledCourseView[]>;
+
+  findRoadmapEnrollment(userId: string, roadmapId: string): Promise<RoadmapEnrollment | null>;
+  listMyRoadmaps(userId: string): Promise<EnrolledRoadmapView[]>;
+  enrollRoadmap(userId: string, roadmapId: string): Promise<RoadmapEnrollment>;
+  dropRoadmap(userId: string, roadmapId: string): Promise<void>;
+  findRoadmapProgress(userId: string, roadmapId: string): Promise<RoadmapCourseProgress[]>;
 
   /**
    * Ghi danh, hoặc kích hoạt lại nếu người học từng bỏ.

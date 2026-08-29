@@ -7,7 +7,7 @@ import {
   type ExerciseContentRepository,
   type ExerciseRepository,
 } from '../domain/port/exercise.repository';
-import { toExerciseView, type ExerciseView } from './exercise-view';
+import { toExerciseView, toLearnerExerciseContent, type ExerciseView } from './exercise-view';
 
 @Injectable()
 export class GetExerciseUseCase {
@@ -23,10 +23,22 @@ export class GetExerciseUseCase {
     // 404 chứ không 403 khi không được xem: trả 403 là xác nhận bài đó tồn tại.
     // Tham số thứ ba để `false` — "học viên đang học chương tham chiếu" cần đọc bảng
     // `lessons` của learning-service, sẽ nối qua HTTP ở 4d.
-    if (!canViewExercise(user, { author_id: exercise.authorId, visibility: exercise.visibility, status: exercise.status })) {
+    if (
+      !canViewExercise(user, {
+        author_id: exercise.authorId,
+        visibility: exercise.visibility,
+        status: exercise.status,
+      })
+    ) {
       throw new NotFound('Bài tập', id);
     }
 
-    return toExerciseView(exercise, await this.contents.findByExerciseId(id));
+    const content = await this.contents.findByExerciseId(id);
+    const canSeeGradingContent = user.role === 'admin' || exercise.authorId === user.id;
+
+    return toExerciseView(
+      exercise,
+      content && !canSeeGradingContent ? toLearnerExerciseContent(content) : content,
+    );
   }
 }

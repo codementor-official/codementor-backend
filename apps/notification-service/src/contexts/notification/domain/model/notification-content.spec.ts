@@ -1,11 +1,13 @@
 import { NotificationContent } from './notification-content';
 import {
   fromAdminAnnouncement,
+  fromAssignmentCreated,
   fromContentModerated,
   fromContentReviewRequested,
   fromCoursePublished,
   fromExercisePublished,
   fromRoadmapPublished,
+  fromWorkspaceJoinReviewed,
 } from '../../application/notification-content.factory';
 
 describe('NotificationContent', () => {
@@ -16,7 +18,7 @@ describe('NotificationContent', () => {
     referenceType: 'COURSE' as const,
     referenceId: 'c1',
     actionLabel: 'Học ngay',
-    actionUrl: '/courses',
+    actionUrl: '/courses/c1',
   };
 
   it('nhận nội dung hợp lệ và cắt khoảng trắng thừa', () => {
@@ -37,9 +39,9 @@ describe('NotificationContent', () => {
   });
 
   it('từ chối actionUrl trỏ ra ngoài CodeMentor', () => {
-    expect(
-      NotificationContent.create({ ...valid, actionUrl: 'https://example.com' }).isFail,
-    ).toBe(true);
+    expect(NotificationContent.create({ ...valid, actionUrl: 'https://example.com' }).isFail).toBe(
+      true,
+    );
   });
 
   it('bắt buộc tài nguyên với thông báo nội dung, và cấm với thông báo admin', () => {
@@ -59,9 +61,7 @@ describe('NotificationContent', () => {
   it('mặc định gửi cho tất cả, và ALL không được mang khoá đối tượng', () => {
     expect(NotificationContent.create(valid).value.audienceType).toBe('ALL');
     expect(NotificationContent.create(valid).value.audienceKey).toBeNull();
-    expect(
-      NotificationContent.create({ ...valid, audienceKey: 'admin' }).isFail,
-    ).toBe(true);
+    expect(NotificationContent.create({ ...valid, audienceKey: 'admin' }).isFail).toBe(true);
   });
 
   it('ROLE/USER không có khoá thì bị từ chối — nếu không, thông báo lưu được mà không ai đọc được', () => {
@@ -80,7 +80,7 @@ describe('dựng nội dung từ sự kiện', () => {
     });
     expect(result.isOk).toBe(true);
     expect(result.value.message).toContain('Giảng viên Nguyễn Văn A');
-    expect(result.value.actionUrl).toBe('/courses');
+    expect(result.value.actionUrl).toBe('/courses/c1');
   });
 
   // Tài khoản giảng viên đã xoá: câu văn vẫn phải đọc được, không hiện "null".
@@ -105,7 +105,7 @@ describe('dựng nội dung từ sự kiện', () => {
     expect(exercise.value.actionUrl).toBe('/solve/e1');
 
     const roadmap = fromRoadmapPublished({ roadmapId: 'r1', slug: 'backend', title: 'Backend' });
-    expect(roadmap.value.actionUrl).toBe('/paths/backend');
+    expect(roadmap.value.actionUrl).toBe('/roadmaps/r1');
   });
 
   it('thông báo admin không có nút bấm và không gắn tài nguyên', () => {
@@ -118,6 +118,42 @@ describe('dựng nội dung từ sự kiện', () => {
     expect(result.value.actionUrl).toBeNull();
     expect(result.value.actionLabel).toBeNull();
     expect(result.value.referenceType).toBeNull();
+  });
+
+  it('kết quả duyệt nhóm gửi riêng cho đúng tài khoản và deep-link tới Workspace', () => {
+    const result = fromWorkspaceJoinReviewed({
+      groupId: 'g1',
+      workspaceSlug: 'nhom-dsa',
+      workspaceName: 'Nhóm DSA',
+      memberExternalId: 'keycloak-member-1',
+      decision: 'approved',
+    });
+    expect(result.isOk).toBe(true);
+    expect(result.value.type).toBe('WORKSPACE_JOIN_APPROVED');
+    expect(result.value.audienceType).toBe('USER');
+    expect(result.value.audienceKey).toBe('keycloak-member-1');
+    expect(result.value.actionUrl).toBe('/workspace/nhom-dsa');
+  });
+
+  it('bài tập mới chứa deadline và mở đúng tab bài tập của Workspace', () => {
+    const result = fromAssignmentCreated(
+      {
+        groupId: 'g1',
+        workspaceSlug: 'nhom-dsa',
+        workspaceName: 'Nhóm DSA',
+        groupExerciseId: 'ge1',
+        exerciseId: 'e1',
+        memberIds: ['m1'],
+        memberExternalIds: ['sub-1'],
+        exerciseTitle: 'Duyệt đồ thị BFS',
+        dueAt: '2026-09-01T10:00:00.000Z',
+      },
+      'sub-1',
+    );
+    expect(result.value.type).toBe('WORKSPACE_ASSIGNMENT_CREATED');
+    expect(result.value.audienceKey).toBe('sub-1');
+    expect(result.value.message).toContain('Hạn nộp');
+    expect(result.value.actionUrl).toBe('/workspace/nhom-dsa?tab=exercises');
   });
 
   it('gửi duyệt báo cho admin, không phải cho người học', () => {

@@ -10,6 +10,7 @@ import {
   type LessonProgressView,
   type RecordProgressInput,
 } from '../domain/port/enrollment.repository';
+import { ROADMAP_REPOSITORY, type RoadmapRepository } from '../domain/port/roadmap.repository';
 
 export interface CourseProgressView {
   enrollment: CourseEnrollment | null;
@@ -21,6 +22,7 @@ export class EnrollmentUseCases {
   constructor(
     @Inject(ENROLLMENT_REPOSITORY) private readonly enrollments: EnrollmentRepository,
     @Inject(COURSE_REPOSITORY) private readonly courses: CourseRepository,
+    @Inject(ROADMAP_REPOSITORY) private readonly roadmaps: RoadmapRepository,
   ) {}
 
   /**
@@ -51,6 +53,34 @@ export class EnrollmentUseCases {
   /** "Khoá học của tôi" — mọi khoá đang học hoặc đã xong, mới hoạt động trước. */
   async myCourses(user: AuthenticatedUser): Promise<EnrolledCourseView[]> {
     return this.enrollments.listMine(requireHumanId(user));
+  }
+
+  async enrollRoadmap(user: AuthenticatedUser, roadmapId: string) {
+    const roadmap = await this.roadmaps.findById(roadmapId);
+    if (!roadmap) throw new NotFound('Không tìm thấy lộ trình');
+    if (roadmap.status !== 'published') {
+      throw new BusinessRuleViolation('Lộ trình chưa được công khai');
+    }
+    return this.enrollments.enrollRoadmap(requireHumanId(user), roadmapId);
+  }
+
+  async dropRoadmap(user: AuthenticatedUser, roadmapId: string): Promise<void> {
+    await this.enrollments.dropRoadmap(requireHumanId(user), roadmapId);
+  }
+
+  async myRoadmaps(user: AuthenticatedUser) {
+    return this.enrollments.listMyRoadmaps(requireHumanId(user));
+  }
+
+  async roadmapProgress(user: AuthenticatedUser, roadmapId: string) {
+    const userId = requireHumanId(user);
+    const roadmap = await this.roadmaps.findById(roadmapId);
+    if (!roadmap || roadmap.status !== 'published') throw new NotFound('Không tìm thấy lộ trình');
+    const [enrollment, courses] = await Promise.all([
+      this.enrollments.findRoadmapEnrollment(userId, roadmapId),
+      this.enrollments.findRoadmapProgress(userId, roadmapId),
+    ]);
+    return { enrollment, courses };
   }
 
   /**

@@ -15,6 +15,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Roles, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
+import { EnrollmentUseCases } from '../application/enrollment.usecases';
 import { RoadmapUseCases } from '../application/roadmap.usecases';
 import {
   CreateRoadmapDto,
@@ -28,7 +29,10 @@ import { ArchiveMineDto, ModerateDto } from './dto/moderate.dto';
 @ApiBearerAuth('access-token')
 @Controller({ path: 'roadmaps', version: '1' })
 export class RoadmapController {
-  constructor(private readonly roadmaps: RoadmapUseCases) {}
+  constructor(
+    private readonly roadmaps: RoadmapUseCases,
+    private readonly enrollments: EnrollmentUseCases,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Danh mục lộ trình đã công khai' })
@@ -57,6 +61,31 @@ export class RoadmapController {
   })
   manage(@Query() query: ListRoadmapsQueryDto) {
     return this.roadmaps.list({ adminAll: true }, query);
+  }
+
+  @Get('enrollments/mine')
+  @ApiOperation({ summary: 'Các lộ trình người hiện tại đang học hoặc đã hoàn thành' })
+  myEnrollments(@CurrentUser() user: AuthenticatedUser) {
+    return this.enrollments.myRoadmaps(user);
+  }
+
+  @Post(':id/enroll')
+  @ApiOperation({ summary: 'Bắt đầu hoặc tiếp tục lại một lộ trình công khai' })
+  enroll(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.enrollments.enrollRoadmap(user, id);
+  }
+
+  @Delete(':id/enroll')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Dừng lộ trình nhưng giữ nguyên tiến độ các khóa học' })
+  drop(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.enrollments.dropRoadmap(user, id);
+  }
+
+  @Get(':id/progress')
+  @ApiOperation({ summary: 'Tiến độ lộ trình và trạng thái mở/khóa của từng khóa học' })
+  progress(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.enrollments.roadmapProgress(user, id);
   }
 
   @Get(':id')
@@ -95,7 +124,10 @@ export class RoadmapController {
     return this.roadmaps.replaceCourses(
       user,
       id,
-      dto.courses.map((course) => ({ courseId: course.courseId, isOptional: course.isOptional ?? false })),
+      dto.courses.map((course) => ({
+        courseId: course.courseId,
+        isOptional: course.isOptional ?? false,
+      })),
     );
   }
 

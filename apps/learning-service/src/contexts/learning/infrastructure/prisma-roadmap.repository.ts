@@ -93,7 +93,9 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
       : Prisma.sql`ORDER BY r.updated_at DESC, r.id DESC`;
 
     return this.prisma.$queryRaw<RoadmapListItem[]>`
-      SELECT r.id, r.slug::text AS slug, r.title, r.field::text AS field, r.level::text AS level,
+      SELECT r.id, r.slug::text AS slug, r.title,
+             r.short_description AS "shortDescription", r.cover_image_url AS "coverImageUrl",
+             r.field::text AS field, r.level::text AS level,
              r.status::text AS status, r.estimated_hours AS "estimatedHours",
              (SELECT count(*)::int FROM roadmap_courses rc WHERE rc.roadmap_id = r.id) AS "courseCount",
              r.created_by AS "createdBy", u.display_name AS "authorName",

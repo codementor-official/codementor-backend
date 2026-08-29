@@ -3,10 +3,13 @@ import { PrismaService, mapDatabaseError } from '@codementor/platform';
 import type {
   CourseEnrollment,
   EnrolledCourseView,
+  EnrolledRoadmapView,
   EnrollmentRepository,
   LessonProgress,
   LessonProgressView,
   RecordProgressInput,
+  RoadmapCourseProgress,
+  RoadmapEnrollment,
 } from '../domain/port/enrollment.repository';
 
 interface EnrollmentRow {
@@ -42,8 +45,38 @@ interface ProgressRow {
   isAvailable: boolean;
 }
 
+interface RoadmapEnrollmentRow {
+  id: string;
+  userId: string;
+  roadmapId: string;
+  status: RoadmapEnrollment['status'];
+  completedCourses: number;
+  progressPercent: string | number;
+  startedAt: Date;
+  completedAt: Date | null;
+  lastActivityAt: Date | null;
+}
+
+interface EnrolledRoadmapRow extends RoadmapEnrollmentRow {
+  title: string;
+  slug: string;
+  field: string;
+  level: string;
+  coverImageUrl: string | null;
+  estimatedHours: number | null;
+  totalCourses: number;
+}
+
+interface RoadmapCourseProgressRow extends Omit<RoadmapCourseProgress, 'progressPercent'> {
+  progressPercent: string | number;
+}
+
 /** `numeric(5,2)` về JS là string qua driver — ép một chỗ thay vì ở mỗi call site. */
 function toEnrollment(row: EnrollmentRow): CourseEnrollment {
+  return { ...row, progressPercent: Number(row.progressPercent) };
+}
+
+function toRoadmapEnrollment(row: RoadmapEnrollmentRow): RoadmapEnrollment {
   return { ...row, progressPercent: Number(row.progressPercent) };
 }
 
@@ -79,6 +112,88 @@ export class PrismaEnrollmentRepository implements EnrollmentRepository {
       JOIN courses c ON c.id = ce.course_id
       WHERE ce.user_id = ${userId}::uuid AND ce.status <> 'dropped'
       ORDER BY ce.last_activity_at DESC NULLS LAST, ce.started_at DESC`;
+    return rows.map((row) => ({ ...row, progressPercent: Number(row.progressPercent) }));
+  }
+
+  async findRoadmapEnrollment(
+    userId: string,
+    roadmapId: string,
+  ): Promise<RoadmapEnrollment | null> {
+    const rows = await this.prisma.$queryRaw<RoadmapEnrollmentRow[]>`
+      SELECT id, user_id AS "userId", roadmap_id AS "roadmapId", status::text AS status,
+             completed_courses AS "completedCourses", progress_percent AS "progressPercent",
+             started_at AS "startedAt", completed_at AS "completedAt",
+             last_activity_at AS "lastActivityAt"
+      FROM roadmap_enrollments
+      WHERE user_id = ${userId}::uuid AND roadmap_id = ${roadmapId}::uuid`;
+    return rows[0] ? toRoadmapEnrollment(rows[0]) : null;
+  }
+
+  async listMyRoadmaps(userId: string): Promise<EnrolledRoadmapView[]> {
+    const rows = await this.prisma.$queryRaw<EnrolledRoadmapRow[]>`
+      SELECT re.id, re.user_id AS "userId", re.roadmap_id AS "roadmapId",
+             re.status::text AS status, re.completed_courses AS "completedCourses",
+             re.progress_percent AS "progressPercent", re.started_at AS "startedAt",
+             re.completed_at AS "completedAt", re.last_activity_at AS "lastActivityAt",
+             r.title, r.slug::text AS slug, r.field::text AS field, r.level::text AS level,
+             r.cover_image_url AS "coverImageUrl", r.estimated_hours AS "estimatedHours",
+             count(rc.id)::int AS "totalCourses"
+      FROM roadmap_enrollments re
+      JOIN roadmaps r ON r.id = re.roadmap_id
+      LEFT JOIN roadmap_courses rc ON rc.roadmap_id = r.id AND NOT rc.is_optional
+      WHERE re.user_id = ${userId}::uuid AND re.status <> 'dropped'
+      GROUP BY re.id, r.id
+      ORDER BY re.last_activity_at DESC NULLS LAST, re.started_at DESC`;
+    return rows.map((row) => ({ ...row, progressPercent: Number(row.progressPercent) }));
+  }
+
+  async enrollRoadmap(userId: string, roadmapId: string): Promise<RoadmapEnrollment> {
+    try {
+      const rows = await this.prisma.$queryRaw<RoadmapEnrollmentRow[]>`
+        INSERT INTO roadmap_enrollments (user_id, roadmap_id, status, last_activity_at)
+        VALUES (${userId}::uuid, ${roadmapId}::uuid, 'active', now())
+        ON CONFLICT (user_id, roadmap_id) DO UPDATE SET
+          status = CASE WHEN roadmap_enrollments.status = 'dropped'
+                        THEN 'active'::enrollment_status
+                        ELSE roadmap_enrollments.status END,
+          completed_at = CASE WHEN roadmap_enrollments.status = 'dropped'
+                              THEN NULL ELSE roadmap_enrollments.completed_at END,
+          last_activity_at = now()
+        RETURNING id, user_id AS "userId", roadmap_id AS "roadmapId", status::text AS status,
+                  completed_courses AS "completedCourses", progress_percent AS "progressPercent",
+                  started_at AS "startedAt", completed_at AS "completedAt",
+                  last_activity_at AS "lastActivityAt"`;
+      // Seed/legacy course progress may already exist before the roadmap is started.
+      await this.prisma
+        .$queryRaw`SELECT fn_refresh_roadmap_progress(${userId}::uuid, ${roadmapId}::uuid)`;
+      return (await this.findRoadmapEnrollment(userId, roadmapId)) ?? toRoadmapEnrollment(rows[0]);
+    } catch (cause) {
+      throw mapDatabaseError(cause);
+    }
+  }
+
+  async dropRoadmap(userId: string, roadmapId: string): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE roadmap_enrollments
+      SET status = 'dropped', completed_at = NULL, last_activity_at = now()
+      WHERE user_id = ${userId}::uuid AND roadmap_id = ${roadmapId}::uuid`;
+  }
+
+  async findRoadmapProgress(userId: string, roadmapId: string): Promise<RoadmapCourseProgress[]> {
+    const rows = await this.prisma.$queryRaw<RoadmapCourseProgressRow[]>`
+      SELECT rc.id AS "roadmapCourseId", rc.course_id AS "courseId", rc.position,
+             rc.is_optional AS "isOptional", c.title, c.slug::text AS slug,
+             c.cover_image_url AS "coverImageUrl", c.duration_hours AS "durationHours",
+             ce.status::text AS "enrollmentStatus",
+             COALESCE(ce.progress_percent, 0) AS "progressPercent",
+             (fn_course_available(${userId}::uuid, c.id)
+              AND fn_roadmap_course_available(${userId}::uuid, rc.id)) AS "isAvailable"
+      FROM roadmap_courses rc
+      JOIN courses c ON c.id = rc.course_id
+      LEFT JOIN course_enrollments ce
+        ON ce.course_id = c.id AND ce.user_id = ${userId}::uuid AND ce.status <> 'dropped'
+      WHERE rc.roadmap_id = ${roadmapId}::uuid
+      ORDER BY rc.position`;
     return rows.map((row) => ({ ...row, progressPercent: Number(row.progressPercent) }));
   }
 

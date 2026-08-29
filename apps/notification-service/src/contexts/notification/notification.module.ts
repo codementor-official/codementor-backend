@@ -13,6 +13,8 @@ import { MongoNotificationRepository } from './infrastructure/mongo-notification
 import { RecordNotificationUseCase } from './application/record-notification.usecase';
 import {
   fromAdminAnnouncement,
+  fromAssignmentCreated,
+  fromAssignmentReminder,
   fromArticlePublished,
   fromContentModerated,
   fromContentRemovalRequested,
@@ -20,6 +22,8 @@ import {
   fromCoursePublished,
   fromExercisePublished,
   fromRoadmapPublished,
+  fromWorkspaceJoinReviewed,
+  fromWorkspaceMessage,
 } from './application/notification-content.factory';
 import { NotificationController } from './presentation/notification.controller';
 import { NotificationQuery } from './application/notification-query.usecase';
@@ -77,6 +81,32 @@ export class NotificationModule implements OnModuleInit {
       )
       .on(TOPICS.CONTENT_MODERATED, (payload, envelope) =>
         this.record.record(envelope, fromContentModerated(payload)),
+      )
+      .on(TOPICS.WORKSPACE_JOIN_REVIEWED, (payload, envelope) =>
+        this.record.record(envelope, fromWorkspaceJoinReviewed(payload)),
+      )
+      .on(TOPICS.ASSIGNMENT_CREATED, async (payload, envelope) =>
+        Promise.all(
+          [...new Set(payload.memberExternalIds)].map((externalId) =>
+            this.record.record(
+              { ...envelope, eventId: `${envelope.eventId}:${externalId}` },
+              fromAssignmentCreated(payload, externalId),
+            ),
+          ),
+        ).then(() => undefined),
+      )
+      .on(TOPICS.ASSIGNMENT_REMINDER, (payload, envelope) =>
+        this.record.record(envelope, fromAssignmentReminder(payload)),
+      )
+      .on(TOPICS.WORKSPACE_MESSAGE_CREATED, async (payload, envelope) =>
+        Promise.all(
+          [...new Set(payload.recipientExternalIds)].map((externalId) =>
+            this.record.record(
+              { ...envelope, eventId: `${envelope.eventId}:${externalId}` },
+              fromWorkspaceMessage(payload, externalId),
+            ),
+          ),
+        ).then(() => undefined),
       );
 
     await this.consumer.start('notification-service');

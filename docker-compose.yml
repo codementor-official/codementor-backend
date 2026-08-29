@@ -18,6 +18,10 @@ x-service-base: &service-base
     MONGO_URI: mongodb://codementor:codementor@host.docker.internal:57017/codementor?authSource=admin
     KAFKA_BROKERS: kafka:29092
     KEYCLOAK_ISSUER: http://keycloak:8080/realms/codementor
+    EXERCISE_SERVICE_URL: http://exercise-service:3003
+    JUDGE_SERVICE_URL: http://judge-service:3007
+    WORKSPACE_SERVICE_URL: http://workspace-service:3004
+    INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-codementor-local-internal-token}
   extra_hosts:
     - 'host.docker.internal:host-gateway'
   depends_on:

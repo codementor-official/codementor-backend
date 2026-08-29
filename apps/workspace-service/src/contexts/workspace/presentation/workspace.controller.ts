@@ -3,14 +3,18 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Put,
   Query,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
@@ -58,7 +62,26 @@ export class WorkspaceController {
     private readonly overview: WorkspaceOverviewService,
     private readonly content: WorkspaceContentService,
     private readonly chat: WorkspaceChatService,
+    private readonly config: ConfigService,
   ) {}
+
+  @Get('internal/assignments/:assignmentId/submission-context')
+  @ApiOperation({ summary: 'Internal: kiểm tra bài giao trước khi submission-service chấm' })
+  async assignmentSubmissionContext(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('assignmentId', ParseUUIDPipe) assignmentId: string,
+    @Headers('x-internal-service-token') token?: string,
+  ) {
+    const configured = this.config.get<string>('INTERNAL_SERVICE_TOKEN');
+    const fallback =
+      this.config.get<string>('NODE_ENV') === 'production'
+        ? undefined
+        : 'codementor-local-internal-token';
+    if (!token || token !== (configured ?? fallback)) {
+      throw new UnauthorizedException('Internal service token không hợp lệ');
+    }
+    return this.content.assignmentSubmissionContext(requireHumanId(user), assignmentId);
+  }
 
   @Get(':slug/messages')
   @ApiOperation({ summary: 'Lịch sử chat của Workspace' })
@@ -145,6 +168,12 @@ export class WorkspaceController {
     @Body() dto: RequestWorkspaceJoinDto,
   ) {
     return this.workspaces.requestJoin(requireHumanId(user), slug, dto);
+  }
+
+  @Get(':slug/public')
+  @ApiOperation({ summary: 'Chi tiết công khai, không trả dữ liệu nội bộ của Workspace' })
+  publicDetail(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.workspaces.publicDetail(requireHumanId(user), slug);
   }
 
   @Get(':slug/overview')
