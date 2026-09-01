@@ -6,6 +6,7 @@ interface ArticleProps {
   title: string;
   excerpt: string | null;
   takeaway: string | null;
+  coverImageUrl: string | null;
   authorId: string | null;
   tagId: string | null;
   readMinutes: number | null;
@@ -29,6 +30,7 @@ export interface ArticleEdit {
   title?: string;
   excerpt?: string | null;
   takeaway?: string | null;
+  coverImageUrl?: string | null;
   tagId?: string | null;
   readMinutes?: number | null;
 }
@@ -71,10 +73,9 @@ export class Article extends AggregateRoot<string> {
     }
     if (!SLUG_PATTERN.test(params.slug)) {
       return Result.fail(
-        new InvalidInput(
-          'Slug phải dài 3–80 ký tự, chỉ gồm chữ thường, số và gạch ngang',
-          { slug: params.slug },
-        ),
+        new InvalidInput('Slug phải dài 3–80 ký tự, chỉ gồm chữ thường, số và gạch ngang', {
+          slug: params.slug,
+        }),
       );
     }
 
@@ -85,6 +86,7 @@ export class Article extends AggregateRoot<string> {
         title,
         excerpt: null,
         takeaway: null,
+        coverImageUrl: null,
         authorId: params.authorId,
         tagId: null,
         readMinutes: null,
@@ -113,9 +115,7 @@ export class Article extends AggregateRoot<string> {
       // Slug là địa chỉ công khai của bài. Đổi nó sau khi đã đăng là làm hỏng mọi liên
       // kết đã gửi đi — kể cả nút "Đọc bài viết" trong những thông báo đã phát.
       if (this.props.publishedAt !== null && changes.slug !== this.props.slug) {
-        return Result.fail(
-          new InvalidInput('Không đổi được slug của bài đã từng công khai'),
-        );
+        return Result.fail(new InvalidInput('Không đổi được slug của bài đã từng công khai'));
       }
       this.props.slug = changes.slug;
     }
@@ -127,6 +127,9 @@ export class Article extends AggregateRoot<string> {
       this.props.excerpt = excerpt;
     }
     if (changes.takeaway !== undefined) this.props.takeaway = changes.takeaway?.trim() || null;
+    if (changes.coverImageUrl !== undefined) {
+      this.props.coverImageUrl = changes.coverImageUrl?.trim() || null;
+    }
     if (changes.tagId !== undefined) this.props.tagId = changes.tagId;
     if (changes.readMinutes !== undefined) {
       if (changes.readMinutes !== null && changes.readMinutes < 1) {
@@ -230,7 +233,9 @@ export class Article extends AggregateRoot<string> {
     if (decision === 'restore') {
       if (this.props.status !== 'archived') {
         return Result.fail(
-          new BusinessRuleViolation(`Chỉ khôi phục được nội dung đã gỡ (đang ${this.props.status})`),
+          new BusinessRuleViolation(
+            `Chỉ khôi phục được nội dung đã gỡ (đang ${this.props.status})`,
+          ),
         );
       }
       this.props.status = 'draft';
@@ -326,6 +331,9 @@ export class Article extends AggregateRoot<string> {
   }
   get takeaway(): string | null {
     return this.props.takeaway;
+  }
+  get coverImageUrl(): string | null {
+    return this.props.coverImageUrl;
   }
   get authorId(): string | null {
     return this.props.authorId;

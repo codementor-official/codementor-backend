@@ -20,6 +20,7 @@ export interface ArticleListItem {
   slug: string;
   title: string;
   excerpt: string | null;
+  coverImageUrl: string | null;
   status: string;
   readMinutes: number | null;
   authorId: string | null;

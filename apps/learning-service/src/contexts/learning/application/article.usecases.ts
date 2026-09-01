@@ -2,15 +2,18 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
-import { AlreadyExists, NotAuthorized, NotFound } from '@codementor/kernel';
+import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
 import {
   DEFAULT_PAGE_LIMIT,
+  IMAGE_CONTENT_TYPES,
+  ObjectStorageService,
   decodeCursor,
   requireHumanId,
   toPage,
   ContentAuthorLookup,
   type AuthenticatedUser,
   type Page,
+  type PresignedUpload,
 } from '@codementor/platform';
 import { Article, type ArticleEdit } from '../domain/model/article';
 import {
@@ -35,6 +38,7 @@ export interface ArticleView {
   title: string;
   excerpt: string | null;
   takeaway: string | null;
+  coverImageUrl: string | null;
   authorId: string | null;
   tagId: string | null;
   readMinutes: number | null;
@@ -77,7 +81,33 @@ export class ArticleUseCases {
     @Inject(ARTICLE_CONTENT_REPOSITORY) private readonly contents: ArticleContentRepository,
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
     private readonly authors: ContentAuthorLookup,
+    private readonly storage: ObjectStorageService,
   ) {}
+
+  coverUploadConfig(): { enabled: boolean; maxBytes: number; acceptedTypes: string[] } {
+    return {
+      enabled: this.storage.isConfigured,
+      maxBytes: this.storage.maxImageUploadBytes,
+      acceptedTypes: [...IMAGE_CONTENT_TYPES],
+    };
+  }
+
+  async presignCoverImage(
+    user: AuthenticatedUser,
+    id: string,
+    input: { filename: string; contentType: string; sizeBytes: number },
+  ): Promise<PresignedUpload> {
+    const article = await this.mustEdit(user, id);
+    if (article.status === 'pending_review') {
+      throw new BusinessRuleViolation('Bài viết đang chờ duyệt. Hủy gửi duyệt trước khi sửa.');
+    }
+    const signed = await this.storage.presignImageUpload({
+      prefix: `articles/${article.id}/cover`,
+      ...input,
+    });
+    if (signed.isFail) throw signed.error;
+    return signed.value;
+  }
 
   /**
    * Phát một sự kiện thông báo mà KHÔNG để nó làm hỏng thao tác vừa xong.
@@ -297,13 +327,7 @@ export class ArticleUseCases {
   private async notifyAuthor(
     article: Article,
     decision:
-      | 'approve'
-      | 'request_changes'
-      | 'reject'
-      | 'archive'
-      | 'restore'
-      | 'revert'
-      | 'deny_removal',
+      'approve' | 'request_changes' | 'reject' | 'archive' | 'restore' | 'revert' | 'deny_removal',
     reason: string | null,
     moderator: { displayName: string; externalId: string },
   ): Promise<void> {
@@ -414,6 +438,7 @@ export class ArticleUseCases {
       title: article.title,
       excerpt: article.excerpt,
       takeaway: article.takeaway,
+      coverImageUrl: article.coverImageUrl,
       authorId: article.authorId,
       tagId: article.tagId,
       readMinutes: article.readMinutes,
@@ -466,7 +491,10 @@ export class ArticleUseCases {
       return explicit;
     }
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const candidate = slugify(title, attempt === 0 ? undefined : Math.random().toString(36).slice(2, 7));
+      const candidate = slugify(
+        title,
+        attempt === 0 ? undefined : Math.random().toString(36).slice(2, 7),
+      );
       if (!(await this.articles.existsBySlug(candidate))) return candidate;
     }
     throw new AlreadyExists('Slug', { title });

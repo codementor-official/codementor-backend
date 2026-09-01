@@ -1,7 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
-import { PageQuery } from '@codementor/platform';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUrl,
+  IsUUID,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
+import { IMAGE_CONTENT_TYPES, PageQuery } from '@codementor/platform';
 import { DECISIONS } from './moderate.dto';
 
 /**
@@ -78,6 +88,12 @@ export class UpdateArticleDto {
   @MaxLength(500)
   takeaway?: string;
 
+  @ApiPropertyOptional({ description: 'Ảnh bìa bài viết từ kho đối tượng hoặc URL HTTPS' })
+  @IsOptional()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(2048)
+  coverImageUrl?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
@@ -89,6 +105,24 @@ export class UpdateArticleDto {
   @IsInt()
   @Min(1)
   readMinutes?: number;
+}
+
+export class ArticleCoverUploadUrlDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  filename!: string;
+
+  @ApiProperty({ enum: IMAGE_CONTENT_TYPES })
+  @IsIn([...IMAGE_CONTENT_TYPES])
+  contentType!: string;
+
+  @ApiProperty({ minimum: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  sizeBytes!: number;
 }
 
 export class SaveArticleContentDto {

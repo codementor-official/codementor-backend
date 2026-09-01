@@ -3,6 +3,9 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS cover_image_url text`,
+  );
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS user_bookmarks (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -45,9 +48,15 @@ async function main() {
     CREATE INDEX IF NOT EXISTS idx_content_reports_status_created
       ON content_reports (status, created_at DESC)
   `);
-  await prisma.$executeRawUnsafe(`ALTER TABLE content_reports ADD COLUMN IF NOT EXISTS resolution_note varchar(1000)`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE content_reports ADD COLUMN IF NOT EXISTS resolved_by uuid`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE content_reports ADD COLUMN IF NOT EXISTS resolved_at timestamptz`);
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE content_reports ADD COLUMN IF NOT EXISTS resolution_note varchar(1000)`,
+  );
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE content_reports ADD COLUMN IF NOT EXISTS resolved_by uuid`,
+  );
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE content_reports ADD COLUMN IF NOT EXISTS resolved_at timestamptz`,
+  );
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS assignment_reminder_deliveries (
       assignment_id uuid NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,

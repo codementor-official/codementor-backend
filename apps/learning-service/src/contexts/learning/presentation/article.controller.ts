@@ -18,6 +18,7 @@ import type { AuthenticatedUser } from '@codementor/platform';
 import { ArticleUseCases } from '../application/article.usecases';
 import {
   CreateArticleDto,
+  ArticleCoverUploadUrlDto,
   ListArticlesQueryDto,
   ModerateArticleDto,
   SaveArticleContentDto,
@@ -75,6 +76,13 @@ export class ArticleController {
     return this.articles.countByStatus(user);
   }
 
+  @Get('manage/cover-upload-config')
+  @Roles('admin', 'lecturer')
+  @ApiOperation({ summary: 'Cấu hình tải ảnh bìa bài viết lên kho đối tượng' })
+  coverUploadConfig() {
+    return this.articles.coverUploadConfig();
+  }
+
   @Get('manage/:id')
   @Roles('admin', 'lecturer')
   @ApiOperation({ summary: 'Chi tiết kèm thân bài, để sửa' })
@@ -104,6 +112,17 @@ export class ArticleController {
     @Body() dto: UpdateArticleDto,
   ) {
     return this.articles.update(user, id, dto);
+  }
+
+  @Post(':id/cover-upload-url')
+  @Roles('admin', 'lecturer')
+  @ApiOperation({ summary: 'URL ký sẵn để trình duyệt PUT ảnh bìa bài viết lên kho' })
+  coverUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ArticleCoverUploadUrlDto,
+  ) {
+    return this.articles.presignCoverImage(user, id, dto);
   }
 
   @Put(':id/content')

@@ -15,6 +15,7 @@ interface ArticleRow {
   title: string;
   excerpt: string | null;
   takeaway: string | null;
+  cover_image_url: string | null;
   author_id: string | null;
   tag_id: string | null;
   read_minutes: number | null;
@@ -32,7 +33,7 @@ export class PrismaArticleRepository implements ArticleRepository {
 
   async findById(id: string): Promise<Article | null> {
     const rows = await this.prisma.$queryRaw<ArticleRow[]>`
-      SELECT id, slug::text AS slug, title, excerpt, takeaway, author_id, tag_id,
+      SELECT id, slug::text AS slug, title, excerpt, takeaway, cover_image_url, author_id, tag_id,
              read_minutes, status::text AS status, content_ref, rejection_reason,
              published_at, created_at, updated_at
       FROM articles WHERE id = ${id}::uuid LIMIT 1`;
@@ -41,7 +42,7 @@ export class PrismaArticleRepository implements ArticleRepository {
 
   async findBySlug(slug: string): Promise<Article | null> {
     const rows = await this.prisma.$queryRaw<ArticleRow[]>`
-      SELECT id, slug::text AS slug, title, excerpt, takeaway, author_id, tag_id,
+      SELECT id, slug::text AS slug, title, excerpt, takeaway, cover_image_url, author_id, tag_id,
              read_minutes, status::text AS status, content_ref, rejection_reason,
              published_at, created_at, updated_at
       FROM articles WHERE slug = ${slug}::citext LIMIT 1`;
@@ -75,10 +76,12 @@ export class PrismaArticleRepository implements ArticleRepository {
         Prisma.sql`(a.updated_at, a.id) < (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`,
       );
     }
-    const clause = where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
+    const clause =
+      where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
 
     return this.prisma.$queryRaw<ArticleListItem[]>`
       SELECT a.id, a.slug::text AS slug, a.title, a.excerpt, a.status::text AS status,
+             a.cover_image_url AS "coverImageUrl",
              a.read_minutes AS "readMinutes", a.author_id AS "authorId",
              u.display_name AS "authorName", (a.status = 'published' AND a.rejection_reason IS NOT NULL) AS "removalRequested",
              t.name AS "tagName",
@@ -107,8 +110,12 @@ export class PrismaArticleRepository implements ArticleRepository {
     return rows.map((row) => ({ name: row.name, count: Number(row.count) }));
   }
 
-  async describe(articleId: string): Promise<{ authorName: string | null; tagName: string | null }> {
-    const rows = await this.prisma.$queryRaw<{ authorName: string | null; tagName: string | null }[]>`
+  async describe(
+    articleId: string,
+  ): Promise<{ authorName: string | null; tagName: string | null }> {
+    const rows = await this.prisma.$queryRaw<
+      { authorName: string | null; tagName: string | null }[]
+    >`
       SELECT u.display_name AS "authorName", t.name AS "tagName"
       FROM articles a
       LEFT JOIN users u ON u.id = a.author_id
@@ -121,18 +128,19 @@ export class PrismaArticleRepository implements ArticleRepository {
     try {
       // `created_at` chỉ đặt lúc chèn: UPDATE ghi đè nó sẽ làm mất ngày tạo thật.
       await this.prisma.$executeRaw`
-        INSERT INTO articles (id, slug, title, excerpt, takeaway, author_id, tag_id,
+        INSERT INTO articles (id, slug, title, excerpt, takeaway, cover_image_url, author_id, tag_id,
                               read_minutes, status, content_ref, rejection_reason,
                               published_at, created_at, updated_at)
         VALUES (${article.id}::uuid, ${article.slug}::citext, ${article.title},
-                ${article.excerpt}, ${article.takeaway},
+                ${article.excerpt}, ${article.takeaway}, ${article.coverImageUrl},
                 ${article.authorId}::uuid, ${article.tagId}::uuid,
                 ${article.readMinutes}, ${article.status}::content_status,
                 ${article.contentRef}, ${article.rejectionReason}, ${article.publishedAt},
                 ${article.createdAt}, ${article.updatedAt})
         ON CONFLICT (id) DO UPDATE SET
           slug = EXCLUDED.slug, title = EXCLUDED.title, excerpt = EXCLUDED.excerpt,
-          takeaway = EXCLUDED.takeaway, tag_id = EXCLUDED.tag_id,
+          takeaway = EXCLUDED.takeaway, cover_image_url = EXCLUDED.cover_image_url,
+          tag_id = EXCLUDED.tag_id,
           read_minutes = EXCLUDED.read_minutes, status = EXCLUDED.status,
           content_ref = EXCLUDED.content_ref, rejection_reason = EXCLUDED.rejection_reason,
           published_at = EXCLUDED.published_at,
@@ -163,6 +171,7 @@ function toEntity(row: ArticleRow): Article {
     title: row.title,
     excerpt: row.excerpt,
     takeaway: row.takeaway,
+    coverImageUrl: row.cover_image_url,
     authorId: row.author_id,
     tagId: row.tag_id,
     readMinutes: row.read_minutes,

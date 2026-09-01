@@ -14,6 +14,7 @@ model articles {
   title        String
   excerpt      String?
   takeaway     String?
+  cover_image_url String?
   author_id    String?        @db.Uuid
   tag_id       String?        @db.Uuid
   read_minutes Int?
