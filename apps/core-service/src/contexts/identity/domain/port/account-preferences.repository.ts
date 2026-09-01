@@ -6,12 +6,27 @@ import type {
 } from '../model/account-preferences';
 
 export type BookmarkTarget = 'COURSE' | 'ROADMAP' | 'EXERCISE' | 'POST';
+export type BookmarkSort = 'newest' | 'oldest' | 'title';
 export interface UserBookmark {
   id: string;
   targetType: BookmarkTarget;
   targetId: string;
   targetRef: string | null;
   createdAt: string;
+}
+export interface ResolvedUserBookmark extends UserBookmark {
+  contentSlug: string | null;
+  title: string | null;
+  description: string | null;
+  coverImageUrl: string | null;
+  authorName: string | null;
+  contentStatus: string | null;
+  available: boolean;
+  difficulty: string | null;
+  level: string | null;
+  durationMinutes: number | null;
+  itemCount: number | null;
+  popularity: number | null;
 }
 
 export interface LearningLeaderboardEntry {
@@ -37,8 +52,15 @@ export interface AccountPreferencesRepository {
   leaderboard(limit: number): Promise<LearningLeaderboardEntry[]>;
   listBookmarks(
     userId: string,
-    input: { targetType?: BookmarkTarget; page: number; limit: number },
-  ): Promise<{ items: UserBookmark[]; total: number }>;
+    input: {
+      targetType?: BookmarkTarget;
+      q?: string;
+      sort: BookmarkSort;
+      page: number;
+      limit: number;
+    },
+  ): Promise<{ items: ResolvedUserBookmark[]; total: number }>;
+  hasBookmark(userId: string, targetType: BookmarkTarget, targetId: string): Promise<boolean>;
   saveBookmark(
     userId: string,
     input: { targetType: BookmarkTarget; targetId: string; targetRef?: string },

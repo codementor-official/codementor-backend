@@ -10,8 +10,10 @@ import {
 } from '../domain/model/account-preferences';
 import type {
   AccountPreferencesRepository,
+  BookmarkSort,
   BookmarkTarget,
   LearningLeaderboardEntry,
+  ResolvedUserBookmark,
   UserBookmark,
 } from '../domain/port/account-preferences.repository';
 
@@ -240,40 +242,127 @@ export class PrismaAccountPreferencesRepository implements AccountPreferencesRep
 
   async listBookmarks(
     userId: string,
-    input: { targetType?: BookmarkTarget; page: number; limit: number },
+    input: {
+      targetType?: BookmarkTarget;
+      q?: string;
+      sort: BookmarkSort;
+      page: number;
+      limit: number;
+    },
   ) {
     const offset = (input.page - 1) * input.limit;
-    const typeFilter = input.targetType ? 'AND target_type = $4' : '';
-    const params: unknown[] = [userId, input.limit, offset];
-    if (input.targetType) params.push(input.targetType);
+    const filters = ['b.user_id = $1::uuid'];
+    const filterParams: unknown[] = [userId];
+    if (input.targetType) {
+      filterParams.push(input.targetType);
+      filters.push(`b.target_type = $${filterParams.length}`);
+    }
+    if (input.q) {
+      filterParams.push(`%${input.q}%`);
+      filters.push(`(
+        COALESCE(c.title, r.title, e.title, a.title, '') ILIKE $${filterParams.length}
+        OR COALESCE(c.description, r.short_description, r.description, e.summary, a.excerpt, '')
+          ILIKE $${filterParams.length}
+        OR COALESCE(author.display_name, '') ILIKE $${filterParams.length}
+      )`);
+    }
+    const where = filters.join(' AND ');
+    const joins = `
+      FROM user_bookmarks b
+      LEFT JOIN courses c ON b.target_type = 'COURSE' AND c.id = b.target_id
+      LEFT JOIN roadmaps r ON b.target_type = 'ROADMAP' AND r.id = b.target_id
+      LEFT JOIN exercises e ON b.target_type = 'EXERCISE' AND e.id = b.target_id
+      LEFT JOIN articles a ON b.target_type = 'POST' AND a.id = b.target_id
+      LEFT JOIN users author ON author.id = CASE b.target_type
+        WHEN 'COURSE' THEN COALESCE(c.instructor_id, c.created_by)
+        WHEN 'ROADMAP' THEN r.created_by
+        WHEN 'EXERCISE' THEN e.author_id
+        WHEN 'POST' THEN a.author_id
+      END`;
+    const orderBy =
+      input.sort === 'oldest'
+        ? 'b.created_at ASC, b.id ASC'
+        : input.sort === 'title'
+          ? `LOWER(COALESCE(c.title, r.title, e.title, a.title, '')) ASC,
+             b.created_at DESC, b.id DESC`
+          : 'b.created_at DESC, b.id DESC';
+    const itemParams = [...filterParams, input.limit, offset];
+    const limitPosition = filterParams.length + 1;
+    const offsetPosition = filterParams.length + 2;
     const [items, countRows] = await Promise.all([
       this.prisma.$queryRawUnsafe<
-        Array<{
-          id: string;
-          targetType: BookmarkTarget;
-          targetId: string;
-          targetRef: string | null;
-          createdAt: Date;
-        }>
+        Array<Omit<ResolvedUserBookmark, 'createdAt'> & { createdAt: Date }>
       >(
-        `SELECT id, target_type AS "targetType", target_id AS "targetId",
-                target_ref AS "targetRef", created_at AS "createdAt"
-         FROM user_bookmarks
-         WHERE user_id = $1::uuid ${typeFilter}
-         ORDER BY created_at DESC, id DESC
-         LIMIT $2 OFFSET $3`,
-        ...params,
+        `SELECT b.id, b.target_type AS "targetType", b.target_id AS "targetId",
+                b.target_ref AS "targetRef", b.created_at AS "createdAt",
+                COALESCE(c.slug::text, r.slug::text, e.slug::text, a.slug::text, b.target_ref)
+                  AS "contentSlug",
+                COALESCE(c.title, r.title, e.title, a.title) AS title,
+                COALESCE(c.description, r.short_description, r.description, e.summary, a.excerpt)
+                  AS description,
+                COALESCE(c.cover_image_url, r.cover_image_url) AS "coverImageUrl",
+                author.display_name AS "authorName",
+                CASE b.target_type
+                  WHEN 'COURSE' THEN c.status::text
+                  WHEN 'ROADMAP' THEN r.status::text
+                  WHEN 'EXERCISE' THEN e.status::text
+                  WHEN 'POST' THEN a.status::text
+                END AS "contentStatus",
+                CASE b.target_type
+                  WHEN 'COURSE' THEN c.id IS NOT NULL AND c.status = 'published'
+                  WHEN 'ROADMAP' THEN r.id IS NOT NULL AND r.status = 'published'
+                  WHEN 'EXERCISE' THEN e.id IS NOT NULL AND e.status = 'published'
+                    AND e.visibility = 'public'
+                  WHEN 'POST' THEN a.id IS NOT NULL AND a.status = 'published'
+                  ELSE false
+                END AS available,
+                e.difficulty::text AS difficulty,
+                COALESCE(c.level::text, r.level::text) AS level,
+                CASE b.target_type
+                  WHEN 'COURSE' THEN c.duration_hours * 60
+                  WHEN 'ROADMAP' THEN r.estimated_hours * 60
+                  WHEN 'EXERCISE' THEN e.estimated_minutes
+                  WHEN 'POST' THEN a.read_minutes
+                END AS "durationMinutes",
+                CASE b.target_type
+                  WHEN 'COURSE' THEN c.total_lessons
+                  WHEN 'ROADMAP' THEN (
+                    SELECT count(*)::int FROM roadmap_courses rc WHERE rc.roadmap_id = r.id
+                  )
+                END AS "itemCount",
+                CASE b.target_type
+                  WHEN 'COURSE' THEN c.enrollment_count
+                  WHEN 'ROADMAP' THEN r.popularity_score
+                  WHEN 'EXERCISE' THEN e.solver_count
+                END AS popularity
+         ${joins}
+         WHERE ${where}
+         ORDER BY ${orderBy}
+         LIMIT $${limitPosition} OFFSET $${offsetPosition}`,
+        ...itemParams,
       ),
       this.prisma.$queryRawUnsafe<Array<{ total: bigint }>>(
-        `SELECT count(*) AS total FROM user_bookmarks
-         WHERE user_id = $1::uuid ${input.targetType ? 'AND target_type = $2' : ''}`,
-        ...(input.targetType ? [userId, input.targetType] : [userId]),
+        `SELECT count(*) AS total ${joins} WHERE ${where}`,
+        ...filterParams,
       ),
     ]);
     return {
       items: items.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })),
       total: Number(countRows[0]?.total ?? 0),
     };
+  }
+
+  async hasBookmark(userId: string, targetType: BookmarkTarget, targetId: string) {
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ saved: boolean }>>(
+      `SELECT EXISTS(
+         SELECT 1 FROM user_bookmarks
+         WHERE user_id = $1::uuid AND target_type = $2 AND target_id = $3::uuid
+       ) AS saved`,
+      userId,
+      targetType,
+      targetId,
+    );
+    return rows[0]?.saved ?? false;
   }
 
   async saveBookmark(

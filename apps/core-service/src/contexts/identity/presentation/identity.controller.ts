@@ -178,10 +178,24 @@ export class IdentityController {
   bookmarks(@CurrentUser() user: AuthenticatedUser, @Query() query: BookmarkQueryDto) {
     return this.accountPreferences.bookmarks(
       requireHumanId(user),
-      query.type,
-      query.page,
-      query.limit,
+      {
+        targetType: query.type,
+        q: query.q,
+        sort: query.sort,
+        page: query.page,
+        limit: query.limit,
+      },
     );
+  }
+
+  @Get('bookmarks/:type/:targetId')
+  @ApiOperation({ summary: 'Kiểm tra một nội dung đã được lưu hay chưa' })
+  bookmarkStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('type', new ParseEnumPipe(BOOKMARK_TARGETS)) type: BookmarkTarget,
+    @Param('targetId', new ParseUUIDPipe()) targetId: string,
+  ) {
+    return this.accountPreferences.bookmarkStatus(requireHumanId(user), type, targetId);
   }
 
   @Post('bookmarks')

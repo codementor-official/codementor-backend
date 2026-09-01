@@ -8,6 +8,7 @@ import type {
 import {
   ACCOUNT_PREFERENCES_REPOSITORY,
   type AccountPreferencesRepository,
+  type BookmarkSort,
   type BookmarkTarget,
 } from '../domain/port/account-preferences.repository';
 
@@ -53,14 +54,20 @@ export class AccountPreferencesService {
 
   async bookmarks(
     userId: string,
-    targetType: BookmarkTarget | undefined,
-    page: number,
-    limit: number,
+    input: {
+      targetType?: BookmarkTarget;
+      q?: string;
+      sort?: BookmarkSort;
+      page: number;
+      limit: number;
+    },
   ) {
-    const safePage = Math.max(page, 1);
-    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const safePage = Math.max(input.page, 1);
+    const safeLimit = Math.min(Math.max(input.limit, 1), 100);
     const result = await this.repository.listBookmarks(userId, {
-      targetType,
+      targetType: input.targetType,
+      q: input.q?.trim() || undefined,
+      sort: input.sort ?? 'newest',
       page: safePage,
       limit: safeLimit,
     });
@@ -70,6 +77,10 @@ export class AccountPreferencesService {
       limit: safeLimit,
       totalPages: Math.ceil(result.total / safeLimit),
     };
+  }
+
+  async bookmarkStatus(userId: string, targetType: BookmarkTarget, targetId: string) {
+    return { saved: await this.repository.hasBookmark(userId, targetType, targetId) };
   }
 
   saveBookmark(

@@ -28,6 +28,15 @@ export class BookmarkQueryDto {
   @IsIn(['COURSE', 'ROADMAP', 'EXERCISE', 'POST'])
   type?: 'COURSE' | 'ROADMAP' | 'EXERCISE' | 'POST';
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  q?: string;
+
+  @IsOptional()
+  @IsIn(['newest', 'oldest', 'title'])
+  sort: 'newest' | 'oldest' | 'title' = 'newest';
+
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 20;
 }
