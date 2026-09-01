@@ -57,6 +57,12 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
         where.privacy = workspace_privacy.public;
         where.NOT = { group_members: { some: membership } };
         break;
+      case 'public':
+        // Public catalogue includes joined groups as well. It powers the global
+        // Explore page where the most useful public communities should not
+        // disappear just because the current user is already a member.
+        where.privacy = workspace_privacy.public;
+        break;
       case 'all':
         where.OR = [{ privacy: workspace_privacy.public }, { group_members: { some: membership } }];
         break;
@@ -76,11 +82,19 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
         ],
       });
     if (and.length) where.AND = and;
+    const publicRanking = filter.scope === 'public' || filter.scope === 'discover';
     const [total, rows] = await Promise.all([
       this.prisma.study_groups.count({ where }),
       this.prisma.study_groups.findMany({
         where,
-        orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+        orderBy: publicRanking
+          ? [
+              { member_count: 'desc' },
+              { last_activity_at: { sort: 'desc', nulls: 'last' } },
+              { updated_at: 'desc' },
+              { id: 'desc' },
+            ]
+          : [{ updated_at: 'desc' }, { id: 'desc' }],
         skip: (filter.page - 1) * filter.limit,
         take: filter.limit,
         include: {

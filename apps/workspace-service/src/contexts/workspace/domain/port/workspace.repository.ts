@@ -92,7 +92,7 @@ export interface WorkspaceJoinRequestRecord {
   user: WorkspaceUser;
 }
 export interface WorkspaceListFilter {
-  scope?: 'all' | 'mine' | 'owned' | 'joined' | 'discover';
+  scope?: 'all' | 'mine' | 'owned' | 'joined' | 'public' | 'discover';
   q?: string;
   topic?: string;
   page: number;

@@ -194,6 +194,12 @@ export class WorkspaceService {
     const workspace = await this.requireOwner(userId, slug);
     const name = dto.name === undefined ? undefined : dto.name.trim();
     if (name === '') throw new BusinessRuleViolation('Tên nhóm không được để trống');
+    const nextPrivacy = dto.privacy ?? workspace.privacy;
+    const nextJoinPolicy = dto.joinPolicy ?? workspace.joinPolicy;
+    if (nextPrivacy === 'public' && nextJoinPolicy === 'invite_only')
+      throw new BusinessRuleViolation(
+        'Nhóm công khai phải cho phép tham gia ngay hoặc gửi yêu cầu xét duyệt',
+      );
     await this.workspaces.update(workspace.id, {
       name,
       description: dto.description === undefined ? undefined : trimOptional(dto.description),
@@ -434,6 +440,9 @@ export class WorkspaceService {
     const workspace = await this.requireActive(slug);
     const existing = await this.workspaces.findMembershipAny(workspace.id, userId);
     if (existing?.status === 'active') return { status: 'joined', workspaceSlug: slug };
+    // A slug is not an invitation credential. Private workspaces may only be
+    // joined through their invite code and must never leak through discovery.
+    if (workspace.privacy !== 'public') throw new NotFound('Không tìm thấy nhóm học tập');
     if (workspace.joinPolicy === 'invite_only')
       throw new NotAuthorized('Nhóm này chỉ nhận thành viên bằng mã mời');
     if (workspace.joinPolicy === 'open') {

@@ -16,7 +16,14 @@ import {
   Min,
 } from 'class-validator';
 
-export const WORKSPACE_SCOPES = ['all', 'mine', 'owned', 'joined', 'discover'] as const;
+export const WORKSPACE_SCOPES = [
+  'all',
+  'mine',
+  'owned',
+  'joined',
+  'public',
+  'discover',
+] as const;
 export const WORKSPACE_ROLES = ['deputy', 'member'] as const;
 export const WORKSPACE_PERMISSIONS = [
   'view_doc',
