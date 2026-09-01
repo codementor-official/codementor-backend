@@ -8,7 +8,7 @@
 // Dừng theo PID đang giữ cổng, không theo tên tiến trình: khớp process name/cmdline
 // dễ dính nhầm tiến trình khác đang chạy cùng máy.
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { platform } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,6 +95,22 @@ function judgeCommand() {
     : { cmd: "uv", args: ["run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3007"], cwd };
 }
 
+// Một dist cũ hơn source khởi động ngon lành và phục vụ bản build của tháng trước: service
+// "đang chạy" ở đúng cổng, nhưng controller thêm sau lần build đó không tồn tại, nên client
+// ăn 404 ở một endpoint mà mã nguồn rõ ràng có. Judge không dính (chạy thẳng source qua
+// uvicorn), nên triệu chứng lại càng dễ đổ oan cho judge.
+function newestTs(dir) {
+  if (!existsSync(dir)) return 0;
+  let newest = 0;
+  for (const item of readdirSync(dir, { recursive: true, withFileTypes: true })) {
+    if (!item.isFile() || !item.name.endsWith(".ts")) continue;
+    newest = Math.max(newest, statSync(join(item.parentPath ?? item.path, item.name)).mtimeMs);
+  }
+  return newest;
+}
+
+const libsMtime = newestTs(join(repoRoot, "libs"));
+
 async function startOne(name, port) {
   if (pidOnPort(port)) {
     console.log(`  ${name.padEnd(12)} đang chạy sẵn ở :${port} — bỏ qua`);
@@ -110,16 +126,25 @@ async function startOne(name, port) {
       console.log(`  ${name.padEnd(12)} CHƯA BUILD (${entry})`);
       return false;
     }
+    const source = Math.max(libsMtime, newestTs(join(repoRoot, "apps", `${name}-service`, "src")));
+    if (source > statSync(entry).mtimeMs) {
+      console.log(`  ${name.padEnd(12)} DIST CŨ HƠN SOURCE — chạy \`npm run build:all\` rồi thử lại`);
+      return false;
+    }
     command = { cmd: "node", args: [entry], cwd: repoRoot };
   }
 
   mkdirSync(logDir, { recursive: true });
-  const out = openSync(join(logDir, `${name}.log`), "w");
-  const err = openSync(join(logDir, `${name}.log`), "a");
+  // Một fd duy nhất cho cả stdout lẫn stderr. Hai fd mở riêng trên cùng file có hai offset
+  // riêng, nên fd "w" ghi lại từ đầu và cắt cụt những dòng fd "a" vừa ghi — chính chỗ
+  // `judge.log` mất nửa đầu dòng log Kafka. Truncate trước để log chỉ chứa lần chạy này.
+  const logFile = join(logDir, `${name}.log`);
+  writeFileSync(logFile, "");
+  const log = openSync(logFile, "a");
   const child = spawn(command.cmd, command.args, {
     cwd: command.cwd,
     detached: true,
-    stdio: ["ignore", out, err],
+    stdio: ["ignore", log, log],
   });
   child.unref();
 
@@ -131,7 +156,7 @@ async function startOne(name, port) {
     console.log(`  ${name.padEnd(12)} :${port}`);
     return true;
   }
-  console.log(`  ${name.padEnd(12)} KHÔNG LÊN ĐƯỢC — xem ${join(logDir, `${name}.log`)}`);
+  console.log(`  ${name.padEnd(12)} KHÔNG LÊN ĐƯỢC — xem ${logFile}`);
   return false;
 }
 
@@ -153,6 +178,9 @@ switch (action) {
     break;
   case "restart":
     for (const [name, port] of chosen) stopOne(name, port);
+    // SIGTERM trả ngay, tiến trình còn giữ socket thêm một nhịp. Không chờ thì startOne
+    // thấy cổng vẫn bận, báo "đang chạy sẵn — bỏ qua", và service coi như bị dừng hẳn.
+    for (const [, port] of chosen) await waitUntil(() => !pidOnPort(port), 40, 250);
     for (const [name, port] of chosen) if (!(await startOne(name, port))) failed = true;
     break;
   case "status":
