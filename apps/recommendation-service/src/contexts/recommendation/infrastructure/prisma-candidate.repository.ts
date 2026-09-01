@@ -57,9 +57,10 @@ function toCandidate(row: CandidateRow, kind: Candidate['kind']): Candidate {
 /**
  * MỌI truy vấn ở đây là SELECT.
  *
- * Service này không sở hữu bảng nào — nó đọc `learning_preferences` (core-service),
- * `roadmaps`/`courses`/enrollment (learning-service), `exercises`/`exercise_progress`
- * (exercise-service). `docs/02-service-architecture.md §5.2` muốn đường đọc chéo đi qua
+ * Service này không sở hữu bảng nào — nó đọc `learning_preferences`/`user_bookmarks`
+ * (core-service), `roadmaps`/`courses`/`articles`/enrollment (learning-service),
+ * `exercises`/`exercise_progress` (exercise-service), `study_groups`/`group_members`
+ * (workspace-service). `docs/02-service-architecture.md §5.2` muốn đường đọc chéo đi qua
  * view chỉ-đọc; ở đây đọc thẳng bảng, cùng lối đã có sẵn trong
  * `learning-service/.../user-activity.usecases.ts`.
  *
@@ -189,6 +190,72 @@ export class PrismaCandidateRepository implements CandidateRepository {
       LIMIT ${CANDIDATE_LIMIT}`;
 
     return rows.map((row) => toCandidate(row, 'exercise'));
+  }
+
+  /**
+   * Bài viết đã công khai.
+   *
+   * Không có `article_technologies` nên `technologies` luôn rỗng — việc khớp công nghệ dồn
+   * hết vào `titleTechMatch` (đoán từ tiêu đề, ăn nửa trọng số). Chủ đề thì có thật:
+   * `articles.tag_id` trỏ vào ĐÚNG bảng `tags` mà `exercise_tags` dùng, nên chủ đề học
+   * viên còn dở dang ở phần luyện tập kéo được bài viết cùng chủ đề lên.
+   *
+   * Không có bảng nào đếm lượt đọc; số lượt lưu (`user_bookmarks`) là tín hiệu phổ biến
+   * duy nhất, và cũng là thứ duy nhất nói được "học viên đã gặp bài này rồi".
+   */
+  async listArticles(userId: string, excludeSeen: boolean): Promise<Candidate[]> {
+    const rows = await this.prisma.$queryRaw<CandidateRow[]>`
+      SELECT a.id::text AS id, a.slug::text AS slug, a.title,
+             NULL::text AS field, NULL::text AS level, NULL::text AS difficulty,
+             (SELECT count(*)::int FROM user_bookmarks b
+              WHERE b.target_type = 'POST' AND b.target_id = a.id) AS "popularityRaw",
+             '{}'::text[] AS technologies,
+             COALESCE(array_agg(t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS tags
+      FROM articles a
+      LEFT JOIN tags t ON t.id = a.tag_id
+      WHERE a.status = 'published'
+        AND (NOT ${excludeSeen}::boolean OR NOT EXISTS (
+          SELECT 1 FROM user_bookmarks mine
+          WHERE mine.target_type = 'POST' AND mine.target_id = a.id
+            AND mine.user_id = ${userId}::uuid))
+      GROUP BY a.id
+      -- Bài mới nhất thắng khi cùng số lượt lưu: phần lớn bài viết có 0 lượt, để mỗi id
+      -- chốt thứ tự thì trang đề xuất đứng im ở đúng những bài cũ nhất.
+      ORDER BY "popularityRaw" DESC, a.published_at DESC NULLS LAST, a.id
+      LIMIT ${CANDIDATE_LIMIT}`;
+
+    return rows.map((row) => toCandidate(row, 'article'));
+  }
+
+  /**
+   * Nhóm học tập công khai còn hoạt động.
+   *
+   * Nhóm riêng tư không bao giờ ra khỏi đây: nó chỉ vào được bằng lời mời hoặc mã mời, nên
+   * đề xuất một nhóm như vậy là vừa lộ sự tồn tại của nó vừa dẫn tới một cánh cửa khoá.
+   *
+   * `topic` là chữ tự do người tạo nhóm tự gõ, không phải khoá ngoại sang `tags` — đổ vào
+   * `tags` để nó có cơ hội khớp với chủ đề học viên đang luyện, và chấp nhận rằng phần lớn
+   * sẽ không khớp. `name` thường có tên công nghệ ("CLB React"), phần đó `titleTechMatch` lo.
+   */
+  async listGroups(userId: string, excludeSeen: boolean): Promise<Candidate[]> {
+    const rows = await this.prisma.$queryRaw<CandidateRow[]>`
+      SELECT g.id::text AS id, g.slug::text AS slug, g.name AS title,
+             NULL::text AS field, NULL::text AS level, NULL::text AS difficulty,
+             g.member_count AS "popularityRaw",
+             '{}'::text[] AS technologies,
+             COALESCE(array_remove(ARRAY[g.topic], NULL), '{}') AS tags
+      FROM study_groups g
+      WHERE g.status = 'active' AND g.privacy = 'public'
+        AND (NOT ${excludeSeen}::boolean OR NOT EXISTS (
+          SELECT 1 FROM group_members mine
+          WHERE mine.group_id = g.id AND mine.user_id = ${userId}::uuid
+            AND mine.status = 'active'))
+      -- Nhóm vừa có người hoạt động thắng khi cùng số thành viên: nhóm đông mà im lìm là
+      -- thứ tệ nhất để đẩy cho người mới.
+      ORDER BY "popularityRaw" DESC, g.last_activity_at DESC NULLS LAST, g.id
+      LIMIT ${CANDIDATE_LIMIT}`;
+
+    return rows.map((row) => toCandidate(row, 'group'));
   }
 
   /**

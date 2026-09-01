@@ -5,6 +5,7 @@ import {
 } from '../domain/port/candidate.repository';
 import {
   isPersonalized,
+  normalizePopularity,
   rankCandidates,
   type Candidate,
   type ScoredItem,
@@ -22,7 +23,17 @@ export interface RecommendedItem {
   level: string | null;
   difficulty: string | null;
   technologies: string[];
+  /**
+   * Tên chủ đề. Chip trên thẻ bài viết và nhãn chủ đề trên thẻ nhóm đọc từ đây — hai loại
+   * này không có `field`/`level` để hiện, chủ đề là thứ duy nhất mô tả được chúng.
+   */
+  tags: string[];
   score: number;
+  /**
+   * Độ phổ biến đã chuẩn hóa 0..100 trong chính tập ứng viên. Thẻ nhóm hiện nó thành thanh
+   * "mức sôi động" — số thành viên thô không nói lên gì khi không biết nhóm khác bao nhiêu.
+   */
+  popularity: number;
   /** Đổ vào ô `note` của `EntityCard` bên frontend. */
   reasons: string[];
 }
@@ -36,7 +47,17 @@ export interface RecommendationList {
   items: RecommendedItem[];
 }
 
-function toItem(scored: ScoredItem): RecommendedItem {
+/**
+ * `rankCandidates` chuẩn hóa độ phổ biến trong nội bộ nó rồi vứt đi — chỉ giữ lại `score`
+ * đã cộng. Tính lại trên CÙNG tập ứng viên (không phải trên top đã cắt) để con số ra ngoài
+ * khớp với con số đã dùng lúc chấm điểm.
+ */
+function withPopularity(pool: Candidate[]): (scored: ScoredItem) => RecommendedItem {
+  const popularity = normalizePopularity(pool);
+  return (scored) => toItem(scored, Math.round(popularity.get(scored.id) ?? 0));
+}
+
+function toItem(scored: ScoredItem, popularity: number): RecommendedItem {
   return {
     id: scored.id,
     slug: scored.slug,
@@ -46,7 +67,9 @@ function toItem(scored: ScoredItem): RecommendedItem {
     level: scored.level,
     difficulty: scored.difficulty,
     technologies: scored.technologies,
+    tags: scored.tags,
     score: scored.score,
+    popularity,
     reasons: scored.reasons,
   };
 }
@@ -70,6 +93,14 @@ export class RecommendUseCase {
     return this.rank(userId, limit, (id, seen) => this.candidates.listExercises(id, seen));
   }
 
+  articles(userId: string, limit: number): Promise<RecommendationList> {
+    return this.rank(userId, limit, (id, seen) => this.candidates.listArticles(id, seen));
+  }
+
+  groups(userId: string, limit: number): Promise<RecommendationList> {
+    return this.rank(userId, limit, (id, seen) => this.candidates.listGroups(id, seen));
+  }
+
   /**
    * Gợi ý một bài kế tiếp ngay sau khi nộp đạt.
    *
@@ -91,7 +122,7 @@ export class RecommendUseCase {
         affinity: withJustSolved(affinity, justSolvedTags),
       })
         .slice(0, 1)
-        .map(toItem),
+        .map(withPopularity(pool)),
     };
   }
 
@@ -125,7 +156,9 @@ export class RecommendUseCase {
     const pool = fresh.length > 0 ? fresh : await load(userId, false);
     return {
       personalized: isPersonalized(preferences),
-      items: rankCandidates(pool, preferences, { affinity }).slice(0, limit).map(toItem),
+      items: rankCandidates(pool, preferences, { affinity })
+        .slice(0, limit)
+        .map(withPopularity(pool)),
     };
   }
 }

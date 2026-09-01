@@ -1,6 +1,7 @@
 import type { Candidate, LearnerPreferences } from './scoring';
 import {
   POPULAR_REASON,
+  RECOMMENDATION_WEIGHTS,
   isPersonalized,
   normalizePopularity,
   rankCandidates,
@@ -287,5 +288,55 @@ describe('withJustSolved', () => {
     withJustSolved(before, ['Mảng']);
 
     expect(before.get('Mảng')).toEqual({ solved: 1, attempted: 0 });
+  });
+});
+
+describe('bài viết và nhóm học tập', () => {
+  const neutral = preferences({
+    currentLevel: null,
+    interestedFields: [],
+    interestedTechnologies: [],
+  });
+
+  it('bài viết ăn điểm chủ đề học viên còn dở dang bên phần luyện tập', () => {
+    // `articles.tag_id` và `exercise_tags` cùng trỏ vào bảng `tags`, nên bản đồ chủ đề đếm
+    // từ `exercise_progress` chấm được bài viết mà không cần thêm nguồn nào.
+    const article = candidate({
+      kind: 'article',
+      field: null,
+      level: null,
+      technologies: [],
+      tags: ['Đệ quy'],
+    });
+    const affinity = new Map([['Đệ quy', { solved: 0, attempted: 3 }]]);
+
+    const { score, reasons } = scoreCandidate(article, neutral, 0, { affinity });
+
+    expect(reasons).toEqual(['Bạn còn dở dang ở chủ đề Đệ quy']);
+    expect(score).toBe(RECOMMENDATION_WEIGHTS.topic);
+  });
+
+  it('nhóm không có lĩnh vực lẫn trình độ vẫn xếp hạng được bằng độ phổ biến', () => {
+    const quiet = candidate({ id: 'q', kind: 'group', field: null, level: null, technologies: [], tags: [], popularityRaw: 2 });
+    const busy = candidate({ id: 'b', kind: 'group', field: null, level: null, technologies: [], tags: [], popularityRaw: 90 });
+
+    const ranked = rankCandidates([quiet, busy], neutral);
+
+    expect(ranked.map((item) => item.id)).toEqual(['b', 'q']);
+    expect(ranked[0].reasons).toEqual([POPULAR_REASON]);
+  });
+
+  it('ưu tiên lý thuyết nhích bài viết lên như nhích khóa học', () => {
+    const theory = preferences({
+      contentPriority: 'theory',
+      currentLevel: null,
+      interestedFields: [],
+      interestedTechnologies: [],
+    });
+    const article = candidate({ kind: 'article', field: null, level: null, technologies: [], tags: [] });
+    const exercise = candidate({ kind: 'exercise', field: null, level: null, technologies: [], tags: [] });
+
+    expect(scoreCandidate(article, theory, 0).score).toBe(5);
+    expect(scoreCandidate(exercise, theory, 0).score).toBe(0);
   });
 });

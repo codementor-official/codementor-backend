@@ -8,7 +8,7 @@
  * thứ tự hiện ra trên dashboard không được nhảy loạn dưới chân người dùng.
  */
 
-export type ItemKind = 'roadmap' | 'course' | 'exercise';
+export type ItemKind = 'roadmap' | 'course' | 'exercise' | 'article' | 'group';
 
 /** Cấu hình được — chỉnh mà không phải đụng vào phần logic cộng điểm. */
 export const RECOMMENDATION_WEIGHTS = {
@@ -62,7 +62,7 @@ export interface Candidate {
   slug: string;
   title: string;
   kind: ItemKind;
-  /** `roadmap_field`; course suy từ roadmap chứa nó, exercise không có. */
+  /** `roadmap_field`; course suy từ roadmap chứa nó; exercise/article/group không có. */
   field: string | null;
   /** `current_level` của roadmap/course. */
   level: string | null;
@@ -73,7 +73,12 @@ export interface Candidate {
    * dòng nào, xem `titleTechMatch` để biết chỗ này bù bằng gì.
    */
   technologies: string[];
-  /** Tên chủ đề (`exercise_tags`). Chỉ bài tập có; lộ trình và khóa học không gắn chủ đề. */
+  /**
+   * Tên chủ đề, cùng từ vựng bảng `tags` cho bài tập (`exercise_tags`) và bài viết
+   * (`articles.tag_id`) — nên `TagAffinityMap` đọc từ `exercise_progress` chấm được cả hai.
+   * Lộ trình và khóa học gom chủ đề của thứ nằm bên trong. Nhóm học tập dùng `topic` tự do,
+   * chỉ khớp khi tình cờ trùng tên chủ đề.
+   */
   tags: string[];
   /**
    * Tín hiệu phổ biến THÔ, mỗi loại một đơn vị khác nhau (số người ghi danh, số người
@@ -303,7 +308,12 @@ export function scoreCandidate(
   // Ưu tiên nội dung: nhích nhẹ, không kèm lý do — nó là sở thích về DẠNG nội dung, không
   // phải một điểm khớp đáng khoe trên thẻ.
   if (preferences.contentPriority === 'practice' && candidate.kind === 'exercise') score += 5;
-  if (preferences.contentPriority === 'theory' && candidate.kind === 'course') score += 5;
+  // Bài viết đi cùng khóa học ở nhánh `theory`: cả hai là đọc/xem, không phải gõ code.
+  if (
+    preferences.contentPriority === 'theory' &&
+    (candidate.kind === 'course' || candidate.kind === 'article')
+  )
+    score += 5;
 
   // Luôn cộng một chút phổ biến để hai ứng viên hòa điểm ngã về phía cái đã được kiểm chứng.
   score += (popularity / 100) * weights.popularity;

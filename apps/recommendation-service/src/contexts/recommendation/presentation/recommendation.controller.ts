@@ -38,6 +38,18 @@ export class RecommendationController {
     return this.recommend.exercises(requireHumanId(user), query.limit ?? DEFAULT_LIMIT);
   }
 
+  @Get('articles')
+  @ApiOperation({ summary: 'Bài viết đề xuất, điểm khớp cao nhất trước' })
+  articles(@CurrentUser() user: AuthenticatedUser, @Query() query: ListRecommendationsQuery) {
+    return this.recommend.articles(requireHumanId(user), query.limit ?? DEFAULT_LIMIT);
+  }
+
+  @Get('groups')
+  @ApiOperation({ summary: 'Nhóm học tập công khai đề xuất, điểm khớp cao nhất trước' })
+  groups(@CurrentUser() user: AuthenticatedUser, @Query() query: ListRecommendationsQuery) {
+    return this.recommend.groups(requireHumanId(user), query.limit ?? DEFAULT_LIMIT);
+  }
+
   // Route cụ thể phải đứng TRƯỚC route chung cùng tiền tố nếu sau này `exercises` nhận
   // tham số đường dẫn; giữ thứ tự này để khỏi phải nhớ lại lúc đó.
   @Get('exercises/next')

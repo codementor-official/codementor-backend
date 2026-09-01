@@ -13,8 +13,9 @@ import { RecommendationModule } from './contexts/recommendation/recommendation.m
 /**
  * recommendation-service
  *
- * Sở hữu 0 bảng. Chỉ ĐỌC: `learning_preferences` (core), `roadmaps`/`courses`/enrollment
- * (learning), `exercises`/`exercise_progress` (exercise) — xem
+ * Sở hữu 0 bảng. Chỉ ĐỌC: `learning_preferences`/`user_bookmarks` (core),
+ * `roadmaps`/`courses`/`articles`/enrollment (learning), `exercises`/`exercise_progress`
+ * (exercise), `study_groups`/`group_members` (workspace) — xem
  * `infrastructure/prisma-candidate.repository.ts`, mọi truy vấn đều là SELECT.
  *
  * Không có `MessagingModule`: yêu cầu hiện tại là đề xuất theo luật, KHÔNG thu thập hành vi

@@ -23,6 +23,13 @@ export interface CandidateRepository {
   listCourses(userId: string, excludeSeen: boolean): Promise<Candidate[]>;
   listExercises(userId: string, excludeSeen: boolean): Promise<Candidate[]>;
   /**
+   * Bài viết đã công khai. `excludeSeen` bỏ bài học viên đã lưu — không có bảng nào ghi
+   * lượt ĐỌC, nên lưu là dấu vết duy nhất chứng tỏ họ đã gặp bài đó.
+   */
+  listArticles(userId: string, excludeSeen: boolean): Promise<Candidate[]>;
+  /** Nhóm công khai còn hoạt động. `excludeSeen` bỏ nhóm học viên đang là thành viên. */
+  listGroups(userId: string, excludeSeen: boolean): Promise<Candidate[]>;
+  /**
    * Chủ đề học viên đã giải / đã thử mà chưa giải được. Rỗng với người chưa làm bài nào,
    * và với mọi bài chưa được gắn chủ đề.
    */
