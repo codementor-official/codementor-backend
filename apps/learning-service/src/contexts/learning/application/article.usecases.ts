@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
-import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
+import { AlreadyExists, NotAuthorized, NotFound } from '@codementor/kernel';
 import {
   DEFAULT_PAGE_LIMIT,
   IMAGE_CONTENT_TYPES,
@@ -98,9 +98,6 @@ export class ArticleUseCases {
     input: { filename: string; contentType: string; sizeBytes: number },
   ): Promise<PresignedUpload> {
     const article = await this.mustEdit(user, id);
-    if (article.status === 'pending_review') {
-      throw new BusinessRuleViolation('Bài viết đang chờ duyệt. Hủy gửi duyệt trước khi sửa.');
-    }
     const signed = await this.storage.presignImageUpload({
       prefix: `articles/${article.id}/cover`,
       ...input,
