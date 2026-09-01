@@ -41,6 +41,8 @@ export interface WorkspaceExerciseRecord {
   estimatedMinutes: number | null;
   timeLimitMs: number;
   memoryLimitKb: number;
+  publishedAt: Date | null;
+  updatedAt: Date;
   dueAt: Date | null;
   attemptLimit: number | null;
   allowRetry: boolean;

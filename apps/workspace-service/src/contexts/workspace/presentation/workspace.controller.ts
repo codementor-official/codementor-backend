@@ -356,6 +356,15 @@ export class WorkspaceController {
     return this.content.exerciseDetail(requireHumanId(user), slug, id);
   }
 
+  @Get(':slug/exercises/:groupExerciseId/solve')
+  exerciseForSolve(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('groupExerciseId') id: string,
+  ) {
+    return this.content.exerciseForSolve(requireHumanId(user), slug, id);
+  }
+
   @Patch(':slug/exercises/:groupExerciseId')
   updateExercise(
     @CurrentUser() user: AuthenticatedUser,

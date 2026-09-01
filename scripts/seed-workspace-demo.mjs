@@ -730,7 +730,10 @@ async function seedExercises(ownerId) {
       summary,
       difficulty,
       status: 'draft',
-      visibility: 'public',
+      // These exercises belong to this Workspace demo. Publishing them makes the
+      // global `/exercises` catalogue treat private group material as practice-bank
+      // content, because that endpoint correctly selects `public + published`.
+      visibility: 'group',
       source: 'manual',
       xp_reward: xp,
       estimated_minutes: minutes,

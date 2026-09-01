@@ -296,7 +296,11 @@ export class WorkspaceContentService {
       );
     return {
       ...exercise,
-      content: content ?? null,
+      content: content
+        ? canEdit
+          ? content
+          : toLearnerExerciseContent(content as Record<string, unknown>)
+        : null,
       isAssignedToMe: Boolean(mine),
       myAssignment: mine
         ? {
@@ -313,6 +317,46 @@ export class WorkspaceContentService {
       canPublish: canDeleteAny,
       canRestore: canDeleteAny,
       canReview,
+    };
+  }
+  async exerciseForSolve(userId: string, slug: string, id: string) {
+    const detail = await this.workspaces.detail(userId, slug);
+    this.requireAny(detail, ['view_exercise']);
+    const exercise = await this.content.exerciseDetail(detail.id, id);
+    if (!exercise) throw new NotFound('Bài tập nhóm', id);
+
+    const canEdit =
+      this.canAny(detail, ['edit_exercise']) ||
+      (exercise.authorId === userId && this.canAny(detail, ['edit_own_exercise']));
+    if (exercise.publicationStatus === 'hidden' && !canEdit)
+      throw new NotFound('Bài tập nhóm', id);
+
+    const content = await this.mongo
+      .collection('exercise_contents')
+      .findOne(
+        { exerciseId: exercise.exerciseId },
+        { projection: { _id: 0, exerciseId: 0, kind: 0, createdAt: 0, updatedAt: 0 } },
+      );
+
+    return {
+      id: exercise.exerciseId,
+      slug: exercise.slug,
+      title: exercise.title,
+      summary: exercise.summary,
+      kind: 'code',
+      difficulty: exercise.difficulty,
+      status: exercise.status,
+      visibility: 'group',
+      authorId: exercise.authorId,
+      authorName: null,
+      forkedFromId: null,
+      updatedAt: exercise.updatedAt.toISOString(),
+      xpReward: exercise.xp,
+      estimatedMinutes: exercise.estimatedMinutes,
+      timeLimitMs: exercise.timeLimitMs,
+      memoryLimitKb: exercise.memoryLimitKb,
+      publishedAt: exercise.publishedAt?.toISOString() ?? null,
+      content: content ? toLearnerExerciseContent(content as Record<string, unknown>) : null,
     };
   }
   async attachExercise(userId: string, slug: string, dto: AttachWorkspaceExerciseDto) {
@@ -639,4 +683,42 @@ export class WorkspaceContentService {
 
 function clean(value: string | null | undefined) {
   return value?.trim() || undefined;
+}
+
+/** Never send judge-only test cases, reference solutions or custom checker source to learners. */
+function toLearnerExerciseContent(content: Record<string, unknown>) {
+  const { testCases, languages, evaluation, ...safe } = content;
+  return {
+    ...safe,
+    ...(Array.isArray(testCases)
+      ? {
+          testCases: testCases
+            .filter(isRecord)
+            .filter((testCase) => testCase.visibility === 'public')
+            .map((testCase) => ({ ...testCase })),
+        }
+      : {}),
+    ...(Array.isArray(languages)
+      ? {
+          languages: languages.filter(isRecord).map((language) => {
+            const learnerLanguage = { ...language };
+            delete learnerLanguage.referenceSolution;
+            return learnerLanguage;
+          }),
+        }
+      : {}),
+    ...(isRecord(evaluation)
+      ? {
+          evaluation: {
+            checker: evaluation.checker,
+            floatTolerance: evaluation.floatTolerance,
+            stopOnFirstFailure: evaluation.stopOnFirstFailure,
+          },
+        }
+      : {}),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
