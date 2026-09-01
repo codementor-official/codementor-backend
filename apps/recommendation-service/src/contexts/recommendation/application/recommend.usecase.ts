@@ -126,6 +126,45 @@ export class RecommendUseCase {
     };
   }
 
+  /**
+   * Bài viết liên quan bài đang đọc.
+   *
+   * Cùng khuôn với `nextExercise`: bỏ chính bài đang mở khỏi danh sách, rồi cộng chủ đề
+   * của nó vào bản đồ chủ đề trước khi chấm điểm.
+   *
+   * Nâng ĐIỂM chứ không LỌC theo chủ đề: mỗi bài viết chỉ mang một `tag_id`, nên lọc cứng
+   * sẽ trả về danh sách rỗng ngay khi chủ đề đó chỉ có đúng bài đang đọc — chỗ "bài viết
+   * liên quan" khi ấy biến mất thay vì đưa ra thứ gần nhất còn lại. Cộng điểm thì bài cùng
+   * chủ đề luôn nổi lên trước, mà danh sách không bao giờ trống.
+   */
+  async relatedArticles(
+    userId: string,
+    articleId: string,
+    limit: number,
+  ): Promise<RecommendationList> {
+    const [candidates, preferences, affinity, readingTags] = await Promise.all([
+      this.candidates.listArticles(userId, true),
+      this.candidates.findPreferences(userId),
+      this.tagAffinity(userId),
+      this.candidates.findArticleTags(articleId),
+    ]);
+    // Bài đang đọc chỉ bị `listArticles` loại khi học viên đã LƯU nó — lưu là dấu vết "đã
+    // gặp" duy nhất, mà mở ra đọc thì không lưu gì cả.
+    const drop = (list: Candidate[]) => list.filter((c) => c.id !== articleId);
+    const pool = drop(candidates);
+    // Lượt thứ hai cũng phải bỏ bài đang đọc: nó nằm trong danh mục đầy đủ, và đề xuất
+    // "bài liên quan" là chính bài người ta đang mở thì vô nghĩa nhất.
+    const fresh = pool.length > 0 ? pool : drop(await this.candidates.listArticles(userId, false));
+    return {
+      personalized: isPersonalized(preferences),
+      items: rankCandidates(fresh, preferences, {
+        affinity: withJustSolved(affinity, readingTags),
+      })
+        .slice(0, limit)
+        .map(withPopularity(fresh)),
+    };
+  }
+
   /** Chủ đề học viên đã giải / còn mắc, đọc từ trạng thái đã lưu. */
   private async tagAffinity(userId: string): Promise<TagAffinityMap> {
     const rows = await this.candidates.findTagAffinity(userId);

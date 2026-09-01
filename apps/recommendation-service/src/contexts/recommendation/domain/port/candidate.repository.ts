@@ -36,6 +36,8 @@ export interface CandidateRepository {
   findTagAffinity(userId: string): Promise<TagAffinityRow[]>;
   /** Chủ đề của MỘT bài, theo tên. Dùng cho bài vừa nộp đạt, xem `withJustSolved`. */
   findExerciseTags(exerciseId: string): Promise<string[]>;
+  /** Chủ đề của MỘT bài viết. Dùng cho bài đang đọc, xem `RecommendUseCase.relatedArticles`. */
+  findArticleTags(articleId: string): Promise<string[]>;
 }
 
 export const CANDIDATE_REPOSITORY = Symbol('CANDIDATE_REPOSITORY');

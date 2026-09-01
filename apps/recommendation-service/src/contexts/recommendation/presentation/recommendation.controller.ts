@@ -3,7 +3,11 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { RecommendUseCase } from '../application/recommend.usecase';
-import { ListRecommendationsQuery, NextExerciseQuery } from './dto/list-recommendations.query';
+import {
+  ListRecommendationsQuery,
+  NextExerciseQuery,
+  RelatedArticlesQuery,
+} from './dto/list-recommendations.query';
 
 const DEFAULT_LIMIT = 6;
 
@@ -42,6 +46,21 @@ export class RecommendationController {
   @ApiOperation({ summary: 'Bài viết đề xuất, điểm khớp cao nhất trước' })
   articles(@CurrentUser() user: AuthenticatedUser, @Query() query: ListRecommendationsQuery) {
     return this.recommend.articles(requireHumanId(user), query.limit ?? DEFAULT_LIMIT);
+  }
+
+  // Trước `:kind` nào cũng vậy — nhưng ở đây quan trọng hơn: `articles/related` phải đứng
+  // sau `articles` và không được để route nào bắt `articles/*` chen vào giữa.
+  @Get('articles/related')
+  @ApiOperation({ summary: 'Bài viết liên quan bài đang đọc' })
+  relatedArticles(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: RelatedArticlesQuery,
+  ) {
+    return this.recommend.relatedArticles(
+      requireHumanId(user),
+      query.articleId,
+      query.limit ?? DEFAULT_LIMIT,
+    );
   }
 
   @Get('groups')

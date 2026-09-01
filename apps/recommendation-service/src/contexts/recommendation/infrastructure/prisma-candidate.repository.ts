@@ -274,6 +274,17 @@ export class PrismaCandidateRepository implements CandidateRepository {
       GROUP BY tg.name`;
   }
 
+  /** Mảng chứ không phải một chuỗi: `articles.tag_id` là một chủ đề, nhưng phía gọi dùng
+   *  chung `withJustSolved` với bài tập (nhiều chủ đề) nên trả về cùng một hình dạng. */
+  async findArticleTags(articleId: string): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ tag: string }[]>`
+      SELECT t.name AS tag
+      FROM articles a
+      JOIN tags t ON t.id = a.tag_id
+      WHERE a.id = ${articleId}::uuid`;
+    return rows.map((row) => row.tag);
+  }
+
   async findExerciseTags(exerciseId: string): Promise<string[]> {
     const rows = await this.prisma.$queryRaw<{ tag: string }[]>`
       SELECT tg.name AS tag

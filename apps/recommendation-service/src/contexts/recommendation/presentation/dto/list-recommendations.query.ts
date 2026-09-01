@@ -17,6 +17,12 @@ export class ListRecommendationsQuery {
   limit?: number;
 }
 
+export class RelatedArticlesQuery extends ListRecommendationsQuery {
+  @ApiProperty({ description: 'Bài đang đọc — bị loại khỏi kết quả, chủ đề của nó được ưu tiên' })
+  @IsUUID()
+  articleId!: string;
+}
+
 export class NextExerciseQuery {
   @ApiProperty({ description: 'Bài vừa giải xong — sẽ bị loại khỏi kết quả' })
   @IsUUID()

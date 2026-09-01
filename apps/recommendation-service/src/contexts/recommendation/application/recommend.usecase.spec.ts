@@ -27,6 +27,7 @@ function repositoryWithNothingFresh(calls: boolean[]): CandidateRepository {
     findPreferences: async () => null,
     findTagAffinity: async () => [],
     findExerciseTags: async () => [],
+    findArticleTags: async () => [],
     listRoadmaps: list,
     listCourses: list,
     listExercises: list,
@@ -52,6 +53,7 @@ describe('RecommendUseCase', () => {
       findPreferences: async () => null,
       findTagAffinity: async () => [],
       findExerciseTags: async () => [],
+      findArticleTags: async () => [],
       listRoadmaps: async () => [],
       listCourses: async (_userId, excludeSeen) => {
         calls.push(excludeSeen);
@@ -85,6 +87,7 @@ describe('RecommendUseCase', () => {
       findPreferences: async () => null,
       findTagAffinity: async () => [],
       findExerciseTags: async () => [],
+      findArticleTags: async () => [],
       listRoadmaps: async () => [],
       listCourses: async () => [],
       listExercises: async () => [],
@@ -99,5 +102,60 @@ describe('RecommendUseCase', () => {
 
     // Chuẩn hóa theo ứng viên đông nhất trong tập, không theo một hằng số nào.
     expect(result.items.map((item) => item.popularity)).toEqual([100, 25]);
+  });
+
+  it('bài viết liên quan bỏ chính bài đang đọc và đẩy bài cùng chủ đề lên trước', async () => {
+    const reading = { ...candidate('đang-đọc'), kind: 'article' as const, tags: ['Đệ quy'] };
+    const sameTopic = { ...candidate('cùng-chủ-đề'), kind: 'article' as const, tags: ['Đệ quy'] };
+    const other = {
+      ...candidate('khác'),
+      kind: 'article' as const,
+      tags: ['CSS'],
+      // Phổ biến hơn hẳn — nếu chủ đề không được cộng điểm thì bài này đứng đầu.
+      popularityRaw: 100,
+    };
+    const repository: CandidateRepository = {
+      findPreferences: async () => ({
+        currentLevel: null,
+        careerGoal: null,
+        contentPriority: null,
+        interestedFields: [],
+        interestedTechnologies: [],
+        adaptiveRecommendations: true,
+        completed: true,
+      }),
+      findTagAffinity: async () => [],
+      findExerciseTags: async () => [],
+      findArticleTags: async () => ['Đệ quy'],
+      listRoadmaps: async () => [],
+      listCourses: async () => [],
+      listExercises: async () => [],
+      listArticles: async () => [reading, sameTopic, other],
+      listGroups: async () => [],
+    };
+
+    const result = await new RecommendUseCase(repository).relatedArticles('user-1', 'đang-đọc', 6);
+
+    expect(result.items.map((item) => item.id)).toEqual(['cùng-chủ-đề', 'khác']);
+    expect(result.items[0].reasons).toEqual(['Cùng chủ đề Đệ quy bạn đang luyện']);
+  });
+
+  it('bài viết liên quan không rơi ngược lại chính bài đang đọc khi danh mục chỉ có nó', async () => {
+    const only = { ...candidate('một-mình'), kind: 'article' as const };
+    const repository: CandidateRepository = {
+      findPreferences: async () => null,
+      findTagAffinity: async () => [],
+      findExerciseTags: async () => [],
+      findArticleTags: async () => [],
+      listRoadmaps: async () => [],
+      listCourses: async () => [],
+      listExercises: async () => [],
+      listArticles: async () => [only],
+      listGroups: async () => [],
+    };
+
+    const result = await new RecommendUseCase(repository).relatedArticles('user-1', 'một-mình', 6);
+
+    expect(result.items).toEqual([]);
   });
 });
