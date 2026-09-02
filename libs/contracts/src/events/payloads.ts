@@ -387,6 +387,16 @@ export interface NotificationCreatedV1 {
 
 /* --------------------------------------------------------------- Workspace */
 
+export interface ReminderSourceChangedV1 {
+  entityType: 'ASSIGNMENT' | 'GROUP_EXERCISE' | 'SUBMISSION' | 'COURSE' | 'MEMBERSHIP' | 'SETTINGS';
+  entityId: string;
+  change: 'INSERT' | 'UPDATE' | 'DELETE' | 'SYNC';
+  changedAt: string;
+  submissionId?: string;
+  deadlineChanged?: boolean;
+  verdict?: string;
+}
+
 export interface AssignmentCreatedV1 {
   groupId: string;
   workspaceSlug: string;
@@ -436,6 +446,15 @@ export interface WorkspaceMessageCreatedV1 {
   recipientExternalIds: string[];
 }
 
+export interface WorkspaceActivityV1 {
+  groupId: string;
+  entityId: string;
+  action: 'document_pending' | 'document_published' | 'document_rejected' | 'member_joined' | 'member_left' | 'member_role_changed' | 'join_requested';
+  actorUserId: string | null;
+  memberUserId: string | null;
+  role?: string | null;
+}
+
 /* ------------------------------------------------------------------ Mapping */
 
 /**
@@ -473,10 +492,12 @@ export interface TopicPayloadMap {
 
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: AdminAnnouncementCreatedV1;
   [TOPICS.NOTIFICATION_CREATED]: NotificationCreatedV1;
+  [TOPICS.REMINDER_SOURCE_CHANGED]: ReminderSourceChangedV1;
 
   [TOPICS.ASSIGNMENT_CREATED]: AssignmentCreatedV1;
   [TOPICS.ASSIGNMENT_REMINDER]: AssignmentReminderV1;
   [TOPICS.ASSIGNMENT_REVIEWED]: AssignmentReviewedV1;
   [TOPICS.WORKSPACE_MESSAGE_CREATED]: WorkspaceMessageCreatedV1;
   [TOPICS.WORKSPACE_JOIN_REVIEWED]: WorkspaceJoinReviewedV1;
+  [TOPICS.WORKSPACE_ACTIVITY]: WorkspaceActivityV1;
 }

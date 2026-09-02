@@ -21,7 +21,12 @@ export type EventHandler<T extends TopicName> = (
 @Injectable()
 export class EventConsumer implements OnModuleDestroy {
   private readonly logger = new Logger(EventConsumer.name);
-  private readonly registrations: { topic: TopicName; handler: EventHandler<TopicName> }[] = [];
+  private readonly registrations: {
+    topic: TopicName;
+    handler: EventHandler<TopicName>;
+    replaySafe: boolean;
+    fromBeginning: boolean;
+  }[] = [];
   private started = false;
 
   constructor(
@@ -30,10 +35,16 @@ export class EventConsumer implements OnModuleDestroy {
   ) {}
 
   /** Gọi trong onModuleInit của từng service. */
-  on<T extends TopicName>(topic: T, handler: EventHandler<T>): this {
+  on<T extends TopicName>(
+    topic: T,
+    handler: EventHandler<T>,
+    options: { replaySafe?: boolean; fromBeginning?: boolean } = {},
+  ): this {
     this.registrations.push({
       topic,
       handler: handler as EventHandler<TopicName>,
+      replaySafe: options.replaySafe ?? false,
+      fromBeginning: options.fromBeginning ?? false,
     });
     return this;
   }
@@ -49,8 +60,8 @@ export class EventConsumer implements OnModuleDestroy {
     const consumer = this.kafka.createConsumer();
     await consumer.connect();
 
-    for (const { topic } of this.registrations) {
-      await consumer.subscribe({ topic, fromBeginning: false });
+    for (const { topic, fromBeginning } of this.registrations) {
+      await consumer.subscribe({ topic, fromBeginning });
     }
 
     await consumer.run({
@@ -60,17 +71,22 @@ export class EventConsumer implements OnModuleDestroy {
         const envelope = JSON.parse(message.value.toString()) as EventEnvelope;
         const handled = this.registrations.filter((r) => r.topic === topic);
 
-        for (const { handler } of handled) {
-          const isNew = await this.markProcessed(consumerName, envelope.eventId, topic);
+        for (const { handler, replaySafe } of handled) {
+          // Opt-in for handlers whose own writes are idempotent. Mark AFTER success,
+          // so a process crash cannot acknowledge an event before scheduling it.
+          const isNew = replaySafe
+            ? !(await this.alreadyProcessed(consumerName, envelope.eventId))
+            : await this.markProcessed(consumerName, envelope.eventId, topic);
           if (!isNew) {
             this.logger.debug(`bỏ qua ${topic} (${envelope.eventId}) — đã xử lý`);
             continue;
           }
           try {
             await handler(envelope.payload as never, envelope as never);
+            if (replaySafe) await this.markProcessed(consumerName, envelope.eventId, topic);
           } catch (error) {
             // Nhả dấu đã-xử-lý để lần giao lại còn chạy được.
-            await this.unmarkProcessed(consumerName, envelope.eventId);
+            if (!replaySafe) await this.unmarkProcessed(consumerName, envelope.eventId);
             this.logger.error(
               `xử lý ${topic} thất bại (correlationId=${envelope.correlationId})`,
               error as Error,
@@ -91,6 +107,12 @@ export class EventConsumer implements OnModuleDestroy {
   }
 
   /** true nếu đây là lần đầu thấy event này. */
+  private async alreadyProcessed(consumer: string, eventId: string): Promise<boolean> {
+    const [row] = await this.prisma.$queryRaw<{ present: boolean }[]>`
+      SELECT EXISTS(SELECT 1 FROM processed_events WHERE consumer=${consumer} AND event_id=${eventId}::uuid) AS present`;
+    return row.present;
+  }
+
   private async markProcessed(consumer: string, eventId: string, topic: string): Promise<boolean> {
     const inserted = await this.prisma.$executeRaw`
       INSERT INTO processed_events (consumer, event_id, topic)

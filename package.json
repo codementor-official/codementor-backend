@@ -8,6 +8,10 @@
     "node": ">=22"
   },
   "scripts": {
+    "migrate:email-reminders": "node --env-file=.env scripts/migrate-email-reminders.mjs",
+    "verify:ses": "node --env-file=.env scripts/check-ses.mjs",
+    "verify:email-reminders": "node --env-file=.env scripts/verify-email-reminders.mjs",
+    "test:reminders": "jest --runInBand --testPathPatterns=reminder",
     "seed:workspace-demo": "node --env-file=.env scripts/seed-workspace-demo.mjs",
     "seed:client-demo": "node --env-file=.env scripts/seed-client-demo.mjs",
     "migrate:client-support": "node --env-file=.env scripts/migrate-client-support.mjs",
@@ -48,6 +52,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1113.0",
+    "@aws-sdk/client-sesv2": "^3.1124.0",
     "@aws-sdk/s3-request-presigner": "^3.1113.0",
     "@fastify/helmet": "^13.0.2",
     "@fastify/static": "^10.1.3",

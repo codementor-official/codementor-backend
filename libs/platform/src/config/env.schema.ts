@@ -35,6 +35,7 @@ export const envSchema = z.object({
   KEYCLOAK_REALM: z.string().default('codementor'),
   KEYCLOAK_USER_SERVICE_CLIENT_ID: z.string().default('codementor-user-service'),
   KEYCLOAK_USER_SERVICE_CLIENT_SECRET: z.string().min(1),
+  KEYCLOAK_EMAIL_VERIFICATION_CLIENT_ID: z.string().default('codementor-web'),
 
   /**
    * Service khác hỏi core-service để đổi `sub` của Keycloak lấy `users.id` nội bộ —
@@ -73,6 +74,12 @@ export const envSchema = z.object({
    * nên khoá copy từ bảng điều khiển AWS dán thẳng vào được mà không phải đổi tên.
    */
   AWS_REGION: z.string().default('ap-southeast-1'),
+  SES_ENABLED: z.string().default('false').transform((v) => v === 'true'),
+  SES_FROM_EMAIL: z.string().email().default('noreply@codementor.cloud'),
+  SES_FROM_NAME: z.string().min(1).max(80).regex(/^[^\r\n"<>]+$/).default('CodeMentor'),
+  CLIENT_APP_URL: z.string().url().default('http://localhost:3000'),
+  REMINDER_POLL_SECONDS: z.coerce.number().int().min(5).max(3600).default(60),
+  LEARNING_INACTIVITY_DAYS: z.coerce.number().int().min(1).max(90).default(3),
   AWS_S3_BUCKET: z.string().optional(),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),

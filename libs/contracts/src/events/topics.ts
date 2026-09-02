@@ -88,6 +88,7 @@ export const TOPICS = {
    * kênh đẩy khác chỉ là thêm consumer, không đụng notification-service.
    */
   NOTIFICATION_CREATED: 'evt.notification.created.v1',
+  REMINDER_SOURCE_CHANGED: 'evt.reminder.source-changed.v1',
 
   // ---- Workspace ----
   ASSIGNMENT_CREATED: 'evt.assignment.created.v1',
@@ -95,6 +96,7 @@ export const TOPICS = {
   ASSIGNMENT_REVIEWED: 'evt.assignment.reviewed.v1',
   WORKSPACE_MESSAGE_CREATED: 'evt.workspace.message-created.v1',
   WORKSPACE_JOIN_REVIEWED: 'evt.workspace.join-reviewed.v1',
+  WORKSPACE_ACTIVITY: 'evt.workspace.activity.v1',
 } as const;
 
 export type TopicName = (typeof TOPICS)[keyof typeof TOPICS];
@@ -144,12 +146,14 @@ export const PARTITION_KEY: Record<TopicName, string> = {
   [TOPICS.CONTENT_MODERATED]: 'contentId',
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: 'announcementId',
   [TOPICS.NOTIFICATION_CREATED]: 'notificationId',
+  [TOPICS.REMINDER_SOURCE_CHANGED]: 'entityId',
 
   [TOPICS.ASSIGNMENT_CREATED]: 'groupId',
   [TOPICS.ASSIGNMENT_REMINDER]: 'groupId',
   [TOPICS.ASSIGNMENT_REVIEWED]: 'groupId',
   [TOPICS.WORKSPACE_MESSAGE_CREATED]: 'groupId',
   [TOPICS.WORKSPACE_JOIN_REVIEWED]: 'groupId',
+  [TOPICS.WORKSPACE_ACTIVITY]: 'groupId',
 };
 
 /** Topic dạng command — chỉ được có đúng một consumer group. Dùng để kiểm tra lúc đăng ký. */
