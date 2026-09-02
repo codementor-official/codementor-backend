@@ -30,6 +30,20 @@ export type NotificationType =
   | 'WORKSPACE_ASSIGNMENT_CREATED'
   | 'WORKSPACE_ASSIGNMENT_DUE_SOON'
   | 'WORKSPACE_ASSIGNMENT_OVERDUE'
+  | 'WORKSPACE_ASSIGNMENT_RETRY'
+  | 'WORKSPACE_DEADLINE_CHANGED'
+  | 'WORKSPACE_MEMBER_ADDED'
+  | 'LEARNING_REMINDER'
+  | 'WORKSPACE_DOCUMENT_PENDING'
+  | 'WORKSPACE_DOCUMENT_PUBLISHED'
+  | 'WORKSPACE_DOCUMENT_REJECTED'
+  | 'WORKSPACE_JOIN_REQUESTED'
+  | 'WORKSPACE_MEMBER_JOINED'
+  | 'WORKSPACE_MEMBER_LEFT'
+  | 'WORKSPACE_MEMBER_ROLE_CHANGED'
+  | 'WORKSPACE_ASSIGNMENT_REVIEWED'
+  | 'STUDY_SESSION_REMINDER'
+  | 'COURSE_COMPLETED'
   | 'WORKSPACE_MESSAGE';
 
 /**
@@ -138,10 +152,10 @@ export class NotificationContent extends ValueObject<ContentProps> {
     }
     // Thông báo của admin không trỏ tới tài nguyên nào; ba loại còn lại thì bắt buộc,
     // vì thiếu nó là mất luôn đường lần ngược từ thông báo về nội dung sinh ra nó.
-    if (input.type === 'ADMIN_ANNOUNCEMENT') {
+    if (input.type === 'ADMIN_ANNOUNCEMENT' || input.type === 'STUDY_SESSION_REMINDER') {
       if (referenceType !== null) {
         return Result.fail(
-          new InvalidInput('Thông báo của admin không gắn với tài nguyên nào', { referenceType }),
+          new InvalidInput('Thông báo hệ thống/lịch cá nhân không gắn với tài nguyên nội dung', { referenceType }),
         );
       }
     } else if (referenceType === null) {
