@@ -56,6 +56,12 @@ export class SaveBookmarkDto {
 
 export class UpdateSettingsDto {
   @IsOptional() @IsBoolean() emailNotifications?: boolean;
+  @IsOptional() @IsBoolean() assignmentNotifications?: boolean;
+  @IsOptional() @IsBoolean() deadlineReminders?: boolean;
+  @IsOptional() @IsBoolean() deadline6hReminders?: boolean;
+  @IsOptional() @IsBoolean() workspaceEmailUpdates?: boolean;
+  @IsOptional() @IsBoolean() systemAnnouncements?: boolean;
+  @IsOptional() @IsInt() @Min(1) @Max(90) learningInactivityDays?: number;
   @IsOptional() @IsBoolean() workspaceNotifications?: boolean;
   @IsOptional() @IsBoolean() learningReminders?: boolean;
   @IsOptional() @IsBoolean() weeklyDigest?: boolean;

@@ -18,6 +18,7 @@ import type {
 } from '../domain/port/account-preferences.repository';
 
 interface SettingsRow {
+  emailPreferences: Partial<UserSettings>;
   emailNotifications: boolean;
   workspaceNotifications: boolean;
   learningReminders: boolean;
@@ -56,11 +57,13 @@ export class PrismaAccountPreferencesRepository implements AccountPreferencesRep
               public_profile AS "publicProfile",
               show_learning_progress AS "showLearningProgress",
               allow_workspace_invites AS "allowWorkspaceInvites",
-              theme
+              theme, email_preferences AS "emailPreferences"
        FROM user_settings WHERE user_id = $1::uuid`,
       userId,
     );
-    return row ?? { ...DEFAULT_USER_SETTINGS };
+    if (!row) return { ...DEFAULT_USER_SETTINGS };
+    const { emailPreferences, ...settings } = row;
+    return { ...DEFAULT_USER_SETTINGS, ...settings, ...emailPreferences };
   }
 
   async saveSettings(userId: string, patch: Partial<UserSettings>): Promise<UserSettings> {
@@ -68,8 +71,8 @@ export class PrismaAccountPreferencesRepository implements AccountPreferencesRep
     await this.prisma.$executeRawUnsafe(
       `INSERT INTO user_settings
          (user_id, email_notifications, workspace_notifications, learning_reminders,
-          weekly_digest, public_profile, show_learning_progress, allow_workspace_invites, theme)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9)
+          weekly_digest, public_profile, show_learning_progress, allow_workspace_invites, theme, email_preferences)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
        ON CONFLICT (user_id) DO UPDATE SET
          email_notifications = EXCLUDED.email_notifications,
          workspace_notifications = EXCLUDED.workspace_notifications,
@@ -78,7 +81,9 @@ export class PrismaAccountPreferencesRepository implements AccountPreferencesRep
          public_profile = EXCLUDED.public_profile,
          show_learning_progress = EXCLUDED.show_learning_progress,
          allow_workspace_invites = EXCLUDED.allow_workspace_invites,
-         theme = EXCLUDED.theme`,
+         theme = EXCLUDED.theme,
+         email_preferences = EXCLUDED.email_preferences,
+         updated_at = now()`,
       userId,
       next.emailNotifications,
       next.workspaceNotifications,
@@ -88,6 +93,10 @@ export class PrismaAccountPreferencesRepository implements AccountPreferencesRep
       next.showLearningProgress,
       next.allowWorkspaceInvites,
       next.theme,
+      JSON.stringify({ assignmentNotifications: next.assignmentNotifications,
+        deadlineReminders: next.deadlineReminders, deadline6hReminders: next.deadline6hReminders,
+        workspaceEmailUpdates: next.workspaceEmailUpdates, systemAnnouncements: next.systemAnnouncements,
+        learningInactivityDays: next.learningInactivityDays }),
     );
     return next;
   }

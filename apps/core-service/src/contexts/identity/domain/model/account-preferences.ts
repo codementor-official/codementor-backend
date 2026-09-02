@@ -5,6 +5,12 @@ export type StudyWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
 
 export interface UserSettings {
   emailNotifications: boolean;
+  assignmentNotifications: boolean;
+  deadlineReminders: boolean;
+  deadline6hReminders: boolean;
+  workspaceEmailUpdates: boolean;
+  systemAnnouncements: boolean;
+  learningInactivityDays: number;
   workspaceNotifications: boolean;
   learningReminders: boolean;
   weeklyDigest: boolean;
@@ -47,6 +53,12 @@ export interface UserLearningStats {
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   emailNotifications: true,
+  assignmentNotifications: true,
+  deadlineReminders: true,
+  deadline6hReminders: false,
+  workspaceEmailUpdates: true,
+  systemAnnouncements: true,
+  learningInactivityDays: 3,
   workspaceNotifications: true,
   learningReminders: true,
   weeklyDigest: true,
