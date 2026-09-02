@@ -51,6 +51,8 @@ export interface RecordProgressInput {
 export interface EnrolledCourseView extends CourseEnrollment {
   title: string;
   slug: string;
+  description: string | null;
+  authorName: string | null;
   level: string;
   coverImageUrl: string | null;
   durationHours: number | null;

@@ -28,6 +28,8 @@ interface EnrollmentRow {
 interface EnrolledCourseRow extends EnrollmentRow {
   title: string;
   slug: string;
+  description: string | null;
+  authorName: string | null;
   level: string;
   coverImageUrl: string | null;
   durationHours: number | null;
@@ -105,11 +107,13 @@ export class PrismaEnrollmentRepository implements EnrollmentRepository {
              ce.completed_lessons AS "completedLessons",
              ce.progress_percent AS "progressPercent", ce.started_at AS "startedAt",
              ce.completed_at AS "completedAt", ce.last_activity_at AS "lastActivityAt",
-             c.title, c.slug::text AS slug, c.level::text AS level,
+             c.title, c.slug::text AS slug, c.description, c.level::text AS level,
+             u.display_name AS "authorName",
              c.cover_image_url AS "coverImageUrl", c.duration_hours AS "durationHours",
              c.total_chapters AS "totalChapters", c.total_lessons AS "totalLessons"
       FROM course_enrollments ce
       JOIN courses c ON c.id = ce.course_id
+      LEFT JOIN users u ON u.id = c.created_by
       WHERE ce.user_id = ${userId}::uuid AND ce.status <> 'dropped'
       ORDER BY ce.last_activity_at DESC NULLS LAST, ce.started_at DESC`;
     return rows.map((row) => ({ ...row, progressPercent: Number(row.progressPercent) }));
