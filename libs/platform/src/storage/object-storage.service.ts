@@ -108,10 +108,7 @@ export class ObjectStorageService {
       (config.get<number>('DOCUMENT_MAX_UPLOAD_MB') ?? 20) * 1024 * 1024;
     this.maxImageUploadBytes = (config.get<number>('IMAGE_MAX_UPLOAD_MB') ?? 5) * 1024 * 1024;
 
-    const accessKeyId = config.get<string>('AWS_ACCESS_KEY_ID');
-    const secretAccessKey = config.get<string>('AWS_SECRET_ACCESS_KEY');
-
-    if (!this.bucket || !accessKeyId || !secretAccessKey) {
+    if (!this.bucket) {
       this.client = null;
       this.logger.log('Chưa cấu hình S3 — tính năng tải tệp trực tiếp sẽ tắt');
       return;
@@ -121,7 +118,7 @@ export class ObjectStorageService {
       region: config.get<string>('AWS_REGION') ?? 'ap-southeast-1',
       endpoint: config.get<string>('AWS_S3_ENDPOINT'),
       forcePathStyle: config.get<boolean>('AWS_S3_FORCE_PATH_STYLE') ?? false,
-      credentials: { accessKeyId, secretAccessKey },
+      // AWS default credential chain: ENV locally, IAM Role on EC2/ECS.
     });
   }
 
