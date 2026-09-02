@@ -31,7 +31,7 @@ import { CatalogModule } from './contexts/catalog/catalog.module';
     PrismaModule,
     StorageModule,
     MongoModule,
-    MessagingModule.forRoot({ serviceName: 'core-service' }),
+    MessagingModule.forRoot({ serviceName: 'core-service', enableOutbox: true }),
     HttpModule,
     HealthModule,
 

@@ -147,7 +147,7 @@ export class WorkspaceContentService {
       url: dto.url,
     });
     return detail.currentMembership.role === 'owner'
-      ? this.content.updateDocument(detail.id, created.id, { status: 'published' })
+      ? this.content.updateDocument(detail.id, created.id, { status: 'published', reviewedBy: userId })
       : created;
   }
   async updateDocument(userId: string, slug: string, id: string, dto: UpdateWorkspaceDocumentDto) {
@@ -168,6 +168,7 @@ export class WorkspaceContentService {
       title: dto.title?.trim(),
       topic: dto.topic === undefined ? undefined : (clean(dto.topic) ?? null),
       status: dto.status,
+      reviewedBy: hasStatusPatch ? userId : undefined,
     });
     if (!updated) throw new NotFound('Tài liệu', id);
     return updated;

@@ -127,7 +127,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
   async updateDocument(
     groupId: string,
     id: string,
-    input: { title?: string; topic?: string | null; status?: string },
+    input: { title?: string; topic?: string | null; status?: string; reviewedBy?: string },
   ) {
     const found = await this.prisma.group_documents.findFirst({ where: { id, group_id: groupId } });
     if (!found) return null;
@@ -137,6 +137,8 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
         title: input.title,
         topic: input.topic,
         status: input.status as document_status | undefined,
+        reviewed_by: input.reviewedBy,
+        reviewed_at: input.reviewedBy ? new Date() : undefined,
       },
       include: { users_group_documents_uploader_idTousers: { select: { display_name: true } } },
     });

@@ -35,7 +35,7 @@ import { WorkspaceModule } from './contexts/workspace/workspace.module';
     PrismaModule,
     MongoModule,
     StorageModule,
-    MessagingModule.forRoot({ serviceName: 'workspace-service' }),
+    MessagingModule.forRoot({ serviceName: 'workspace-service', enableOutbox: true }),
     WorkspaceModule,
   ],
 })

@@ -4,6 +4,7 @@ import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
 import type { EventEnvelope } from '@codementor/contracts';
 import type { NotificationContent } from '../domain/model/notification-content';
+import { ReminderPlanner } from './reminder-planner';
 import {
   NOTIFICATION_REPOSITORY,
   type NotificationRepository,
@@ -24,6 +25,7 @@ export class RecordNotificationUseCase {
   constructor(
     @Inject(NOTIFICATION_REPOSITORY) private readonly repository: NotificationRepository,
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
+    private readonly emailReminders: ReminderPlanner,
   ) {}
 
   async record(
@@ -41,6 +43,9 @@ export class RecordNotificationUseCase {
     if (draft.isFail) throw draft.error;
 
     const content = draft.value;
+    // Email categories are independent of the in-app Workspace switch. Also on replay.
+    await this.emailReminders.fromNotification(envelope, content);
+    if (!(await this.emailReminders.allowsInApp(content))) return;
     const saved = await this.repository.create(envelope.eventId, content);
 
     // `null` = đã có thông báo cho đúng eventId này. Kafka giao lại message là chuyện

@@ -5,6 +5,14 @@ import type { AuthenticatedUser } from '@codementor/platform';
 import { NotificationQuery } from '../application/notification-query.usecase';
 import type { Viewer } from '../domain/port/notification.repository';
 import { ListNotificationsQueryDto, NotificationScopeDto } from './dto/list-notifications.dto';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { ReminderRepository } from '../infrastructure/reminder.repository';
+
+class ReminderListDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 20;
+}
 
 /**
  * Ba mẩu danh tính, cả ba lấy từ token đã xác thực: `users.id` để tra trạng thái đã đọc,
@@ -26,7 +34,13 @@ function viewerOf(user: AuthenticatedUser): Viewer {
 @ApiBearerAuth('access-token')
 @Controller({ path: 'notifications', version: '1' })
 export class NotificationController {
-  constructor(private readonly notifications: NotificationQuery) {}
+  constructor(private readonly notifications: NotificationQuery, private readonly reminders: ReminderRepository) {}
+
+  @Get('reminders')
+  @ApiOperation({ summary: 'Lịch nhắc của chính tài khoản đang đăng nhập' })
+  listReminders(@CurrentUser() user: AuthenticatedUser, @Query() query: ReminderListDto) {
+    return this.reminders.list(requireHumanId(user), query.page, query.limit);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Lịch sử thông báo, mới nhất trước' })

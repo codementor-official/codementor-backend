@@ -139,7 +139,7 @@ export interface WorkspaceContentRepository {
   updateDocument(
     groupId: string,
     id: string,
-    input: { title?: string; topic?: string | null; status?: string },
+    input: { title?: string; topic?: string | null; status?: string; reviewedBy?: string },
   ): Promise<WorkspaceDocumentRecord | null>;
   pendingDocumentCount(groupId: string): Promise<number>;
   softDeleteDocument(

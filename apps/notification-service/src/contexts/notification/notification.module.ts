@@ -13,7 +13,6 @@ import { MongoNotificationRepository } from './infrastructure/mongo-notification
 import { RecordNotificationUseCase } from './application/record-notification.usecase';
 import {
   fromAdminAnnouncement,
-  fromAssignmentCreated,
   fromAssignmentReminder,
   fromArticlePublished,
   fromContentModerated,
@@ -27,6 +26,13 @@ import {
 } from './application/notification-content.factory';
 import { NotificationController } from './presentation/notification.controller';
 import { NotificationQuery } from './application/notification-query.usecase';
+import { ReminderPlanner } from './application/reminder-planner';
+import { ReminderDispatcher } from './application/reminder-dispatcher';
+import { ReminderRepository } from './infrastructure/reminder.repository';
+import { EMAIL_PROVIDER } from './domain/port/email-provider';
+import { SesEmailProvider } from './infrastructure/ses-email.provider';
+import { WorkspaceActivityRepository } from './infrastructure/workspace-activity.repository';
+import { WorkspaceActivityNotifications } from './application/workspace-activity-notifications';
 
 /**
  * Bốn sự kiện, một cách xử lý: dịch payload sang nội dung rồi giao cho
@@ -48,16 +54,26 @@ import { NotificationQuery } from './application/notification-query.usecase';
     { provide: NOTIFICATION_REPOSITORY, useClass: MongoNotificationRepository },
     RecordNotificationUseCase,
     NotificationQuery,
+    ReminderPlanner,
+    ReminderDispatcher,
+    ReminderRepository,
+    WorkspaceActivityRepository,
+    WorkspaceActivityNotifications,
+    { provide: EMAIL_PROVIDER, useClass: SesEmailProvider },
   ],
 })
 export class NotificationModule implements OnModuleInit {
   constructor(
     private readonly consumer: EventConsumer,
     private readonly record: RecordNotificationUseCase,
+    private readonly reminders: ReminderPlanner,
+    private readonly workspaceActivity: WorkspaceActivityNotifications,
   ) {}
 
   async onModuleInit(): Promise<void> {
     this.consumer
+      .on(TOPICS.ASSIGNMENT_REVIEWED, (payload, envelope) => this.workspaceActivity.assignmentReviewed(payload, envelope), { replaySafe: true, fromBeginning: true })
+      .on(TOPICS.WORKSPACE_ACTIVITY, (payload, envelope) => this.workspaceActivity.handle(payload, envelope), { replaySafe: true, fromBeginning: true })
       .on(TOPICS.COURSE_PUBLISHED, (payload, envelope) =>
         this.record.record(envelope, fromCoursePublished(payload)),
       )
@@ -70,8 +86,10 @@ export class NotificationModule implements OnModuleInit {
       .on(TOPICS.ARTICLE_PUBLISHED, (payload, envelope) =>
         this.record.record(envelope, fromArticlePublished(payload)),
       )
-      .on(TOPICS.ADMIN_ANNOUNCEMENT_CREATED, (payload, envelope) =>
-        this.record.record(envelope, fromAdminAnnouncement(payload)),
+      .on(
+        TOPICS.ADMIN_ANNOUNCEMENT_CREATED,
+        (payload, envelope) => this.record.record(envelope, fromAdminAnnouncement(payload)),
+        { replaySafe: true },
       )
       .on(TOPICS.CONTENT_REVIEW_REQUESTED, (payload, envelope) =>
         this.record.record(envelope, fromContentReviewRequested(payload)),
@@ -82,19 +100,15 @@ export class NotificationModule implements OnModuleInit {
       .on(TOPICS.CONTENT_MODERATED, (payload, envelope) =>
         this.record.record(envelope, fromContentModerated(payload)),
       )
-      .on(TOPICS.WORKSPACE_JOIN_REVIEWED, (payload, envelope) =>
-        this.record.record(envelope, fromWorkspaceJoinReviewed(payload)),
+      .on(
+        TOPICS.WORKSPACE_JOIN_REVIEWED,
+        (payload, envelope) => this.record.record(envelope, fromWorkspaceJoinReviewed(payload)),
+        { replaySafe: true },
       )
-      .on(TOPICS.ASSIGNMENT_CREATED, async (payload, envelope) =>
-        Promise.all(
-          [...new Set(payload.memberExternalIds)].map((externalId) =>
-            this.record.record(
-              { ...envelope, eventId: `${envelope.eventId}:${externalId}` },
-              fromAssignmentCreated(payload, externalId),
-            ),
-          ),
-        ).then(() => undefined),
-      )
+      .on(TOPICS.REMINDER_SOURCE_CHANGED, (payload) => this.reminders.source(payload), {
+        replaySafe: true,
+        fromBeginning: true,
+      })
       .on(TOPICS.ASSIGNMENT_REMINDER, (payload, envelope) =>
         this.record.record(envelope, fromAssignmentReminder(payload)),
       )

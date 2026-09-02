@@ -15,9 +15,9 @@ import { NotificationModule } from './contexts/notification/notification.module'
 /**
  * notification-service
  *
- * Sở hữu `notifications` và `notification_reads` trong MongoDB. Không sở hữu bảng
- * PostgreSQL nào — `PrismaModule` có mặt chỉ vì `EventConsumer` ghi `processed_events`
- * để khử trùng lặp message.
+ * Sở hữu `notifications`/`notification_reads` trong MongoDB và
+ * `notification_reminders`/`email_deliveries` trong PostgreSQL.
+ * Đọc nguồn nghiệp vụ qua các view notification_*_context; không sửa bảng nghiệp vụ.
  *
  * Việc đẩy realtime KHÔNG nằm ở đây: service này phát `evt.notification.created.v1`,
  * realtime-service nghe và đẩy xuống WebSocket. Đó là ranh giới đã có trong
