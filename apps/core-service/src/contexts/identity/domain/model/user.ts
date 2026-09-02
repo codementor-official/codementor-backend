@@ -159,6 +159,8 @@ export class User extends AggregateRoot<string> {
 
     if (!this.props.email.equals(params.email)) {
       this.props.email = params.email;
+      // Verification belongs to the mailbox, not permanently to the account.
+      this.props.emailVerifiedAt = null;
       changed = true;
     }
     // Keycloak là nguồn sự thật cho vai trò cấp nền tảng.
@@ -171,6 +173,13 @@ export class User extends AggregateRoot<string> {
       changed = true;
     }
     return changed;
+  }
+
+  /** Only use with an authoritative Keycloak response, never a browser flag. */
+  syncEmailVerification(verified: boolean): boolean {
+    if (verified === this.isEmailVerified) return false;
+    this.props.emailVerifiedAt = verified ? new Date() : null;
+    return true;
   }
 
   get bio(): string | null {

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HUMAN_ROLES, type UserRole } from '@codementor/platform';
+import type { EmailVerificationProvider, ProviderEmailStatus } from '../domain/port/email-verification.provider';
 
 interface KeycloakTokenResponse {
   access_token: string;
@@ -25,6 +26,7 @@ interface KeycloakUserRepresentation {
   firstName?: string;
   lastName?: string;
   enabled?: boolean;
+  emailVerified?: boolean;
 }
 
 export interface ManagedUser {
@@ -55,19 +57,47 @@ export interface LoginEvent {
 }
 
 @Injectable()
-export class KeycloakAdminService {
+export class KeycloakAdminService implements EmailVerificationProvider {
   private readonly logger = new Logger(KeycloakAdminService.name);
   private readonly baseUrl: string;
   private readonly realm: string;
   private readonly clientId: string;
   private readonly clientSecret: string;
   private cachedToken: { value: string; expiresAt: number } | null = null;
+  private readonly verificationClientId: string;
+  private readonly verificationRedirect: string;
+  private smtpAvailability: { configured: boolean; until: number } | null = null;
 
   constructor(config: ConfigService) {
     this.baseUrl = config.getOrThrow<string>('KEYCLOAK_URL').replace(/\/$/, '');
     this.realm = config.getOrThrow<string>('KEYCLOAK_REALM');
     this.clientId = config.getOrThrow<string>('KEYCLOAK_USER_SERVICE_CLIENT_ID');
     this.clientSecret = config.getOrThrow<string>('KEYCLOAK_USER_SERVICE_CLIENT_SECRET');
+    this.verificationClientId = config.get<string>('KEYCLOAK_EMAIL_VERIFICATION_CLIENT_ID', 'codementor-web');
+    this.verificationRedirect = new URL('/profile?tab=settings', config.get<string>('CLIENT_APP_URL', 'http://localhost:3000')).toString();
+  }
+
+  async emailStatus(externalId: string): Promise<ProviderEmailStatus> {
+    const user = await this.request<KeycloakUserRepresentation>(`/users/${encodeURIComponent(externalId)}`);
+    const verified = user.emailVerified === true;
+    if (!verified && (!this.smtpAvailability || this.smtpAvailability.until < Date.now())) {
+      const response = await this.rawRequest('');
+      // Some installations grant manage-users but not view-realm. In that case
+      // allow sending and report the send endpoint's actual outcome instead.
+      if (response.status === 403) {
+        this.smtpAvailability = { configured: true, until: Date.now() + 60_000 };
+      } else {
+        await this.ensureSuccess(response);
+        const realm = await response.json() as { smtpServer?: { host?: string; from?: string } };
+        this.smtpAvailability = { configured: Boolean(realm.smtpServer?.host && realm.smtpServer?.from), until: Date.now() + 60_000 };
+      }
+    }
+    return { email: user.email ?? '', verified, canSend: !verified && Boolean(user.enabled && this.smtpAvailability?.configured) };
+  }
+
+  async sendVerificationEmail(externalId: string): Promise<void> {
+    const query = new URLSearchParams({ client_id: this.verificationClientId, redirect_uri: this.verificationRedirect, lifespan: '1800' });
+    await this.request(`/users/${encodeURIComponent(externalId)}/send-verify-email?${query}`, { method: 'PUT' });
   }
 
   async listUsers(): Promise<ManagedUser[]> {
@@ -233,6 +263,7 @@ export class KeycloakAdminService {
     const token = await this.serviceToken();
     return fetch(`${this.baseUrl}/admin/realms/${this.realm}${path}`, {
       ...init,
+      signal: AbortSignal.timeout(10_000),
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -257,7 +288,7 @@ export class KeycloakAdminService {
     });
     const response = await fetch(
       `${this.baseUrl}/realms/${this.realm}/protocol/openid-connect/token`,
-      { method: 'POST', body },
+      { method: 'POST', body, signal: AbortSignal.timeout(10_000) },
     );
     if (!response.ok) throw new BadGatewayException('Không lấy được Keycloak service token');
 

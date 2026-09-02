@@ -28,6 +28,7 @@ import {
   UpdateSettingsDto,
 } from './dto/account-preferences.dto';
 import type { BookmarkTarget } from '../domain/port/account-preferences.repository';
+import { EmailVerificationService } from '../application/email-verification.service';
 
 /**
  * Chỉ cho phép các múi giờ Việt Nam đang dùng. Danh sách IANA đầy đủ là 400+ giá trị
@@ -111,6 +112,7 @@ export class IdentityController {
     private readonly updateProfile: UpdateProfileUseCase,
     private readonly accountPreferences: AccountPreferencesService,
     private readonly presignAvatarUpload: PresignAvatarUploadUseCase,
+    private readonly emailVerification: EmailVerificationService,
   ) {}
 
   @Get()
@@ -131,19 +133,31 @@ export class IdentityController {
     return this.updateProfile.execute(requireHumanId(user), dto);
   }
 
+  @Get('email-verification')
+  @ApiOperation({ summary: 'Kiểm tra và đồng bộ trạng thái xác thực email từ Keycloak' })
+  emailVerificationStatus(@CurrentUser() user: AuthenticatedUser) {
+    return this.emailVerification.status(requireHumanId(user));
+  }
+
+  @Post('email-verification')
+  @ApiOperation({ summary: 'Gửi email xác thực Keycloak cho chính tài khoản đang đăng nhập' })
+  sendVerificationEmail(@CurrentUser() user: AuthenticatedUser) {
+    return this.emailVerification.send(requireHumanId(user));
+  }
+
   @Post('avatar/upload-url')
   @ApiOperation({ summary: 'Tạo URL S3 tạm thời để tải ảnh đại diện lên' })
   avatarUploadUrl(@CurrentUser() user: AuthenticatedUser, @Body() dto: AvatarUploadDto) {
     return this.presignAvatarUpload.execute(requireHumanId(user), dto);
   }
 
-  @Get('settings')
+  @Get(['settings', 'notification-settings'])
   @ApiOperation({ summary: 'Cài đặt của tài khoản đang đăng nhập' })
   settings(@CurrentUser() user: AuthenticatedUser) {
     return this.accountPreferences.getSettings(requireHumanId(user));
   }
 
-  @Patch('settings')
+  @Patch(['settings', 'notification-settings'])
   @ApiOperation({ summary: 'Cập nhật cài đặt của tài khoản đang đăng nhập' })
   updateSettings(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateSettingsDto) {
     return this.accountPreferences.updateSettings(requireHumanId(user), dto);

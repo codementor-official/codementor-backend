@@ -19,6 +19,8 @@ import { KeycloakAdminService } from './infrastructure/keycloak-admin.service';
 import { IDENTITY_QUERY } from './identity.public';
 import { AdminUsersController } from './presentation/admin-users.controller';
 import { IdentityController } from './presentation/identity.controller';
+import { EmailVerificationService } from './application/email-verification.service';
+import { EMAIL_VERIFICATION_PROVIDER } from './domain/port/email-verification.provider';
 
 /**
  * Global vì `shared/auth` cần `IDENTITY_PROVISIONING` để just-in-time provisioning
@@ -40,6 +42,8 @@ import { IdentityController } from './presentation/identity.controller';
     AccountPreferencesService,
     PresignAvatarUploadUseCase,
     KeycloakAdminService,
+    EmailVerificationService,
+    { provide: EMAIL_VERIFICATION_PROVIDER, useExisting: KeycloakAdminService },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: ACCOUNT_PREFERENCES_REPOSITORY, useClass: PrismaAccountPreferencesRepository },
     { provide: AVATAR_STORAGE, useClass: ObjectAvatarStorageAdapter },
