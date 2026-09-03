@@ -23,6 +23,7 @@ import {
 } from '../domain/port/course.repository';
 
 export interface ListCoursesQuery {
+  ids?: string[];
   level?: string;
   status?: string;
   authorId?: string;
@@ -126,6 +127,7 @@ export class CourseUseCases {
     // hoặc đã từ chối, nếu không thì không có đường lùi cho một quyết định lỡ tay.
     const status = 'publishedOnly' in scope ? undefined : query.status;
     const rows = await this.courses.list({
+      ids: query.ids,
       createdBy: 'createdBy' in scope ? scope.createdBy : null,
       publishedOnly: 'publishedOnly' in scope,
       pendingOnly: 'pendingOnly' in scope && status === undefined,

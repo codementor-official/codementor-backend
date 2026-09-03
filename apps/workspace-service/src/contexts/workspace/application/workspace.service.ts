@@ -45,6 +45,7 @@ export class WorkspaceService {
     const limit = clamp(query.limit, DEFAULT_LIMIT, 50);
     const page = Math.max(query.page ?? 1, 1);
     const result = await this.workspaces.listForUser(userId, {
+      ids: query.ids,
       scope: query.scope,
       q: query.q?.trim() || undefined,
       topic: query.topic?.trim() || undefined,

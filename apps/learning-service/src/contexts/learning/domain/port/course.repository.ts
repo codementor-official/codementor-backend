@@ -2,6 +2,7 @@ import type { Course } from '../model/course';
 import type { ChapterDraft, LessonType } from '../model/curriculum';
 
 export interface CourseListFilter {
+  ids?: string[];
   createdBy: string | null;
   publishedOnly: boolean;
   /** Hàng chờ duyệt: mọi tác giả, chỉ `pending_review`, sắp cũ trước. */

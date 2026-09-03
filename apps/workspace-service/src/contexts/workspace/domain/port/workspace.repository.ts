@@ -92,6 +92,7 @@ export interface WorkspaceJoinRequestRecord {
   user: WorkspaceUser;
 }
 export interface WorkspaceListFilter {
+  ids?: string[];
   scope?: 'all' | 'mine' | 'owned' | 'joined' | 'public' | 'discover';
   q?: string;
   topic?: string;

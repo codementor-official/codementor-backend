@@ -288,7 +288,7 @@ export class PrismaCandidateRepository implements CandidateRepository {
       SELECT t.name AS tag
       FROM articles a
       JOIN tags t ON t.id = a.tag_id
-      WHERE a.id = ${articleId}::uuid`;
+      WHERE a.id = ${articleId}::uuid AND a.status = 'published'`;
     return rows.map((row) => row.tag);
   }
 
@@ -354,8 +354,10 @@ export class PrismaCandidateRepository implements CandidateRepository {
     const rows = await this.prisma.$queryRaw<{ tag: string }[]>`
       SELECT tg.name AS tag
       FROM exercise_tags ext
+      JOIN exercises e ON e.id = ext.exercise_id
       JOIN tags tg ON tg.id = ext.tag_id
-      WHERE ext.exercise_id = ${exerciseId}::uuid`;
+      WHERE ext.exercise_id = ${exerciseId}::uuid
+        AND e.status = 'published' AND e.visibility = 'public'`;
     return rows.map((row) => row.tag);
   }
 }

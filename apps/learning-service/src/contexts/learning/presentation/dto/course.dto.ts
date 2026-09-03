@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayNotEmpty,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -259,6 +260,15 @@ export class SaveLessonContentDto {
 }
 
 export class ListCoursesQueryDto extends PageQuery {
+  @ApiPropertyOptional({ description: 'Up to 20 comma-separated course UUIDs; existing visibility rules still apply' })
+  @IsOptional()
+  @Transform(({ value }) => typeof value === 'string' ? value.split(',') : value)
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(20)
+  @IsUUID('all', { each: true })
+  ids?: string[];
+
   @ApiPropertyOptional({ enum: LEVELS })
   @IsOptional()
   @IsIn(LEVELS)

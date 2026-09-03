@@ -43,6 +43,7 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
     };
     const where: Prisma.study_groupsWhereInput = {
       status: group_status.active,
+      ...(filter.ids ? { id: { in: filter.ids } } : {}),
     };
     switch (filter.scope ?? 'mine') {
       case 'owned':

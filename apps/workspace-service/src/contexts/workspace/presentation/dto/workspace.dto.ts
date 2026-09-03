@@ -1,6 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayNotEmpty,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -45,6 +47,15 @@ export const WORKSPACE_PERMISSIONS = [
 ] as const;
 
 export class ListWorkspacesQueryDto {
+  @ApiPropertyOptional({ description: 'Up to 20 comma-separated workspace UUIDs; does not grant access to private groups' })
+  @IsOptional()
+  @Transform(({ value }) => typeof value === 'string' ? value.split(',') : value)
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(20)
+  @IsUUID('all', { each: true })
+  ids?: string[];
+
   @ApiPropertyOptional({ enum: WORKSPACE_SCOPES, default: 'all' })
   @IsOptional()
   @IsIn(WORKSPACE_SCOPES)

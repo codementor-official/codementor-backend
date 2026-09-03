@@ -74,6 +74,7 @@ export class PrismaCourseRepository implements CourseRepository {
 
   async list(filter: CourseListFilter): Promise<CourseListItem[]> {
     const where: Prisma.Sql[] = [];
+    if (filter.ids) where.push(Prisma.sql`c.id = ANY(${filter.ids}::uuid[])`);
     if (filter.createdBy !== null) where.push(Prisma.sql`c.created_by = ${filter.createdBy}::uuid`);
     if (filter.publishedOnly) where.push(Prisma.sql`c.status = 'published'`);
     if (filter.pendingOnly) where.push(Prisma.sql`c.status = 'pending_review'`);
