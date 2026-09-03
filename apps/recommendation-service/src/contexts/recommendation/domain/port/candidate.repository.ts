@@ -1,4 +1,4 @@
-import type { Candidate, LearnerPreferences } from '../model/scoring';
+import type { Candidate, HistoryDoc, LearnerPreferences } from '../model/scoring';
 
 /** Một chủ đề học viên đã đụng tới, đếm trên `exercise_progress`. */
 export interface TagAffinityRow {
@@ -34,6 +34,15 @@ export interface CandidateRepository {
    * và với mọi bài chưa được gắn chủ đề.
    */
   findTagAffinity(userId: string): Promise<TagAffinityRow[]>;
+  /**
+   * Mọi thứ học viên đã đụng tới, rút về văn bản để dựng hồ sơ TF-IDF: bài tập đã giải /
+   * còn dở, khóa và lộ trình đã ghi danh, bài viết đã lưu.
+   *
+   * Khác `findTagAffinity` ở chỗ nó lấy cả TIÊU ĐỀ chứ không chỉ tên chủ đề, và lấy từ cả
+   * bốn nguồn chứ không riêng `exercise_progress` — ghi danh và bookmark trước đây chỉ dùng
+   * để LOẠI TRỪ, không hề là tín hiệu dương.
+   */
+  findHistoryProfile(userId: string): Promise<HistoryDoc[]>;
   /** Chủ đề của MỘT bài, theo tên. Dùng cho bài vừa nộp đạt, xem `withJustSolved`. */
   findExerciseTags(exerciseId: string): Promise<string[]>;
   /** Chủ đề của MỘT bài viết. Dùng cho bài đang đọc, xem `RecommendUseCase.relatedArticles`. */

@@ -20,6 +20,12 @@ export const RECOMMENDATION_WEIGHTS = {
   topic: 22,
   level: 20,
   technology: 20,
+  /**
+   * Tương đồng văn bản với lịch sử học (TF-IDF + cosine). Đứng DƯỚI `topic`: chủ đề còn dở
+   * dang là sự thật đã quan sát được, còn tương đồng từ vựng là suy diễn — nó bắt được thứ
+   * `topic` bỏ lỡ (tên chủ đề khác nhau nhưng nội dung gần nhau), nên bổ sung chứ không thay.
+   */
+  similarity: 18,
   careerGoal: 14,
   popularity: 12,
 };
@@ -52,9 +58,37 @@ export interface TagAffinity {
 /** Khóa là TÊN chủ đề — cùng từ vựng với `Candidate.tags`, và hiện thẳng lên thẻ được. */
 export type TagAffinityMap = ReadonlyMap<string, TagAffinity>;
 
+/**
+ * Một thứ học viên đã đụng tới, rút về dạng văn bản để vector hóa.
+ *
+ * Cố tình KHÔNG mang id hay loại: mô hình chỉ quan tâm nội dung, nên bài tập đã giải, khóa
+ * đã ghi danh và bài viết đã lưu vào chung một hình dạng. `weight` là mức độ dấu vết đó nói
+ * lên sở thích — xem `PrismaCandidateRepository.findHistoryProfile`.
+ */
+export interface HistoryDoc {
+  text: string;
+  weight: number;
+}
+
+/** Vector thưa TF-IDF đã chuẩn hóa L2. Khóa là token, giá trị là trọng số. */
+export type TermVector = ReadonlyMap<string, number>;
+
 export interface ScoringOptions {
   weights?: Weights;
   affinity?: TagAffinityMap;
+  /** Hồ sơ TF-IDF của lịch sử học. Vắng hoặc rỗng ⇒ không có điểm tương đồng. */
+  profile?: TermVector;
+  /** IDF của tập ứng viên đang xếp hạng — phải cùng tập đã dùng để dựng `profile`. */
+  idf?: ReadonlyMap<string, number>;
+}
+
+/**
+ * Tùy chọn của `rankCandidates`: nhận lịch sử THÔ rồi tự dựng `profile`/`idf` một lần cho
+ * cả tập, nên phía gọi không phải biết gì về vector.
+ */
+export interface RankOptions extends Omit<ScoringOptions, 'profile' | 'idf'> {
+  /** Lịch sử học tập. Rỗng ⇒ xếp hạng thuần theo luật. */
+  history?: HistoryDoc[];
 }
 
 export interface Candidate {
@@ -110,8 +144,22 @@ const LEVEL_LABELS: Record<string, string> = {
 
 const LEVEL_ORDER = ['none', 'basic', 'intermediate', 'experienced'];
 
-/** Bậc khó của bài tập quy về cùng thang với trình độ học viên, như bản frontend. */
 const DIFFICULTY_LEVEL: Record<string, number> = { easy: 0, medium: 1, hard: 2 };
+
+/**
+ * Trình độ học viên (4 bậc) quy về thang độ khó bài tập (3 bậc).
+ *
+ * Phải có bảng riêng chứ không lấy `LEVEL_ORDER.indexOf` so thẳng với `DIFFICULTY_LEVEL`:
+ * hai thang khác độ dài, nên `experienced` (3) gặp `hard` (2) ra khoảng cách 1 và bị TRỪ
+ * điểm — nhóm giỏi nhất không bài tập nào khớp nổi. `none` và `basic` cùng về `easy` vì
+ * bài dễ là chỗ đúng cho cả hai.
+ */
+const LEVEL_TO_DIFFICULTY: Record<string, number> = {
+  none: 0,
+  basic: 0,
+  intermediate: 1,
+  experienced: 2,
+};
 
 const CAREER_GOAL_KEYWORDS: Record<string, string> = {
   'Web Developer': 'web',
@@ -123,6 +171,21 @@ const CAREER_GOAL_KEYWORDS: Record<string, string> = {
 export const POPULAR_REASON = 'Phổ biến trên hệ thống';
 
 const EMPTY_AFFINITY: TagAffinityMap = new Map();
+
+/**
+ * Hồ sơ trống, cho học viên được cá nhân hóa BẰNG LỊCH SỬ mà chưa từng khai gì lúc
+ * onboarding. Mọi nhánh chấm theo nhãn khai đều tự tắt, chỉ còn chủ đề đã đụng và điểm
+ * tương đồng — đúng những tín hiệu họ thực sự đã tạo ra.
+ */
+const NO_DECLARED_PREFERENCES: LearnerPreferences = {
+  currentLevel: null,
+  careerGoal: null,
+  contentPriority: null,
+  interestedFields: [],
+  interestedTechnologies: [],
+  adaptiveRecommendations: true,
+  completed: false,
+};
 
 function levelDistance(a: string, b: string): number {
   return Math.abs(LEVEL_ORDER.indexOf(a) - LEVEL_ORDER.indexOf(b));
@@ -189,6 +252,128 @@ export function normalizePopularity(candidates: Candidate[]): Map<string, number
   );
 }
 
+/* ------------------------------------------------------------------------------------- *
+ * Content-based: mô hình không gian vector (TF-IDF + cosine)
+ *
+ * Vì sao là mô hình này chứ không phải lọc cộng tác: hệ không có bảng event log và
+ * `exercise_progress` chỉ giữ ảnh chụp trạng thái, không giữ chuỗi hành vi — đó là nguyên
+ * liệu của collaborative filtering. Content-based thì chỉ cần VĂN BẢN của nội dung và danh
+ * sách thứ học viên đã đụng, cả hai đều có sẵn.
+ *
+ * Vì sao đáng làm khi đã có luật: luật so khớp CHÍNH XÁC tên chủ đề. Học viên vừa luyện
+ * "Quy hoạch động cơ bản" không được luật kéo tới "Quy hoạch động trên cây" nếu hai bài gắn
+ * hai tên chủ đề khác nhau; cosine trên token thì có. Điểm tương đồng CỘNG THÊM lên điểm
+ * luật, không thay thế nó.
+ *
+ * ponytail: IDF tính trên chính tập ứng viên của request (≤ 200 tài liệu) chứ không trên
+ * toàn catalog — không phải cache, không phải job nền, và đủ đúng vì tập này chính là thứ
+ * đang được xếp hạng. Khi catalog lớn tới mức tập 200 không còn đại diện, dựng IDF một lần
+ * cho cả catalog rồi nạp vào đây.
+ * ------------------------------------------------------------------------------------- */
+
+/** Bỏ token 1 ký tự: "C", "và", "ở" — nhiễu, và "C" thì khớp với quá nhiều thứ. */
+const MIN_TOKEN_LENGTH = 2;
+
+/** Dưới mức này thì cosine chỉ là nhiễu từ vựng, không đáng ghi thành lý do trên thẻ. */
+const SIMILARITY_REASON_FLOOR = 0.15;
+
+export const SIMILARITY_REASON = 'Gần với nội dung bạn đã học';
+
+/**
+ * Tách văn bản thành token để vector hóa.
+ *
+ * KHÔNG dùng lại `techKeys`: nó bỏ mọi ký tự ngoài `[a-z0-9]`, nên "đệ quy" rụng hết dấu
+ * và thành chuỗi rỗng — tức là xóa sạch tiếng Việt, đúng thứ ngôn ngữ mà tiêu đề và tên
+ * chủ đề ở đây đang dùng. `\p{L}` giữ nguyên chữ có dấu; `+` và `#` giữ lại để "C++" và
+ * "C#" còn là token.
+ *
+ * ponytail: không tách từ ghép tiếng Việt ("quy hoạch động" thành ba token rời) và không
+ * bỏ dấu để gộp biến thể. Nâng cấp khi đo được là thứ hạng sai vì chuyện này — cần một bộ
+ * tách từ thật, không phải một regex dài hơn.
+ */
+export function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}+#]+/u)
+    .filter((token) => token.length >= MIN_TOKEN_LENGTH);
+}
+
+/** Văn bản đại diện một ứng viên: mọi thứ mô tả nội dung của nó bằng chữ. */
+export function candidateText(candidate: Candidate): string {
+  return [candidate.title, ...candidate.tags, candidate.field ?? '', ...candidate.technologies]
+    .join(' ')
+    .trim();
+}
+
+/**
+ * IDF trên một tập tài liệu: `log(1 + N / (1 + df))`.
+ *
+ * Cộng 1 vào mẫu số để token có mặt ở mọi tài liệu vẫn ra số dương thay vì 0 tuyệt đối —
+ * trên tập 200 tài liệu, một token phổ biến vẫn nên nói được chút gì đó.
+ */
+export function buildIdf(documents: string[]): Map<string, number> {
+  const documentFrequency = new Map<string, number>();
+  for (const document of documents) {
+    for (const token of new Set(tokenize(document))) {
+      documentFrequency.set(token, (documentFrequency.get(token) ?? 0) + 1);
+    }
+  }
+  const total = documents.length;
+  return new Map(
+    [...documentFrequency].map(([token, df]) => [token, Math.log(1 + total / (1 + df))] as const),
+  );
+}
+
+/** Chuẩn hóa L2 tại chỗ, để cosine chỉ còn là tích vô hướng. */
+function normalizeL2(vector: Map<string, number>): Map<string, number> {
+  let sumOfSquares = 0;
+  for (const value of vector.values()) sumOfSquares += value * value;
+  if (sumOfSquares === 0) return vector;
+  const norm = Math.sqrt(sumOfSquares);
+  for (const [token, value] of vector) vector.set(token, value / norm);
+  return vector;
+}
+
+/** Vector TF-IDF của một đoạn văn bản. Token không có trong IDF bị bỏ — nó chưa từng xuất hiện trong tập đang xếp hạng nên không so sánh được với gì. */
+export function vectorize(text: string, idf: ReadonlyMap<string, number>): TermVector {
+  const vector = new Map<string, number>();
+  for (const token of tokenize(text)) {
+    const weight = idf.get(token);
+    if (weight === undefined) continue;
+    vector.set(token, (vector.get(token) ?? 0) + weight);
+  }
+  return normalizeL2(vector);
+}
+
+/**
+ * Hồ sơ học viên: tổng có trọng số vector của những thứ họ đã đụng tới.
+ *
+ * Chỉ dựng từ LỊCH SỬ, không trộn nhãn đã khai lúc onboarding — nhãn khai đã có năm hạng
+ * mục điểm riêng ở `scoreCandidate`, gộp vào đây là chấm hai lần cùng một tín hiệu. Nhờ
+ * tách bạch vậy mà người chưa có lịch sử ra vector rỗng ⇒ cosine 0 ⇒ xếp hạng thuần theo
+ * luật, đúng thứ mong đợi cho người vừa xong onboarding.
+ */
+export function buildProfileVector(
+  history: HistoryDoc[],
+  idf: ReadonlyMap<string, number>,
+): TermVector {
+  const profile = new Map<string, number>();
+  for (const document of history) {
+    for (const [token, value] of vectorize(document.text, idf)) {
+      profile.set(token, (profile.get(token) ?? 0) + value * document.weight);
+    }
+  }
+  return normalizeL2(profile);
+}
+
+/** Cosine của hai vector đã chuẩn hóa L2. Duyệt vector nhỏ hơn — cả hai đều thưa. */
+export function cosine(a: TermVector, b: TermVector): number {
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  let dot = 0;
+  for (const [token, value] of small) dot += value * (large.get(token) ?? 0);
+  return dot;
+}
+
 /**
  * Gộp chủ đề của bài VỪA nộp đạt vào bản đồ đã đọc từ CSDL.
  *
@@ -232,7 +417,7 @@ export function scoreCandidate(
   }
 
   if (preferences.currentLevel) {
-    const learnerLevel = LEVEL_ORDER.indexOf(preferences.currentLevel);
+    const wantedDifficulty = LEVEL_TO_DIFFICULTY[preferences.currentLevel];
     if (candidate.level) {
       const distance = levelDistance(preferences.currentLevel, candidate.level);
       if (distance === 0) {
@@ -243,8 +428,8 @@ export function scoreCandidate(
       } else if (distance === 1) {
         score += weights.level * 0.5;
       }
-    } else if (candidate.difficulty && learnerLevel >= 0) {
-      const distance = Math.abs((DIFFICULTY_LEVEL[candidate.difficulty] ?? 1) - learnerLevel);
+    } else if (candidate.difficulty && wantedDifficulty !== undefined) {
+      const distance = Math.abs((DIFFICULTY_LEVEL[candidate.difficulty] ?? 1) - wantedDifficulty);
       if (distance === 0) {
         score += weights.level;
         reasons.push('Độ khó phù hợp với trình độ hiện tại');
@@ -262,7 +447,11 @@ export function scoreCandidate(
       techKeys(slug).some((key) => wanted.has(key)),
     );
     if (overlap.length > 0) {
-      score += weights.technology * (overlap.length / candidate.technologies.length);
+      // Trọn trọng số cho MỌI mức giao nhau. Chia cho số công nghệ của ứng viên là phạt
+      // ngược thứ gắn nhãn kỹ: khóa gắn 5 công nghệ khớp 3 sẽ thua khóa gắn đúng 1 công
+      // nghệ khớp 1. "Có thứ bạn quan tâm" là tín hiệu nhị phân; chuyện khớp nhiều hay ít
+      // đã có điểm tương đồng TF-IDF chấm theo mức độ.
+      score += weights.technology;
       reasons.push(`Có công nghệ bạn quan tâm: ${overlap.join(', ')}`);
     } else if (candidate.technologies.length === 0) {
       // Không có gì gắn nhãn thì đoán từ tiêu đề, và ăn NỬA trọng số: đây là suy đoán từ
@@ -305,6 +494,14 @@ export function scoreCandidate(
     reasons.push(`Hướng đến mục tiêu nghề nghiệp "${preferences.careerGoal}" bạn đã chọn`);
   }
 
+  // Content-based: gần tới đâu với những gì học viên đã học. Cộng THÊM lên điểm luật ở
+  // trên, không thay thế — luật biết thứ học viên KHAI, cosine biết thứ họ đã LÀM.
+  if (options.profile && options.profile.size > 0 && options.idf) {
+    const similarity = cosine(options.profile, vectorize(candidateText(candidate), options.idf));
+    score += weights.similarity * similarity;
+    if (similarity >= SIMILARITY_REASON_FLOOR) reasons.push(SIMILARITY_REASON);
+  }
+
   // Ưu tiên nội dung: nhích nhẹ, không kèm lý do — nó là sở thích về DẠNG nội dung, không
   // phải một điểm khớp đáng khoe trên thẻ.
   if (preferences.contentPriority === 'practice' && candidate.kind === 'exercise') score += 5;
@@ -326,30 +523,64 @@ export function scoreCandidate(
 /**
  * Xếp hạng cả danh sách.
  *
- * Rơi về xếp theo độ phổ biến khi học viên TẮT `adaptive_recommendations` hoặc chưa làm
- * onboarding — đó là lời hứa opt-out ở màn hình cá nhân hóa: tắt rồi thì không còn thứ gì
- * trong hồ sơ được dùng để sắp xếp nữa.
+ * Rơi về xếp theo độ phổ biến khi không có tín hiệu nào dùng được — xem `isPersonalized`.
  */
 export function rankCandidates(
   candidates: Candidate[],
   preferences: LearnerPreferences | null,
-  options: ScoringOptions = {},
+  options: RankOptions = {},
 ): ScoredItem[] {
   const popularity = normalizePopularity(candidates);
-  const personalized = preferences !== null && preferences.adaptiveRecommendations && preferences.completed;
+  const history = options.history ?? [];
+  const personalized = isPersonalized(preferences, hasLearningHistory(options.affinity, history));
+
+  // Dựng IDF và hồ sơ một lần cho cả tập, không phải mỗi ứng viên một lần. Bỏ hẳn khi
+  // không cá nhân hóa: lúc đó chấm điểm không đụng tới vector nào.
+  const idf = personalized && history.length > 0 ? buildIdf(candidates.map(candidateText)) : null;
+  const profile = idf ? buildProfileVector(history, idf) : null;
 
   return candidates
     .map((candidate) => {
       const popular = popularity.get(candidate.id) ?? 0;
       const result = personalized
-        ? scoreCandidate(candidate, preferences, popular, options)
+        ? scoreCandidate(candidate, preferences ?? NO_DECLARED_PREFERENCES, popular, {
+            ...options,
+            profile: profile ?? undefined,
+            idf: idf ?? undefined,
+          })
         : { score: Math.round(popular), reasons: [POPULAR_REASON] };
       return { ...candidate, ...result };
     })
     .sort((a, b) => b.score - a.score || b.popularityRaw - a.popularityRaw);
 }
 
-/** Hồ sơ có được dùng để cá nhân hóa không — controller trả cờ này ra cho frontend. */
-export function isPersonalized(preferences: LearnerPreferences | null): boolean {
-  return preferences !== null && preferences.adaptiveRecommendations && preferences.completed;
+/** Học viên đã để lại dấu vết học tập nào chưa — chủ đề đã đụng, hoặc nội dung đã học. */
+export function hasLearningHistory(
+  affinity: TagAffinityMap | undefined,
+  history: HistoryDoc[] | undefined,
+): boolean {
+  return (affinity?.size ?? 0) > 0 || (history?.length ?? 0) > 0;
+}
+
+/**
+ * Hồ sơ có được dùng để cá nhân hóa không — controller trả cờ này ra cho frontend.
+ *
+ * Ba nhánh, theo đúng thứ tự ưu tiên:
+ *
+ * 1. `adaptive_recommendations = false` là opt-out TUYỆT ĐỐI. Học viên tắt ở màn hình cá
+ *    nhân hóa thì không tín hiệu nào của họ được dùng để sắp xếp, kể cả lịch sử.
+ * 2. Có lịch sử học ⇒ cá nhân hóa, kể cả khi chưa từng làm onboarding. Người bỏ qua khảo
+ *    sát nhưng đã giải hàng chục bài vẫn đang nói cho hệ thống biết họ quan tâm gì; trước
+ *    đây nhánh này đòi `completed` nên ném hết dấu vết đó đi và trả về bảng phổ biến trơn.
+ * 3. Không lịch sử: chỉ còn hồ sơ khai lúc onboarding, và nó phải đã hoàn thành.
+ *
+ * Không dính nhánh nào ⇒ `false` ⇒ rơi về nội dung phổ biến.
+ */
+export function isPersonalized(
+  preferences: LearnerPreferences | null,
+  hasHistory = false,
+): boolean {
+  if (preferences !== null && !preferences.adaptiveRecommendations) return false;
+  if (hasHistory) return true;
+  return preferences !== null && preferences.completed;
 }

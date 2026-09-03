@@ -7,5 +7,5 @@ void bootstrapService(AppModule, {
   // 3010/3011 là apps/lecturer và apps/admin bên frontend, 3012 là notification.
   defaultPort: 3013,
   description:
-    'Đề xuất lộ trình / khóa học / bài tập theo luật (content-based). Không sở hữu bảng nào, không thu thập hành vi.',
+    'Đề xuất lộ trình / khóa học / bài tập: luật theo hồ sơ khai + content-based (TF-IDF/cosine) theo lịch sử đã có. Không sở hữu bảng nào, không thu thập hành vi mới.',
 });

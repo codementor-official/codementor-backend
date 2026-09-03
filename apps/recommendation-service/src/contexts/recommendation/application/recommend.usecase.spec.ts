@@ -26,6 +26,7 @@ function repositoryWithNothingFresh(calls: boolean[]): CandidateRepository {
   return {
     findPreferences: async () => null,
     findTagAffinity: async () => [],
+    findHistoryProfile: async () => [],
     findExerciseTags: async () => [],
     findArticleTags: async () => [],
     listRoadmaps: list,
@@ -52,6 +53,7 @@ describe('RecommendUseCase', () => {
     const repository: CandidateRepository = {
       findPreferences: async () => null,
       findTagAffinity: async () => [],
+      findHistoryProfile: async () => [],
       findExerciseTags: async () => [],
       findArticleTags: async () => [],
       listRoadmaps: async () => [],
@@ -86,6 +88,7 @@ describe('RecommendUseCase', () => {
     const repository: CandidateRepository = {
       findPreferences: async () => null,
       findTagAffinity: async () => [],
+      findHistoryProfile: async () => [],
       findExerciseTags: async () => [],
       findArticleTags: async () => [],
       listRoadmaps: async () => [],
@@ -125,6 +128,7 @@ describe('RecommendUseCase', () => {
         completed: true,
       }),
       findTagAffinity: async () => [],
+      findHistoryProfile: async () => [],
       findExerciseTags: async () => [],
       findArticleTags: async () => ['Đệ quy'],
       listRoadmaps: async () => [],
@@ -145,6 +149,7 @@ describe('RecommendUseCase', () => {
     const repository: CandidateRepository = {
       findPreferences: async () => null,
       findTagAffinity: async () => [],
+      findHistoryProfile: async () => [],
       findExerciseTags: async () => [],
       findArticleTags: async () => [],
       listRoadmaps: async () => [],

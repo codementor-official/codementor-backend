@@ -2,12 +2,19 @@ import type { Candidate, LearnerPreferences } from './scoring';
 import {
   POPULAR_REASON,
   RECOMMENDATION_WEIGHTS,
+  SIMILARITY_REASON,
+  buildIdf,
+  buildProfileVector,
+  candidateText,
+  cosine,
   isPersonalized,
   normalizePopularity,
   rankCandidates,
   scoreCandidate,
   techKeys,
   titleTechMatch,
+  tokenize,
+  vectorize,
   withJustSolved,
 } from './scoring';
 
@@ -338,5 +345,143 @@ describe('bài viết và nhóm học tập', () => {
 
     expect(scoreCandidate(article, theory, 0).score).toBe(5);
     expect(scoreCandidate(exercise, theory, 0).score).toBe(0);
+  });
+});
+
+describe('quy bậc trình độ về thang độ khó', () => {
+  const bare = { level: null, field: null, technologies: [], tags: [] };
+
+  it('học viên đã có kinh nghiệm ăn TRỌN điểm trình độ ở bài khó', () => {
+    const { score, reasons } = scoreCandidate(
+      candidate({ kind: 'exercise', difficulty: 'hard', ...bare }),
+      preferences({ currentLevel: 'experienced', interestedFields: [], interestedTechnologies: [] }),
+      0,
+    );
+
+    expect(score).toBe(RECOMMENDATION_WEIGHTS.level);
+    expect(reasons).toEqual(['Độ khó phù hợp với trình độ hiện tại']);
+  });
+
+  it('mỗi bậc trình độ đều có một độ khó khớp trọn điểm', () => {
+    const matches: [string, string][] = [
+      ['none', 'easy'],
+      ['basic', 'easy'],
+      ['intermediate', 'medium'],
+      ['experienced', 'hard'],
+    ];
+
+    for (const [currentLevel, difficulty] of matches) {
+      const { score } = scoreCandidate(
+        candidate({ kind: 'exercise', difficulty, ...bare }),
+        preferences({ currentLevel, interestedFields: [], interestedTechnologies: [] }),
+        0,
+      );
+      expect([currentLevel, score]).toEqual([currentLevel, RECOMMENDATION_WEIGHTS.level]);
+    }
+  });
+});
+
+describe('khớp công nghệ', () => {
+  it('ứng viên gắn nhãn kỹ không bị phạt so với ứng viên gắn đúng một nhãn', () => {
+    const wanted = preferences({
+      currentLevel: null,
+      interestedFields: [],
+      interestedTechnologies: ['Node.js'],
+    });
+    const focused = candidate({ field: null, level: null, technologies: ['nodejs'], tags: [] });
+    const rich = candidate({
+      field: null,
+      level: null,
+      technologies: ['nodejs', 'docker', 'redis', 'postgres', 'nginx'],
+      tags: [],
+    });
+
+    expect(scoreCandidate(rich, wanted, 0).score).toBe(scoreCandidate(focused, wanted, 0).score);
+    expect(scoreCandidate(rich, wanted, 0).score).toBe(RECOMMENDATION_WEIGHTS.technology);
+  });
+});
+
+describe('isPersonalized', () => {
+  it('có lịch sử là đủ để cá nhân hóa, kể cả khi chưa từng làm onboarding', () => {
+    expect(isPersonalized(null, true)).toBe(true);
+    expect(isPersonalized(preferences({ completed: false }), true)).toBe(true);
+  });
+
+  it('không hồ sơ và không lịch sử thì rơi về nội dung phổ biến', () => {
+    expect(isPersonalized(null, false)).toBe(false);
+    expect(isPersonalized(preferences({ completed: false }), false)).toBe(false);
+  });
+
+  it('tắt gợi ý thích ứng là opt-out tuyệt đối, lịch sử cũng không lật lại được', () => {
+    expect(isPersonalized(preferences({ adaptiveRecommendations: false }), true)).toBe(false);
+  });
+
+  it('hồ sơ đã hoàn thành vẫn cá nhân hóa được khi chưa có lịch sử', () => {
+    expect(isPersonalized(preferences(), false)).toBe(true);
+  });
+});
+
+describe('content-based: TF-IDF + cosine', () => {
+  it('tách được từ tiếng Việt có dấu — techKeys thì không', () => {
+    expect(tokenize('Đệ quy và Quy hoạch động')).toEqual(['đệ', 'quy', 'và', 'quy', 'hoạch', 'động']);
+    // techKeys bỏ mọi ký tự ngoài [a-z0-9] và không tách theo khoảng trắng: cả câu dính
+    // thành một khối rụng hết dấu. Dùng nó để vector hóa là mất sạch tiếng Việt.
+    expect(techKeys('Đệ quy hoạch động')).toEqual(['quyhochng']);
+  });
+
+  it('cosine bằng 1 với chính nó và 0 khi không chung token nào', () => {
+    const idf = buildIdf(['quy hoạch động', 'đồ thị', 'con trỏ']);
+
+    expect(cosine(vectorize('quy hoạch động', idf), vectorize('quy hoạch động', idf))).toBeCloseTo(1);
+    expect(cosine(vectorize('quy hoạch động', idf), vectorize('con trỏ', idf))).toBe(0);
+  });
+
+  it('kéo nội dung gần lịch sử lên trên nội dung xa nó', () => {
+    const near = candidate({ id: 'near', title: 'Quy hoạch động trên cây', ...{ field: null, level: null, technologies: [], tags: [] } });
+    const far = candidate({ id: 'far', title: 'Cấu hình Nginx cho web tĩnh', ...{ field: null, level: null, technologies: [], tags: [] } });
+    const neutralProfile = preferences({
+      currentLevel: null,
+      interestedFields: [],
+      interestedTechnologies: [],
+    });
+
+    const ranked = rankCandidates([far, near], neutralProfile, {
+      history: [{ text: 'Quy hoạch động cơ bản', weight: 1 }],
+    });
+
+    expect(ranked.map((item) => item.id)).toEqual(['near', 'far']);
+    expect(ranked[0].reasons).toContain(SIMILARITY_REASON);
+    expect(ranked[1].reasons).not.toContain(SIMILARITY_REASON);
+  });
+
+  it('lịch sử rỗng thì không cộng điểm tương đồng — xếp hạng thuần theo luật', () => {
+    const item = candidate();
+
+    const withoutHistory = rankCandidates([item], preferences(), { history: [] });
+    const baseline = scoreCandidate(item, preferences(), 0);
+
+    expect(withoutHistory[0].score).toBe(baseline.score);
+    expect(withoutHistory[0].reasons).not.toContain(SIMILARITY_REASON);
+  });
+
+  it('mục lịch sử nặng hơn kéo hồ sơ về phía nó', () => {
+    const idf = buildIdf(['quy hoạch động', 'đồ thị liên thông', 'con trỏ hàm']);
+    const profile = buildProfileVector(
+      [
+        { text: 'quy hoạch động', weight: 1.5 },
+        { text: 'con trỏ hàm', weight: 0.5 },
+      ],
+      idf,
+    );
+
+    expect(cosine(profile, vectorize('quy hoạch động', idf))).toBeGreaterThan(
+      cosine(profile, vectorize('con trỏ hàm', idf)),
+    );
+  });
+
+  it('văn bản ứng viên gom cả tiêu đề, chủ đề, lĩnh vực và công nghệ', () => {
+    expect(candidateText(candidate({ tags: ['Đệ quy'] }))).toBe(
+      'Backend với Node.js Đệ quy backend nodejs',
+    );
   });
 });

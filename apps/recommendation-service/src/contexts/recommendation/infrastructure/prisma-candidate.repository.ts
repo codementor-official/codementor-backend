@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@codementor/platform';
 import type { CandidateRepository, TagAffinityRow } from '../domain/port/candidate.repository';
-import type { Candidate, LearnerPreferences } from '../domain/model/scoring';
+import type { Candidate, HistoryDoc, LearnerPreferences } from '../domain/model/scoring';
 
 interface CandidateRow {
   id: string;
@@ -38,6 +38,13 @@ interface PreferencesRow {
  * (chỉ lấy ứng viên có `field` nằm trong `interested_fields`) rồi mới chấm điểm phần còn lại.
  */
 const CANDIDATE_LIMIT = 200;
+
+/**
+ * Trần số mục lịch sử đưa vào hồ sơ TF-IDF. Hồ sơ là TỔNG có trọng số nên thêm mục thứ 301
+ * gần như không xoay được vector, trong khi vẫn tốn một lượt vector hóa. Lấy mới nhất trước
+ * để học viên lâu năm được chấm theo thứ họ đang học, không phải thứ họ học năm ngoái.
+ */
+const HISTORY_LIMIT = 300;
 
 function toCandidate(row: CandidateRow, kind: Candidate['kind']): Candidate {
   return {
@@ -283,6 +290,64 @@ export class PrismaCandidateRepository implements CandidateRepository {
       JOIN tags t ON t.id = a.tag_id
       WHERE a.id = ${articleId}::uuid`;
     return rows.map((row) => row.tag);
+  }
+
+  /**
+   * Lịch sử học tập dưới dạng văn bản, cho mô hình content-based.
+   *
+   * Bốn nguồn gộp bằng `UNION ALL`, một lượt truy vấn. Trọng số nói lên dấu vết đó thể hiện
+   * sở thích mạnh tới đâu:
+   *
+   * | Nguồn | Trọng số | Vì sao |
+   * |---|---|---|
+   * | bài tập `attempted` chưa giải | 1.5 | chỗ học viên đang mắc — thứ đáng gợi nhất |
+   * | bài tập `solved` | 1.0 | đã làm được, vẫn nói lên họ quan tâm gì |
+   * | khóa / lộ trình đã ghi danh | 1.0 | một lựa chọn có chủ đích |
+   * | bài viết đã lưu | 0.5 | lưu rẻ hơn ghi danh nhiều, nên nói ít hơn |
+   *
+   * Ghi danh và bookmark trước đây chỉ xuất hiện trong mệnh đề `excludeSeen`; đây là chỗ
+   * đầu tiên chúng được dùng làm tín hiệu DƯƠNG.
+   */
+  async findHistoryProfile(userId: string): Promise<HistoryDoc[]> {
+    const rows = await this.prisma.$queryRaw<{ text: string; weight: number }[]>`
+      SELECT text, weight FROM (
+        -- Bài tập đã đụng: tiêu đề + tên chủ đề, cùng từ vựng tags mà ứng viên đang dùng.
+        SELECT e.title || ' ' || COALESCE(string_agg(tg.name, ' '), '') AS text,
+               CASE WHEN ep.status = 'attempted' THEN 1.5 ELSE 1.0 END AS weight,
+               ep.updated_at AS touched_at
+        FROM exercise_progress ep
+        JOIN exercises e ON e.id = ep.exercise_id
+        LEFT JOIN exercise_tags ext ON ext.exercise_id = e.id
+        LEFT JOIN tags tg ON tg.id = ext.tag_id
+        WHERE ep.user_id = ${userId}::uuid
+        GROUP BY e.id, ep.status, ep.updated_at
+
+        UNION ALL
+
+        SELECT c.title, 1.0, COALESCE(ce.last_activity_at, ce.started_at)
+        FROM course_enrollments ce
+        JOIN courses c ON c.id = ce.course_id
+        WHERE ce.user_id = ${userId}::uuid
+
+        UNION ALL
+
+        SELECT r.title, 1.0, COALESCE(re.last_activity_at, re.started_at)
+        FROM roadmap_enrollments re
+        JOIN roadmaps r ON r.id = re.roadmap_id
+        WHERE re.user_id = ${userId}::uuid
+
+        UNION ALL
+
+        SELECT a.title, 0.5, b.created_at
+        FROM user_bookmarks b
+        JOIN articles a ON a.id = b.target_id
+        WHERE b.user_id = ${userId}::uuid AND b.target_type = 'POST'
+      ) history
+      ORDER BY touched_at DESC NULLS LAST
+      LIMIT ${HISTORY_LIMIT}`;
+
+    // `weight` về đây là `Decimal` của Postgres (numeric), không phải number của JS.
+    return rows.map((row) => ({ text: row.text, weight: Number(row.weight) }));
   }
 
   async findExerciseTags(exerciseId: string): Promise<string[]> {

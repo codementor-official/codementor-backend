@@ -4,6 +4,7 @@ import {
   type CandidateRepository,
 } from '../domain/port/candidate.repository';
 import {
+  hasLearningHistory,
   isPersonalized,
   normalizePopularity,
   rankCandidates,
@@ -109,18 +110,18 @@ export class RecommendUseCase {
    * phải tự cộng chủ đề của nó vào phần đã giải.
    */
   async nextExercise(userId: string, exerciseId: string): Promise<RecommendationList> {
-    const [candidates, preferences, affinity, justSolvedTags] = await Promise.all([
+    const [candidates, preferences, affinity, history, justSolvedTags] = await Promise.all([
       this.candidates.listExercises(userId, true),
       this.candidates.findPreferences(userId),
       this.tagAffinity(userId),
+      this.candidates.findHistoryProfile(userId),
       this.candidates.findExerciseTags(exerciseId),
     ]);
     const pool = candidates.filter((c) => c.id !== exerciseId);
+    const merged = withJustSolved(affinity, justSolvedTags);
     return {
-      personalized: isPersonalized(preferences),
-      items: rankCandidates(pool, preferences, {
-        affinity: withJustSolved(affinity, justSolvedTags),
-      })
+      personalized: isPersonalized(preferences, hasLearningHistory(merged, history)),
+      items: rankCandidates(pool, preferences, { affinity: merged, history })
         .slice(0, 1)
         .map(withPopularity(pool)),
     };
@@ -142,10 +143,11 @@ export class RecommendUseCase {
     articleId: string,
     limit: number,
   ): Promise<RecommendationList> {
-    const [candidates, preferences, affinity, readingTags] = await Promise.all([
+    const [candidates, preferences, affinity, history, readingTags] = await Promise.all([
       this.candidates.listArticles(userId, true),
       this.candidates.findPreferences(userId),
       this.tagAffinity(userId),
+      this.candidates.findHistoryProfile(userId),
       this.candidates.findArticleTags(articleId),
     ]);
     // Bài đang đọc chỉ bị `listArticles` loại khi học viên đã LƯU nó — lưu là dấu vết "đã
@@ -155,11 +157,10 @@ export class RecommendUseCase {
     // Lượt thứ hai cũng phải bỏ bài đang đọc: nó nằm trong danh mục đầy đủ, và đề xuất
     // "bài liên quan" là chính bài người ta đang mở thì vô nghĩa nhất.
     const fresh = pool.length > 0 ? pool : drop(await this.candidates.listArticles(userId, false));
+    const merged = withJustSolved(affinity, readingTags);
     return {
-      personalized: isPersonalized(preferences),
-      items: rankCandidates(fresh, preferences, {
-        affinity: withJustSolved(affinity, readingTags),
-      })
+      personalized: isPersonalized(preferences, hasLearningHistory(merged, history)),
+      items: rankCandidates(fresh, preferences, { affinity: merged, history })
         .slice(0, limit)
         .map(withPopularity(fresh)),
     };
@@ -187,15 +188,16 @@ export class RecommendUseCase {
   ): Promise<RecommendationList> {
     // Cả ba loại đều chấm theo chủ đề: lộ trình và khóa học ít khi tự gắn đủ, nhưng gom
     // được chủ đề của thứ nằm bên trong chúng.
-    const [fresh, preferences, affinity] = await Promise.all([
+    const [fresh, preferences, affinity, history] = await Promise.all([
       load(userId, true),
       this.candidates.findPreferences(userId),
       this.tagAffinity(userId),
+      this.candidates.findHistoryProfile(userId),
     ]);
     const pool = fresh.length > 0 ? fresh : await load(userId, false);
     return {
-      personalized: isPersonalized(preferences),
-      items: rankCandidates(pool, preferences, { affinity })
+      personalized: isPersonalized(preferences, hasLearningHistory(affinity, history)),
+      items: rankCandidates(pool, preferences, { affinity, history })
         .slice(0, limit)
         .map(withPopularity(pool)),
     };
