@@ -149,10 +149,11 @@ async function startOne(name, port) {
   });
   child.unref();
 
-  // Judge chờ lâu hơn: `uv run` tạo venv lần đầu, và consumer Kafka phải join group +
-  // được gán partition trước khi app coi là "đã lên" — đo thực tế mất khoảng 30s, ngay
-  // sát ngưỡng 30s chung, nên dễ báo lỗi giả dù service rồi cũng lên được.
-  const bound = await waitUntil(() => pidOnPort(port), name === "judge" ? 180 : 60, 500);
+  // Hai service Python chờ lâu hơn: `uv run` tạo venv + tải wheel ở lần chạy đầu (ai kéo
+  // openai/botocore/lxml/pillow, mất hơn 30s), và judge còn phải để consumer Kafka join
+  // group + được gán partition trước khi app coi là "đã lên". Cả hai đều sát ngưỡng 30s
+  // chung, nên dễ báo lỗi giả dù service rồi cũng lên được.
+  const bound = await waitUntil(() => pidOnPort(port), name === "judge" || name === "ai" ? 180 : 60, 500);
   if (bound) {
     console.log(`  ${name.padEnd(12)} :${port}`);
     return true;
