@@ -119,6 +119,7 @@ export interface WorkspaceContentRepository {
       q?: string;
       status?: string;
       type?: string;
+      types?: string[];
       publishedOnly: boolean;
       removedOnly?: boolean;
     },

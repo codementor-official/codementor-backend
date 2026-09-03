@@ -1,4 +1,7 @@
 import { Module } from '@nestjs/common';
+import { WorkspaceAiService } from './application/workspace-ai.service';
+import { WorkspaceAiClient } from './infrastructure/workspace-ai.client';
+import { WorkspaceAiController } from './presentation/workspace-ai.controller';
 import { WorkspaceService } from './application/workspace.service';
 import { WORKSPACE_REPOSITORY } from './domain/port/workspace.repository';
 import { PrismaWorkspaceRepository } from './infrastructure/prisma-workspace.repository';
@@ -14,8 +17,10 @@ import { WORKSPACE_CHAT_REPOSITORY } from './domain/port/workspace-chat.reposito
 import { PrismaWorkspaceChatRepository } from './infrastructure/prisma-workspace-chat.repository';
 
 @Module({
-  controllers: [WorkspaceController],
+  controllers: [WorkspaceController, WorkspaceAiController],
   providers: [
+    WorkspaceAiService,
+    WorkspaceAiClient,
     WorkspaceService,
     WorkspaceOverviewService,
     WorkspaceContentService,

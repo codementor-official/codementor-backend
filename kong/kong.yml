@@ -51,6 +51,8 @@ services:
 
   - name: workspace-service
     url: http://host.docker.internal:3004
+    read_timeout: 210000
+    write_timeout: 210000
     routes:
       - name: workspace-routes
         paths:

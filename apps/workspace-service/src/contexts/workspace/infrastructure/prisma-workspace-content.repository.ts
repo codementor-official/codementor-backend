@@ -50,6 +50,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       q?: string;
       status?: string;
       type?: string;
+      types?: string[];
       publishedOnly: boolean;
       removedOnly?: boolean;
     },
@@ -62,6 +63,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     else if (input.status && input.status !== 'removed')
       where.status = input.status as document_status;
     if (input.type) where.doc_type = input.type;
+    if (input.types) where.doc_type = { in: input.types, mode: 'insensitive' };
     if (input.q)
       where.OR = [
         { title: { contains: input.q, mode: 'insensitive' } },
