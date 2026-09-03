@@ -41,8 +41,7 @@ export interface RecommendedItem {
 
 export interface RecommendationList {
   /**
-   * `false` khi học viên tắt `adaptive_recommendations` hoặc chưa làm onboarding — danh
-   * sách lúc đó là bảng phổ biến chung, không dùng gì trong hồ sơ cá nhân.
+   * `false` khi học viên tắt gợi ý hoặc chưa có hồ sơ/lịch sử dùng để cá nhân hóa.
    */
   personalized: boolean;
   items: RecommendedItem[];
@@ -99,7 +98,7 @@ export class RecommendUseCase {
   }
 
   groups(userId: string, limit: number): Promise<RecommendationList> {
-    return this.rank(userId, limit, (id, seen) => this.candidates.listGroups(id, seen));
+    return this.rank(userId, limit, (id, seen) => this.candidates.listGroups(id, seen), false);
   }
 
   /**
@@ -110,13 +109,13 @@ export class RecommendUseCase {
    * phải tự cộng chủ đề của nó vào phần đã giải.
    */
   async nextExercise(userId: string, exerciseId: string): Promise<RecommendationList> {
-    const [candidates, preferences, affinity, history, justSolvedTags] = await Promise.all([
+    const [candidates, preferences] = await Promise.all([
       this.candidates.listExercises(userId, true),
       this.candidates.findPreferences(userId),
-      this.tagAffinity(userId),
-      this.candidates.findHistoryProfile(userId),
-      this.candidates.findExerciseTags(exerciseId),
     ]);
+    const [affinity, history, justSolvedTags] = preferences?.adaptiveRecommendations !== false
+      ? await Promise.all([this.tagAffinity(userId), this.candidates.findHistoryProfile(userId), this.candidates.findExerciseTags(exerciseId)])
+      : [new Map(), [], []];
     const pool = candidates.filter((c) => c.id !== exerciseId);
     const merged = withJustSolved(affinity, justSolvedTags);
     return {
@@ -143,13 +142,13 @@ export class RecommendUseCase {
     articleId: string,
     limit: number,
   ): Promise<RecommendationList> {
-    const [candidates, preferences, affinity, history, readingTags] = await Promise.all([
+    const [candidates, preferences] = await Promise.all([
       this.candidates.listArticles(userId, true),
       this.candidates.findPreferences(userId),
-      this.tagAffinity(userId),
-      this.candidates.findHistoryProfile(userId),
-      this.candidates.findArticleTags(articleId),
     ]);
+    const [affinity, history, readingTags] = preferences?.adaptiveRecommendations !== false
+      ? await Promise.all([this.tagAffinity(userId), this.candidates.findHistoryProfile(userId), this.candidates.findArticleTags(articleId)])
+      : [new Map(), [], []];
     // Bài đang đọc chỉ bị `listArticles` loại khi học viên đã LƯU nó — lưu là dấu vết "đã
     // gặp" duy nhất, mà mở ra đọc thì không lưu gì cả.
     const drop = (list: Candidate[]) => list.filter((c) => c.id !== articleId);
@@ -185,16 +184,20 @@ export class RecommendUseCase {
     userId: string,
     limit: number,
     load: (userId: string, excludeSeen: boolean) => Promise<Candidate[]>,
+    allowSeenFallback = true,
   ): Promise<RecommendationList> {
     // Cả ba loại đều chấm theo chủ đề: lộ trình và khóa học ít khi tự gắn đủ, nhưng gom
     // được chủ đề của thứ nằm bên trong chúng.
-    const [fresh, preferences, affinity, history] = await Promise.all([
+    const [fresh, preferences] = await Promise.all([
       load(userId, true),
       this.candidates.findPreferences(userId),
-      this.tagAffinity(userId),
-      this.candidates.findHistoryProfile(userId),
     ]);
-    const pool = fresh.length > 0 ? fresh : await load(userId, false);
+    // Opt-out does not read personal exercise history for scoring. Membership/enrollment
+    // exclusions still avoid suggesting an action the learner already performed.
+    const [affinity, history] = preferences?.adaptiveRecommendations !== false
+      ? await Promise.all([this.tagAffinity(userId), this.candidates.findHistoryProfile(userId)])
+      : [new Map(), []];
+    const pool = fresh.length > 0 || !allowSeenFallback ? fresh : await load(userId, false);
     return {
       personalized: isPersonalized(preferences, hasLearningHistory(affinity, history)),
       items: rankCandidates(pool, preferences, { affinity, history })

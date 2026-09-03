@@ -38,6 +38,72 @@ function repositoryWithNothingFresh(calls: boolean[]): CandidateRepository {
 }
 
 describe('RecommendUseCase', () => {
+  it.each([{ adaptiveRecommendations: false, completed: true }, { adaptiveRecommendations: false, completed: false }])(
+    'does not read personal tag or content history after explicit opt-out: %s', async (settings) => {
+      const repository = repositoryWithNothingFresh([]);
+      repository.findPreferences = async () => settings ? {
+        currentLevel: 'basic', careerGoal: null, contentPriority: null,
+        interestedFields: [], interestedTechnologies: [], ...settings,
+      } : null;
+      const history = jest.fn(async () => [{ tag: 'Array', solved: 2, attempted: 1 }]);
+      const exerciseTags = jest.fn(async () => ['Array']);
+      const articleTags = jest.fn(async () => ['Array']);
+      repository.findTagAffinity = history;
+      const contentHistory = jest.fn(async () => [{ text: 'Array sorting', weight: 1 }]);
+      repository.findHistoryProfile = contentHistory;
+      repository.findExerciseTags = exerciseTags;
+      repository.findArticleTags = articleTags;
+      const usecase = new RecommendUseCase(repository);
+      const results = await Promise.all([
+        usecase.courses('user', 6), usecase.roadmaps('user', 6), usecase.exercises('user', 6),
+        usecase.groups('user', 6), usecase.articles('user', 6),
+        usecase.nextExercise('user', 'a'), usecase.relatedArticles('user', 'a', 6),
+      ]);
+      expect(results.every((result) => !result.personalized)).toBe(true);
+      expect(history).not.toHaveBeenCalled();
+      expect(contentHistory).not.toHaveBeenCalled();
+      expect(exerciseTags).not.toHaveBeenCalled();
+      expect(articleTags).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([null, { adaptiveRecommendations: true, completed: false }])(
+    'uses upstream content history without requiring completed onboarding: %s', async (settings) => {
+      const repository = repositoryWithNothingFresh([]);
+      repository.findPreferences = async () => settings ? {
+        currentLevel: null, careerGoal: null, contentPriority: null,
+        interestedFields: [], interestedTechnologies: [], ...settings,
+      } : null;
+      repository.findHistoryProfile = async () => [{ text: 'Khóa a backend', weight: 1 }];
+      const result = await new RecommendUseCase(repository).courses('user', 6);
+      expect(result.personalized).toBe(true);
+    },
+  );
+
+  it('does not fall back to already joined groups', async () => {
+    const calls: boolean[] = [];
+    const result = await new RecommendUseCase(repositoryWithNothingFresh(calls)).groups('user', 6);
+    expect(result.items).toEqual([]);
+    expect(calls).toEqual([true]);
+  });
+
+  it('re-reads saved preferences per request; enabling/disabling changes ranking', async () => {
+    const repository = repositoryWithNothingFresh([]);
+    const matching = { ...candidate('matching'), popularityRaw: 1 };
+    const popular = { ...candidate('popular'), field: 'frontend', level: 'experienced', popularityRaw: 100 };
+    repository.listCourses = async () => [popular, matching];
+    let enabled = true;
+    repository.findPreferences = async () => ({ currentLevel: 'basic', careerGoal: null,
+      contentPriority: null, interestedFields: ['backend'], interestedTechnologies: [],
+      adaptiveRecommendations: enabled, completed: true });
+    const usecase = new RecommendUseCase(repository);
+    expect((await usecase.courses('user', 2)).items[0].id).toBe('matching');
+    enabled = false;
+    const result = await usecase.courses('user', 2);
+    expect(result.personalized).toBe(false);
+    expect(result.items[0].id).toBe('popular');
+  });
+
   it('rơi về cả danh mục khi học viên đã đụng hết những gì đã xuất bản', async () => {
     const calls: boolean[] = [];
     const usecase = new RecommendUseCase(repositoryWithNothingFresh(calls));
@@ -81,7 +147,7 @@ describe('RecommendUseCase', () => {
     ]);
 
     expect(articles.items.map((item) => item.id)).toEqual(['a', 'b']);
-    expect(groups.items.map((item) => item.id)).toEqual(['a', 'b']);
+    expect(groups.items).toEqual([]);
   });
 
   it('trả độ phổ biến đã chuẩn hóa để thẻ nhóm có gì mà hiện', async () => {
