@@ -21,6 +21,15 @@ export const RECOMMENDATION_WEIGHTS = {
   level: 20,
   technology: 20,
   /**
+   * Chủ đề khớp nhãn ĐÃ KHAI lúc onboarding. Khác `topic` ở chỗ nhánh kia cần lịch sử.
+   *
+   * Bài viết, nhóm học tập và bài tập không có `field` lẫn `technologies` — ba tín hiệu
+   * nặng nhất (34 + 20 + 20) tắt sạch trên chúng. Chủ đề là metadata thật duy nhất chúng
+   * có, mà trước đây chỉ chấm được khi học viên đã có lịch sử. Hệ quả: người vừa xong
+   * onboarding nhận đúng bảng xếp theo độ phổ biến ở `/articles`, khai gì cũng như nhau.
+   */
+  profileTopic: 16,
+  /**
    * Tương đồng văn bản với lịch sử học (TF-IDF + cosine). Đứng DƯỚI `topic`: chủ đề còn dở
    * dang là sự thật đã quan sát được, còn tương đồng từ vựng là suy diễn — nó bắt được thứ
    * `topic` bỏ lỡ (tên chủ đề khác nhau nhưng nội dung gần nhau), nên bổ sung chứ không thay.
@@ -461,6 +470,27 @@ export function scoreCandidate(
         score += weights.technology * 0.5;
         reasons.push(`Liên quan đến ${mentioned} bạn quan tâm`);
       }
+    }
+  }
+
+  // Chủ đề khớp nhãn đã khai. Chỉ chấm khi ứng viên KHÔNG có `field`, để không cộng hai
+  // lần cùng một tín hiệu với nhánh lĩnh vực ở trên — lộ trình và khóa học có `field` nên
+  // đã được chấm ở đó rồi; bài viết, nhóm và bài tập thì không, và đây là đường DUY NHẤT
+  // để hồ sơ onboarding chạm tới chúng.
+  //
+  // So khớp qua `techKeys` nên cùng lúc bắt được cả hai từ vựng: tên chủ đề "Back-end" và
+  // enum lĩnh vực `backend` đều rút về "backend"; nhãn công nghệ "Tailwind CSS" và chủ đề
+  // cùng tên đều rút về "tailwindcss".
+  if (candidate.field === null && candidate.tags.length > 0) {
+    const declared = new Set(
+      [...preferences.interestedFields, ...preferences.interestedTechnologies].flatMap(techKeys),
+    );
+    const matched = candidate.tags.find((tag) =>
+      techKeys(tag).some((key) => declared.has(key)),
+    );
+    if (matched) {
+      score += weights.profileTopic;
+      reasons.push(`Thuộc chủ đề ${matched} bạn quan tâm`);
     }
   }
 

@@ -485,3 +485,74 @@ describe('content-based: TF-IDF + cosine', () => {
     );
   });
 });
+
+describe('chủ đề khớp hồ sơ khai (không cần lịch sử)', () => {
+  // Bài viết như CSDL thật trả về: không lĩnh vực, không trình độ, không công nghệ —
+  // chỉ có tên chủ đề.
+  const article = (tags: string[], title = 'Bài viết nào đó') =>
+    candidate({ kind: 'article', title, field: null, level: null, difficulty: null, technologies: [], tags });
+
+  const fresh = (overrides: Partial<LearnerPreferences> = {}) =>
+    preferences({ currentLevel: null, interestedFields: [], interestedTechnologies: [], ...overrides });
+
+  it('khớp lĩnh vực đã khai với tên chủ đề khác từ vựng', () => {
+    // enum `backend` ↔ chủ đề "Back-end": techKeys rút cả hai về "backend".
+    const { score, reasons } = scoreCandidate(
+      article(['Back-end']),
+      fresh({ interestedFields: ['backend'] }),
+      0,
+    );
+
+    expect(score).toBe(RECOMMENDATION_WEIGHTS.profileTopic);
+    expect(reasons).toEqual(['Thuộc chủ đề Back-end bạn quan tâm']);
+  });
+
+  it('khớp cả nhãn công nghệ đã khai', () => {
+    const { reasons } = scoreCandidate(
+      article(['Tailwind CSS']),
+      fresh({ interestedTechnologies: ['Tailwind CSS'] }),
+      0,
+    );
+
+    expect(reasons).toEqual(['Thuộc chủ đề Tailwind CSS bạn quan tâm']);
+  });
+
+  it('chủ đề không liên quan thì không cộng gì', () => {
+    const { score, reasons } = scoreCandidate(
+      article(['Kiểm thử']),
+      fresh({ interestedFields: ['backend'] }),
+      0,
+    );
+
+    expect(score).toBe(0);
+    expect(reasons).toEqual([POPULAR_REASON]);
+  });
+
+  it('không cộng hai lần cho ứng viên ĐÃ có lĩnh vực', () => {
+    // Lộ trình có `field` nên đã ăn điểm ở nhánh lĩnh vực; chủ đề trùng tên không được
+    // cộng thêm một lần nữa.
+    const roadmap = candidate({
+      field: 'backend',
+      level: null,
+      technologies: [],
+      tags: ['Back-end'],
+    });
+    const { score } = scoreCandidate(roadmap, fresh({ interestedFields: ['backend'] }), 0);
+
+    expect(score).toBe(RECOMMENDATION_WEIGHTS.field);
+  });
+
+  it('người mới xong onboarding xếp bài viết khác hẳn bảng phổ biến', () => {
+    // Chính là ca người dùng báo: trước khi sửa, cả hai bài chỉ chấm theo độ phổ biến nên
+    // bài phổ biến hơn luôn đứng trên, khai gì cũng vậy.
+    const wanted = article(['Back-end'], 'Hiểu về index trong PostgreSQL');
+    const popular = { ...article(['Kiểm thử'], 'Jira cho tester mới'), id: 'pop', popularityRaw: 50 };
+
+    const ranked = rankCandidates(
+      [popular, { ...wanted, id: 'want', popularityRaw: 1 }],
+      fresh({ interestedFields: ['backend'] }),
+    );
+
+    expect(ranked[0].id).toBe('want');
+  });
+});
