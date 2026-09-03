@@ -45,6 +45,13 @@ export const envSchema = z.object({
   WORKSPACE_SERVICE_URL: z.string().url().default('http://localhost:3004'),
   EXERCISE_SERVICE_URL: z.string().url().default('http://localhost:3003'),
   JUDGE_SERVICE_URL: z.string().url().default('http://localhost:3007'),
+  AI_SERVICE_URL: z.string().url().default('http://localhost:3008'),
+  // Backend only. Empty key disables paid AI operations without disabling the app.
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_EMBEDDING_MODEL: z.string().min(1).default('text-embedding-3-small'),
+  OPENAI_CHAT_MODEL: z.string().min(1).default('gpt-5-nano'),
+  AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5000).max(180000).default(90000),
+  AI_DAILY_REQUEST_LIMIT: z.coerce.number().int().min(1).max(1000).default(50),
   /** Shared only by backend services for endpoints that must never be callable by browsers. */
   INTERNAL_SERVICE_TOKEN: z.string().min(24).optional(),
 

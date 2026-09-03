@@ -49,6 +49,11 @@ stop_one() {
 start_one() {
   local name=$1 port=$2 entry="dist/apps/$1-service/apps/$1-service/src/main.js"
 
+  if [ "$name" = "ai" ]; then
+    node scripts/services.mjs start ai
+    return $?
+  fi
+
   if [ -n "$(pid_on_port "$port")" ]; then
     printf '  %-12s đang chạy sẵn ở :%s — bỏ qua\n' "$name" "$port"; return
   fi

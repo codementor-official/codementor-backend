@@ -88,11 +88,11 @@ function stopOne(name, port) {
 // một bản build Nest bỏ sót từ trước lần migrate vẫn nằm đó thì nó cứ khởi động nhầm bản đó
 // (UnknownDependenciesException, vì bản dist đó cũ hơn cả `MessagingModule` hiện tại). Tách
 // hẳn nhánh riêng để không bao giờ còn phụ thuộc vào một thư mục dist có tồn tại hay không.
-function judgeCommand() {
-  const cwd = join(repoRoot, "apps", "judge-service");
+function pythonCommand(name, port) {
+  const cwd = join(repoRoot, "apps", `${name}-service`);
   return isWindows
-    ? { cmd: "cmd.exe", args: ["/c", "uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3007"], cwd }
-    : { cmd: "uv", args: ["run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3007"], cwd };
+    ? { cmd: "cmd.exe", args: ["/c", "uv", "run", "uvicorn", "app.main:app", "--host", name === "ai" ? "127.0.0.1" : "0.0.0.0", "--port", String(port)], cwd }
+    : { cmd: "uv", args: ["run", "uvicorn", "app.main:app", "--host", name === "ai" ? "127.0.0.1" : "0.0.0.0", "--port", String(port)], cwd };
 }
 
 // Một dist cũ hơn source khởi động ngon lành và phục vụ bản build của tháng trước: service
@@ -118,8 +118,8 @@ async function startOne(name, port) {
   }
 
   let command;
-  if (name === "judge") {
-    command = judgeCommand();
+  if (name === "judge" || name === "ai") {
+    command = pythonCommand(name, port);
   } else {
     const entry = join(repoRoot, "dist", "apps", `${name}-service`, "apps", `${name}-service`, "src", "main.js");
     if (!existsSync(entry)) {
@@ -144,6 +144,7 @@ async function startOne(name, port) {
   const child = spawn(command.cmd, command.args, {
     cwd: command.cwd,
     detached: true,
+    windowsHide: true,
     stdio: ["ignore", log, log],
   });
   child.unref();

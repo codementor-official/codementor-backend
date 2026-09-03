@@ -69,7 +69,7 @@ npm run smoke                 # gọi HTTP qua gateway, kiểm các luồng chí
 | `document-service` | 3005 | `group_documents` — **1** | — | công khai |
 | `submission-service` | 3006 | `submissions` — **1** | — | công khai |
 | `judge-service` | 3007 | **0** | `submission_run_details` | nội bộ + `/api/v1/judge/run` |
-| `ai-service` | 3008 | **0** — stateless | `ai_conversations`, `ai_analyses` | nội bộ |
+| `ai-service` (Python/FastAPI) | 3008 | **0** | `ai_conversations`, `ai_document_indexes`, `ai_usage` | nội bộ |
 | `realtime-service` | 3009 | **0** — chỉ cầu nối Kafka → WS/SSE | — | công khai |
 
 **Tổng 44 bảng, không bảng nào có hai chủ, không bảng nào vô chủ** *(có script kiểm chứng)*.

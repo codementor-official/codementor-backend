@@ -20,7 +20,13 @@ PostgreSQL có logical ownership, Kafka cho async, HTTP/gRPC cho sync, WebSocket
 
 ---
 
-## 1. Cấu trúc project (NestJS monorepo)
+## 1. Cấu trúc project (NestJS + Python)
+
+AI Service hiện chạy Python/FastAPI, không còn nằm trong `nest-cli.json`.
+Workspace Service (NestJS) kiểm tra identity/membership/quyền đọc, sau đó gọi AI nội bộ
+qua HTTP có `INTERNAL_SERVICE_TOKEN`. Python sở hữu trích xuất tài liệu, embedding,
+retrieval và lịch sử hỏi đáp trong MongoDB; không đọc bảng PostgreSQL của Workspace.
+Chi tiết chạy local và giới hạn: `apps/ai-service/README.md`.
 
 ```text
 codementor-backend/

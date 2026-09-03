@@ -21,6 +21,7 @@ x-service-base: &service-base
     EXERCISE_SERVICE_URL: http://exercise-service:3003
     JUDGE_SERVICE_URL: http://judge-service:3007
     WORKSPACE_SERVICE_URL: http://workspace-service:3004
+    AI_SERVICE_URL: http://ai-service:3008
     INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-codementor-local-internal-token}
   extra_hosts:
     - 'host.docker.internal:host-gateway'
@@ -227,8 +228,10 @@ services:
 
   ai-service:
     <<: *service-base
+    build:
+      context: ./apps/ai-service
     container_name: codementor-ai
-    command: ['node', 'dist/apps/ai-service/main.js']
+    command: ['uv', 'run', '--no-sync', 'uvicorn', 'app.main:app', '--host', '0.0.0.0', '--port', '3008']
 
 volumes:
   kafka-data:
