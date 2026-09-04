@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+from app import budget
 from app.config import Settings
 from app.documents import SUPPORTED_TYPES, DocumentStorage, cosine, extract_isolated
 from app.models import InternalRequest
@@ -439,22 +440,6 @@ class RagService:
         return turn
 
     async def consume_budget(self, user_id: str):
-        key = f"{user_id}:{now().date().isoformat()}"
-        update = {"$inc": {"count": 1}, "$setOnInsert": {"expiresAt": now() + timedelta(days=3)}}
-        try:
-            usage = await self.db["ai_usage"].find_one_and_update(
-                {"_id": key},
-                update,
-                upsert=True,
-                return_document=ReturnDocument.AFTER,
-            )
-        except DuplicateKeyError:
-            usage = await self.db["ai_usage"].find_one_and_update(
-                {"_id": key},
-                {"$inc": {"count": 1}},
-                return_document=ReturnDocument.AFTER,
-            )
-        if usage["count"] > self.config.ai_daily_request_limit:
-            raise HTTPException(
-                429, "Bạn đã dùng hết lượt AI hôm nay. Vui lòng thử lại vào ngày mai (UTC)."
-            )
+        # Ngân sách sống ở `budget.py` từ khi có bề mặt thứ hai (gợi ý testcase); ở đây
+        # chỉ còn tên gọi cũ để phần RAG không phải đổi một dòng nào.
+        await budget.consume(self.db, user_id, "rag", self.config.ai_daily_request_limit)

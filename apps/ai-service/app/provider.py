@@ -133,6 +133,49 @@ class OpenAIProvider:
                 502, "AI không trả về câu trả lời hợp lệ; chưa lưu lượt trả lời."
             ) from None
 
+    async def complete_json(
+        self,
+        instructions: str,
+        input_json: str,
+        schema_name: str,
+        schema: dict,
+        max_output_tokens: int = 2000,
+        model: str | None = None,
+    ) -> dict:
+        """Một lời gọi structured output, dùng cho các bề mặt quick completion.
+
+        Tách khỏi `answer()` chứ không tổng quát hoá nó: `answer()` mang theo lớp verify trích
+        dẫn và thông điệp lỗi riêng của phần hỏi đáp tài liệu, và gộp hai đường sẽ kéo lớp đó
+        vào chỗ không cần tới nó.
+        """
+        self.require_configured()
+        try:
+            result = await self.client.responses.create(
+                model=model or self.config.openai_chat_model,
+                store=False,
+                reasoning={"effort": "low"},
+                max_output_tokens=max_output_tokens,
+                instructions=instructions,
+                input=input_json,
+                text={
+                    "verbosity": "low",
+                    "format": {
+                        "type": "json_schema",
+                        "name": schema_name,
+                        "strict": True,
+                        "schema": schema,
+                    },
+                },
+            )
+        except (APIStatusError, APIConnectionError) as exc:
+            raise self.safe_error(exc) from None
+        if result.status != "completed":
+            raise HTTPException(502, "AI chưa hoàn tất yêu cầu. Vui lòng thử lại.")
+        try:
+            return json.loads(result.output_text)
+        except ValueError:
+            raise HTTPException(502, "AI không trả về dữ liệu hợp lệ.") from None
+
     @staticmethod
     def safe_error(exc: Exception) -> HTTPException:
         # Never expose provider bodies: they can include prompts or document text.

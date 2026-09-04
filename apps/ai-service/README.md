@@ -40,6 +40,26 @@ supports `npm run services -- start ai`. Nest's build:all builds Node services o
 `npm run ai:check` validates Python separately. Container build uses this folder's Dockerfile
 and uv.lock; no host port is published in the backend Compose configuration.
 
+## Public surface: /api/v1/ai/*
+
+Ngoài đường nội bộ, service có một đường CÔNG KHAI sau Kong. Nó tự kiểm JWT Keycloak trong
+`app/auth.py` (copy từ judge-service — Kong ở dự án này không có plugin JWT).
+
+~~~dotenv
+KEYCLOAK_ISSUER=          # PHẢI trùng issuer mà Nest và judge đang dùng, không đặt biến riêng
+KEYCLOAK_AUDIENCE=        # để trống nếu Keycloak chưa có audience mapper
+AI_SUGGEST_DAILY_LIMIT=100
+~~~
+
+`POST /api/v1/ai/suggest/test-cases` — gợi ý ĐẦU VÀO cho test case từ đề bài đang soạn.
+`count` là 1–5, mặc định 3 — người soạn chọn ở ô ngay cạnh nút trong studio. Không bao giờ trả
+`expected`: studio lấy đáp án bằng nút "Sinh đáp án", tức là bằng cách chạy lời giải mẫu thật
+qua judge. Đề bài rỗng hoặc quá ngắn bị từ chối trước khi tiêu một lời gọi model; chế độ hàm
+còn phải có chữ ký kèm ít nhất một tham số.
+
+Route Kong ở `kong/kong.yml` (`ai-service`, `read_timeout: 300000`) chỉ mở `/api/v1/ai`.
+`/api/v1/internal/*` KHÔNG nằm trong đó và vẫn chỉ tới được từ trong mạng Docker.
+
 ## Client flow
 
 /ai-tutor → choose an existing membership → search approved documents → select 1–8 sources

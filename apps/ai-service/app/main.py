@@ -13,6 +13,7 @@ from app.documents import DocumentStorage
 from app.models import InternalRequest
 from app.provider import OpenAIProvider
 from app.rag import RagService
+from app.suggest import router as suggest_router
 
 
 @asynccontextmanager
@@ -44,11 +45,16 @@ app = FastAPI(
 
 @app.middleware("http")
 async def internal_auth(request: Request, call_next):
-    if request.url.path.startswith("/api/v1/internal/"):
+    path = request.url.path
+    if path.startswith("/api/v1/internal/"):
         secret = settings.internal_service_token.get_secret_value()
         provided = request.headers.get("x-internal-service-token", "")
         if len(secret) < 24 or not hmac.compare_digest(secret.encode(), provided.encode()):
             return JSONResponse({"message": "Internal access only."}, status_code=401)
+    # Hai đường, hai cơ chế auth: `/api/v1/ai/*` là đường công khai và tự kiểm JWT Keycloak ở
+    # `app/auth.py`. Điểm chung duy nhất là trần kích thước body — thứ phải chặn trước khi
+    # Pydantic kịp dựng model.
+    if path.startswith(("/api/v1/internal/", "/api/v1/ai/")):
         length = request.headers.get("content-length", "0")
         if not length.isdigit() or int(length) > 2_000_000:
             return JSONResponse({"message": "Request too large."}, status_code=413)
@@ -63,7 +69,8 @@ async def http_error(_request: Request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_error(_request: Request, _exc: RequestValidationError):
     # Pydantic's default error includes input values; never echo document descriptors.
-    return JSONResponse({"message": "Yêu cầu AI nội bộ không hợp lệ."}, status_code=400)
+    # Câu này giờ ra cả đường công khai nên không nói "nội bộ" nữa.
+    return JSONResponse({"message": "Yêu cầu gửi lên AI không hợp lệ."}, status_code=400)
 
 
 @app.exception_handler(PyMongoError)
@@ -71,6 +78,9 @@ async def mongo_error(_request: Request, _exc: PyMongoError):
     return JSONResponse(
         {"message": "AI chưa kết nối được MongoDB. Kiểm tra Docker và ENV."}, status_code=503
     )
+
+
+app.include_router(suggest_router)
 
 
 @app.get("/api/v1/health")

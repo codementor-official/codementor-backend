@@ -95,6 +95,22 @@ services:
           - /api/v1/judge
         strip_path: false
 
+  # ai-service tự kiểm JWT Keycloak trên /api/v1/ai/* (app/auth.py) — Kong ở đây không có
+  # plugin JWT. Đường nội bộ /api/v1/internal/* KHÔNG nằm trong route này và vẫn chỉ tới
+  # được từ trong mạng Docker bằng shared secret.
+  #
+  # read_timeout cao vì một lượt agent chạy nhiều bước và giữ kết nối SSE mở suốt run; mặc
+  # định 60s sẽ cắt ngang giữa chừng mà không có lỗi nào hiện ra ở client.
+  - name: ai-service
+    url: http://host.docker.internal:3008
+    read_timeout: 300000
+    write_timeout: 300000
+    routes:
+      - name: ai-routes
+        paths:
+          - /api/v1/ai
+        strip_path: false
+
   # Health của gateway: `/api/v1/health` đi về core. Muốn xem health của service
   # khác thì gọi thẳng cổng của nó — gateway không nên che mất chẩn đoán per-service.
   - name: gateway-health

@@ -14,6 +14,8 @@ dependencies = [
   "python-docx>=1.2,<2",
   "python-pptx>=1.0,<2",
   "tiktoken>=0.12,<1",
+  # Verify JWT Keycloak cho đường công khai /api/v1/ai/*, y hệt judge-service.
+  "pyjwt[crypto]>=2.10,<3",
 ]
 
 [dependency-groups]
@@ -26,6 +28,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's whole dependency system is calls in argument defaults; B008 is about mutable
+# defaults, which these are not. Same setting as judge-service.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

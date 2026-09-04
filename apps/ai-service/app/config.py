@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     openai_chat_model: str = "gpt-5-nano"
     ai_request_timeout_ms: int = Field(default=90000, ge=5000, le=180000)
     ai_daily_request_limit: int = Field(default=50, ge=1, le=1000)
+    ai_suggest_daily_limit: int = Field(default=100, ge=1, le=2000)
+    # Cùng tên biến mà Nest và judge-service đang dùng. KHÔNG đặt biến riêng cho
+    # ai-service: hai issuer lệch nhau thì đăng nhập vẫn được mà mọi lời gọi trả 401.
+    keycloak_issuer: str = ""
+    keycloak_audience: str = ""
     aws_region: str = "ap-southeast-1"
     aws_s3_bucket: str = ""
     aws_access_key_id: SecretStr = SecretStr("")
