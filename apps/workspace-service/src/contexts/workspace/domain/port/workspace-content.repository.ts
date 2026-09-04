@@ -108,6 +108,7 @@ export interface WorkspaceSubmissionRecord {
 }
 export interface WorkspaceExerciseDetailRecord extends WorkspaceExerciseRecord {
   assignmentMemberIds: string[];
+  tagIds: string[];
 }
 
 export interface WorkspaceContentRepository {
@@ -205,6 +206,7 @@ export interface WorkspaceContentRepository {
       timeLimitMs: number;
       memoryLimitKb: number;
       content: Record<string, unknown>;
+      tagIds?: string[];
       dueAt?: Date;
       attemptLimit?: number;
       allowRetry: boolean;
@@ -234,6 +236,7 @@ export interface WorkspaceContentRepository {
       memoryLimitKb?: number;
       publicationStatus?: 'published' | 'hidden';
       content?: Record<string, unknown>;
+      tagIds?: string[];
     },
   ): Promise<boolean>;
   exerciseHasSubmissions(groupId: string, id: string): Promise<boolean>;

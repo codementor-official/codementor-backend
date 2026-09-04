@@ -305,6 +305,7 @@ export class CreateWorkspaceExerciseDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(60000) timeLimitMs?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1024) @Max(4194304) memoryLimitKb?: number;
   @IsObject() content!: Record<string, unknown>;
+  @IsOptional() @IsArray() @ArrayMaxSize(8) @IsUUID(undefined, { each: true }) tagIds?: string[];
   @IsOptional() @IsDateString() dueAt?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) attemptLimit?: number;
   @IsOptional() @IsBoolean() allowRetry?: boolean;
@@ -336,6 +337,7 @@ export class UpdateWorkspaceExerciseDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1024) @Max(4194304) memoryLimitKb?: number;
   @IsOptional() @IsIn(['published', 'hidden']) publicationStatus?: 'published' | 'hidden';
   @IsOptional() @IsObject() content?: Record<string, unknown>;
+  @IsOptional() @IsArray() @ArrayMaxSize(8) @IsUUID(undefined, { each: true }) tagIds?: string[];
   @IsOptional() @IsDateString() dueAt?: string | null;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) attemptLimit?: number | null;
   @IsOptional() @IsBoolean() allowRetry?: boolean;

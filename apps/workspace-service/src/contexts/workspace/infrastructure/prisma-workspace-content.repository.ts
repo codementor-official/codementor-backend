@@ -450,6 +450,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       timeLimitMs: number;
       memoryLimitKb: number;
       content: Record<string, unknown>;
+      tagIds?: string[];
       dueAt?: Date;
       attemptLimit?: number;
       allowRetry: boolean;
@@ -464,7 +465,10 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
         summary: input.summary,
         kind: exercise_kind.code,
         difficulty: input.difficulty as exercise_difficulty,
-        status: exercise_status.published,
+        // `exercises_published_needs_content` chặn INSERT nếu published mà chưa có
+        // content_ref. Nội dung nằm ở Mongo nên chỉ có sau khi có exercise.id — tạo
+        // nháp trước, công khai ở lần update gắn content_ref bên dưới.
+        status: exercise_status.draft,
         source: input.source as exercise_source,
         visibility: exercise_visibility.group,
         xp_reward: input.xpReward,
@@ -472,7 +476,6 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
         time_limit_ms: input.timeLimitMs,
         memory_limit_kb: input.memoryLimitKb,
         author_id: userId,
-        published_at: new Date(),
       },
     });
     const now = new Date();
@@ -488,8 +491,13 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     if (!contentRow?._id) throw new Error('Không lưu được nội dung bài tập');
     await this.prisma.exercises.update({
       where: { id: exercise.id },
-      data: { content_ref: contentRow._id.toString() },
+      data: {
+        content_ref: contentRow._id.toString(),
+        status: exercise_status.published,
+        published_at: now,
+      },
     });
+    await this.setExerciseTags(exercise.id, input.tagIds);
     await this.attachExercise(groupId, userId, {
       exerciseId: exercise.id,
       dueAt: input.dueAt,
@@ -513,10 +521,41 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     return this.exercise(linked, '');
   }
 
+  /**
+   * Gắn chủ đề cho bài. `undefined` là "không đụng tới", mảng rỗng là "gỡ hết".
+   *
+   * Lọc qua bảng `tags` trước khi ghi: id lạ đến từ client thì chỉ bị bỏ qua, thay vì
+   * để khoá ngoại ném 23503 và cả lượt lưu bài thành 500.
+   */
+  private async setExerciseTags(
+    exerciseId: string,
+    tagIds: string[] | undefined,
+    tx: Pick<PrismaService, 'tags' | 'exercise_tags'> = this.prisma,
+  ) {
+    if (tagIds === undefined) return;
+    const known = tagIds.length
+      ? await tx.tags.findMany({ where: { id: { in: tagIds } }, select: { id: true } })
+      : [];
+    if (!known.length) {
+      await tx.exercise_tags.deleteMany({ where: { exercise_id: exerciseId } });
+      return;
+    }
+    await tx.exercise_tags.deleteMany({
+      where: { exercise_id: exerciseId, tag_id: { notIn: known.map((tag) => tag.id) } },
+    });
+    await tx.exercise_tags.createMany({
+      data: known.map((tag) => ({ exercise_id: exerciseId, tag_id: tag.id })),
+      skipDuplicates: true,
+    });
+  }
+
   async duplicateExercise(groupId: string, id: string, userId: string) {
     const source = await this.prisma.group_exercises.findFirst({
       where: { id, group_id: groupId, deleted_at: null },
-      include: { exercises: true, assignments: { select: { member_id: true } } },
+      include: {
+        exercises: { include: { exercise_tags: { select: { tag_id: true } } } },
+        assignments: { select: { member_id: true } },
+      },
     });
     if (!source) return null;
     const content = await this.mongo
@@ -534,6 +573,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       timeLimitMs: source.exercises.time_limit_ms,
       memoryLimitKb: source.exercises.memory_limit_kb,
       content: (content as Record<string, unknown> | null) ?? {},
+      tagIds: source.exercises.exercise_tags.map((link) => link.tag_id),
       dueAt: source.due_at ?? undefined,
       attemptLimit: source.attempt_limit ?? undefined,
       allowRetry: source.allow_retry,
@@ -546,7 +586,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     const row = await this.prisma.group_exercises.findFirst({
       where: { id, group_id: groupId, deleted_at: null },
       include: {
-        exercises: true,
+        exercises: { include: { exercise_tags: { select: { tag_id: true } } } },
         assignments: {
           select: { member_id: true, status: true },
         },
@@ -585,6 +625,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       isAssignedToMe: false,
       myAssignment: null,
       assignmentMemberIds: row.assignments.map((assignment) => assignment.member_id),
+      tagIds: row.exercises.exercise_tags.map((link) => link.tag_id),
     };
   }
 
@@ -613,6 +654,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       memoryLimitKb?: number;
       publicationStatus?: 'published' | 'hidden';
       content?: Record<string, unknown>;
+      tagIds?: string[];
     },
   ) {
     const found = await this.prisma.group_exercises.findFirst({
@@ -649,6 +691,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
             memory_limit_kb: input.memoryLimitKb,
           },
         });
+      await this.setExerciseTags(found.exercise_id, input.tagIds, tx);
       if (input.memberIds) {
         const members = await tx.group_members.findMany({
           where: { id: { in: input.memberIds }, group_id: groupId, status: member_status.active },

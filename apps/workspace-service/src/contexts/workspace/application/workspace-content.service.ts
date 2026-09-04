@@ -397,6 +397,7 @@ export class WorkspaceContentService {
       timeLimitMs: dto.timeLimitMs ?? 1000,
       memoryLimitKb: dto.memoryLimitKb ?? 262144,
       content: dto.content,
+      tagIds: dto.tagIds,
       dueAt: dto.dueAt ? new Date(dto.dueAt) : undefined,
       attemptLimit: dto.attemptLimit,
       allowRetry: dto.allowRetry ?? true,
@@ -479,7 +480,8 @@ export class WorkspaceContentService {
       dto.estimatedMinutes !== undefined ||
       dto.timeLimitMs !== undefined ||
       dto.memoryLimitKb !== undefined ||
-      dto.content !== undefined;
+      dto.content !== undefined ||
+      dto.tagIds !== undefined;
     if (hasContentPatch && !canEdit) throw new NotAuthorized('Bạn không có quyền sửa bài tập này');
     if (hasAssignmentPatch && !canAssign)
       throw new NotAuthorized('Bạn không có quyền phân công bài tập');
@@ -503,6 +505,7 @@ export class WorkspaceContentService {
       memoryLimitKb: dto.memoryLimitKb,
       publicationStatus: dto.publicationStatus,
       content: dto.content,
+      tagIds: dto.tagIds,
     });
     if (!updated) throw new NotFound('Bài tập nhóm', id);
     if (newlyAssigned.length > 0) {
