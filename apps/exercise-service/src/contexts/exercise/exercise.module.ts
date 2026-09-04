@@ -5,7 +5,9 @@ import { ForkExerciseUseCase } from './application/fork-exercise.usecase';
 import { GetExerciseUseCase } from './application/get-exercise.usecase';
 import { GetExerciseGradingUseCase } from './application/get-exercise-grading.usecase';
 import { GetExerciseReferencesUseCase } from './application/get-exercise-references.usecase';
+import { GetExerciseProgressSummaryUseCase } from './application/get-exercise-progress-summary.usecase';
 import { ListExercisesUseCase } from './application/list-exercises.usecase';
+import { ListExerciseTopicsUseCase } from './application/list-exercise-topics.usecase';
 import { ModerateExerciseUseCase } from './application/moderate-exercise.usecase';
 import { ReviewTransitionUseCase } from './application/review-transition.usecase';
 import { SaveContentUseCase } from './application/save-content.usecase';
@@ -23,6 +25,8 @@ import { ExerciseController } from './presentation/exercise.controller';
   controllers: [ExerciseController],
   providers: [
     ListExercisesUseCase,
+    ListExerciseTopicsUseCase,
+    GetExerciseProgressSummaryUseCase,
     GetExerciseUseCase,
     GetExerciseGradingUseCase,
     GetExerciseReferencesUseCase,

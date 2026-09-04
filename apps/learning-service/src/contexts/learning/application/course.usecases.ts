@@ -3,7 +3,19 @@ import { randomUUID } from 'node:crypto';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
-import { DEFAULT_PAGE_LIMIT, canEditCourse, decodeCursor, requireHumanId, toPage, ContentAuthorLookup, ObjectStorageService, VIDEO_CONTENT_TYPES, type AuthenticatedUser, type Page, type PresignedUpload } from '@codementor/platform';
+import {
+  DEFAULT_PAGE_LIMIT,
+  canEditCourse,
+  decodeCursor,
+  requireHumanId,
+  toPage,
+  ContentAuthorLookup,
+  ObjectStorageService,
+  VIDEO_CONTENT_TYPES,
+  type AuthenticatedUser,
+  type Page,
+  type PresignedUpload,
+} from '@codementor/platform';
 import { Course } from '../domain/model/course';
 import type { CourseEdit } from '../domain/model/course';
 import {
@@ -12,6 +24,7 @@ import {
   type ChapterDraft,
 } from '../domain/model/curriculum';
 import type { CurrentLevel } from '../domain/model/roadmap';
+import type { CatalogueTopicSummary } from '../domain/port/catalogue-topic';
 import {
   COURSE_REPOSITORY,
   LESSON_CONTENT_REPOSITORY,
@@ -25,6 +38,7 @@ import {
 export interface ListCoursesQuery {
   ids?: string[];
   level?: string;
+  topicIds?: string[];
   status?: string;
   authorId?: string;
   updatedFrom?: string;
@@ -116,10 +130,7 @@ export class CourseUseCases {
 
   async list(
     scope:
-      | { createdBy: string }
-      | { publishedOnly: true }
-      | { pendingOnly: true }
-      | { adminAll: true },
+      { createdBy: string } | { publishedOnly: true } | { pendingOnly: true } | { adminAll: true },
     query: ListCoursesQuery,
   ): Promise<Page<CourseListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
@@ -135,6 +146,7 @@ export class CourseUseCases {
       // thì đó vẫn là bản riêng của họ, admin không cần thấy cho tới khi có gì để quyết.
       excludeDraft: 'adminAll' in scope,
       level: query.level,
+      topicIds: query.topicIds,
       status,
       authorId: query.authorId,
       updatedFrom: query.updatedFrom ? new Date(query.updatedFrom) : undefined,
@@ -146,6 +158,10 @@ export class CourseUseCases {
     return toPage(rows, limit);
   }
 
+  topics(): Promise<CatalogueTopicSummary[]> {
+    return this.courses.listTopics();
+  }
+
   async get(user: AuthenticatedUser, id: string): Promise<CourseView> {
     const course = await this.mustFind(id);
     if (course.status !== 'published' && !canEditCourse(user, { created_by: course.createdBy })) {
@@ -154,7 +170,10 @@ export class CourseUseCases {
     return toView(course, await this.courses.findCurriculum(id));
   }
 
-  async getReferences(user: AuthenticatedUser, id: string): Promise<{ roadmaps: { id: string; title: string; slug: string }[] }> {
+  async getReferences(
+    user: AuthenticatedUser,
+    id: string,
+  ): Promise<{ roadmaps: { id: string; title: string; slug: string }[] }> {
     const course = await this.mustFind(id);
     if (course.status !== 'published' && !canEditCourse(user, { created_by: course.createdBy })) {
       throw new NotFound('Khóa học', id);
@@ -444,7 +463,10 @@ export class CourseUseCases {
     if (denied.isFail) throw denied.error;
 
     await this.courses.save(course);
-    await this.announceModerated(course, 'deny_removal', null, { displayName: user.displayName, externalId: user.externalId });
+    await this.announceModerated(course, 'deny_removal', null, {
+      displayName: user.displayName,
+      externalId: user.externalId,
+    });
     return toView(course, await this.courses.findCurriculum(id));
   }
 
@@ -492,7 +514,10 @@ export class CourseUseCases {
     if (decision === 'approve') {
       await this.announcePublished(entity);
     }
-    await this.announceModerated(entity, decision, reason, { displayName: user.displayName, externalId: user.externalId });
+    await this.announceModerated(entity, decision, reason, {
+      displayName: user.displayName,
+      externalId: user.externalId,
+    });
     return toView(entity, await this.courses.findCurriculum(id));
   }
 
@@ -513,7 +538,10 @@ export class CourseUseCases {
         lecturerName: course.createdBy ? await this.courses.authorNameOf(course.createdBy) : null,
       });
     } catch (error) {
-      this.logger.error(`không phát được ${TOPICS.COURSE_PUBLISHED} cho ${course.id}`, error as Error);
+      this.logger.error(
+        `không phát được ${TOPICS.COURSE_PUBLISHED} cho ${course.id}`,
+        error as Error,
+      );
     }
   }
 
@@ -532,13 +560,7 @@ export class CourseUseCases {
   private async announceModerated(
     course: Course,
     decision:
-      | 'approve'
-      | 'request_changes'
-      | 'reject'
-      | 'archive'
-      | 'restore'
-      | 'revert'
-      | 'deny_removal',
+      'approve' | 'request_changes' | 'reject' | 'archive' | 'restore' | 'revert' | 'deny_removal',
     reason: string | null,
     moderator: { displayName: string; externalId: string },
   ): Promise<void> {
@@ -587,7 +609,10 @@ export class CourseUseCases {
       return explicit;
     }
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const candidate = slugify(title, attempt === 0 ? undefined : Math.random().toString(36).slice(2, 7));
+      const candidate = slugify(
+        title,
+        attempt === 0 ? undefined : Math.random().toString(36).slice(2, 7),
+      );
       if (!(await this.courses.existsBySlug(candidate))) return candidate;
     }
     return slugify(title, randomUUID().slice(0, 8));

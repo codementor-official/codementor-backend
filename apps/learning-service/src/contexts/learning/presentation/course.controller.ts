@@ -43,6 +43,12 @@ export class CourseController {
     return this.courses.list({ publishedOnly: true }, query);
   }
 
+  @Get('topics')
+  @ApiOperation({ summary: 'Chủ đề đang có khóa học công khai, kèm số lượng' })
+  topics() {
+    return this.courses.topics();
+  }
+
   @Get('mine')
   @Roles('lecturer')
   @ApiOperation({ summary: 'Khóa học của tôi, mọi trạng thái' })

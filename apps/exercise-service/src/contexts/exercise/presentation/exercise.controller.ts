@@ -24,7 +24,9 @@ import { ForkExerciseUseCase } from '../application/fork-exercise.usecase';
 import { GetExerciseUseCase } from '../application/get-exercise.usecase';
 import { GetExerciseGradingUseCase } from '../application/get-exercise-grading.usecase';
 import { GetExerciseReferencesUseCase } from '../application/get-exercise-references.usecase';
+import { GetExerciseProgressSummaryUseCase } from '../application/get-exercise-progress-summary.usecase';
 import { ListExercisesUseCase } from '../application/list-exercises.usecase';
+import { ListExerciseTopicsUseCase } from '../application/list-exercise-topics.usecase';
 import { ModerateExerciseUseCase } from '../application/moderate-exercise.usecase';
 import { ReviewTransitionUseCase } from '../application/review-transition.usecase';
 import { SaveContentUseCase } from '../application/save-content.usecase';
@@ -53,6 +55,8 @@ import { ListExercisesQueryDto } from './dto/list-exercises.query';
 export class ExerciseController {
   constructor(
     private readonly listExercises: ListExercisesUseCase,
+    private readonly listExerciseTopics: ListExerciseTopicsUseCase,
+    private readonly getExerciseProgressSummary: GetExerciseProgressSummaryUseCase,
     private readonly getExercise: GetExerciseUseCase,
     private readonly getExerciseGrading: GetExerciseGradingUseCase,
     private readonly getExerciseReferences: GetExerciseReferencesUseCase,
@@ -85,8 +89,23 @@ export class ExerciseController {
 
   @Get()
   @ApiOperation({ summary: 'Kho bài chung — public và đã công khai' })
-  bank(@Query() query: ListExercisesQueryDto) {
-    return this.listExercises.execute({ publishedOnly: true }, query);
+  bank(@CurrentUser() user: AuthenticatedUser, @Query() query: ListExercisesQueryDto) {
+    return this.listExercises.execute(
+      { publishedOnly: true, viewerId: requireHumanId(user) },
+      query,
+    );
+  }
+
+  @Get('topics')
+  @ApiOperation({ summary: 'Chủ đề đang có bài public, kèm số lượng bài' })
+  topics(@CurrentUser() user: AuthenticatedUser) {
+    return this.listExerciseTopics.execute(requireHumanId(user));
+  }
+
+  @Get('progress-summary')
+  @ApiOperation({ summary: 'Tổng số bài public đã giải, đang làm và chưa giải của tôi' })
+  progressSummary(@CurrentUser() user: AuthenticatedUser) {
+    return this.getExerciseProgressSummary.execute(requireHumanId(user));
   }
 
   @Get('mine')

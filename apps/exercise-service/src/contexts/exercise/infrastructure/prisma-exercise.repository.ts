@@ -13,7 +13,13 @@ import type {
   ExerciseListFilter,
   ExerciseListItem,
   ExerciseRepository,
+  ExerciseProgressSummary,
+  ExerciseTopicSummary,
 } from '../domain/port/exercise.repository';
+
+interface ExerciseListRow extends Omit<ExerciseListItem, 'topics'> {
+  topics: Array<{ id: string; slug: string; name: string; category: string }> | null;
+}
 
 interface ExerciseRow {
   id: string;
@@ -81,12 +87,38 @@ export class PrismaExerciseRepository implements ExerciseRepository {
     if (filter.difficulty) {
       where.push(Prisma.sql`e.difficulty = ${filter.difficulty}::exercise_difficulty`);
     }
+    if (filter.topicIds?.length) {
+      where.push(Prisma.sql`EXISTS (
+        SELECT 1 FROM exercise_tags selected_topic
+        WHERE selected_topic.exercise_id = e.id
+          AND selected_topic.tag_id = ANY (${filter.topicIds}::uuid[])
+      )`);
+    }
+    if (filter.progress === 'solved') {
+      where.push(Prisma.sql`ep.status = 'solved'`);
+    } else if (filter.progress === 'attempted') {
+      where.push(Prisma.sql`ep.status = 'attempted'`);
+    } else if (filter.progress === 'unsolved') {
+      where.push(Prisma.sql`COALESCE(ep.status::text, 'todo') <> 'solved'`);
+    }
     if (filter.status) where.push(Prisma.sql`e.status = ${filter.status}::exercise_status`);
-    if (filter.updatedFrom) where.push(Prisma.sql`e.updated_at >= ${filter.updatedFrom}::timestamptz`);
+    if (filter.updatedFrom)
+      where.push(Prisma.sql`e.updated_at >= ${filter.updatedFrom}::timestamptz`);
     if (filter.updatedTo) where.push(Prisma.sql`e.updated_at <= ${filter.updatedTo}::timestamptz`);
     if (filter.q) {
       // citext ở slug nhưng title là text, nên vẫn cần ILIKE.
-      where.push(Prisma.sql`(e.title ILIKE ${'%' + filter.q + '%'} OR e.slug::text ILIKE ${'%' + filter.q + '%'})`);
+      const search = '%' + filter.q + '%';
+      where.push(Prisma.sql`(
+        e.title ILIKE ${search}
+        OR e.slug::text ILIKE ${search}
+        OR e.summary ILIKE ${search}
+        OR u.display_name ILIKE ${search}
+        OR EXISTS (
+          SELECT 1 FROM exercise_tags search_topic
+          JOIN tags search_tag ON search_tag.id = search_topic.tag_id
+          WHERE search_topic.exercise_id = e.id AND search_tag.name ILIKE ${search}
+        )
+      )`);
     }
     // Hàng chờ duyệt xếp CŨ TRƯỚC: ai gửi sớm được xem trước, và bài chờ lâu nhất
     // không bị đẩy xuống cuối mỗi khi có người gửi bài mới.
@@ -99,23 +131,73 @@ export class PrismaExerciseRepository implements ExerciseRepository {
       );
     }
 
-    const clause = where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
+    const clause =
+      where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
     const order = oldestFirst
       ? Prisma.sql`ORDER BY e.updated_at ASC, e.id ASC`
       : Prisma.sql`ORDER BY e.updated_at DESC, e.id DESC`;
 
-    return this.prisma.$queryRaw<ExerciseListItem[]>`
-      SELECT e.id, e.slug::text AS slug, e.title, e.kind::text AS kind,
+    const rows = await this.prisma.$queryRaw<ExerciseListRow[]>`
+      SELECT e.id, e.slug::text AS slug, e.title, e.summary, e.kind::text AS kind,
              e.difficulty::text AS difficulty, e.status::text AS status,
              e.visibility::text AS visibility,
              e.author_id AS "authorId", u.display_name AS "authorName",
+             COALESCE((
+               SELECT jsonb_agg(
+                 jsonb_build_object(
+                   'id', topic.id,
+                   'slug', topic.slug::text,
+                   'name', topic.name,
+                   'category', topic.category
+                 )
+                 ORDER BY topic.name
+               )
+               FROM exercise_tags listed_topic
+               JOIN tags topic ON topic.id = listed_topic.tag_id
+               WHERE listed_topic.exercise_id = e.id
+             ), '[]'::jsonb) AS topics,
+             COALESCE(ep.status::text, 'todo') AS "progressStatus",
+             COALESCE(ep.attempt_count, 0)::int AS "attemptCount",
+             ep.best_score AS "bestScore",
              (e.status = 'published' AND e.rejection_reason IS NOT NULL) AS "removalRequested",
              e.forked_from_id AS "forkedFromId", e.updated_at AS "updatedAt"
       FROM exercises e
       LEFT JOIN users u ON u.id = e.author_id
+      LEFT JOIN exercise_progress ep
+        ON ep.exercise_id = e.id AND ep.user_id = ${filter.viewerId ?? null}::uuid
       ${clause}
       ${order}
       LIMIT ${filter.limit + 1}`;
+    return rows.map((row) => ({ ...row, topics: row.topics ?? [] }));
+  }
+
+  async listTopics(userId: string): Promise<ExerciseTopicSummary[]> {
+    return this.prisma.$queryRaw<ExerciseTopicSummary[]>`
+      SELECT t.id, t.slug::text AS slug, t.name, t.category,
+             COUNT(DISTINCT e.id)::int AS count,
+             COUNT(DISTINCT e.id) FILTER (WHERE ep.status = 'solved')::int AS solved,
+             COUNT(DISTINCT e.id) FILTER (WHERE ep.status = 'attempted')::int AS attempted
+      FROM tags t
+      JOIN exercise_tags et ON et.tag_id = t.id
+      JOIN exercises e ON e.id = et.exercise_id
+      LEFT JOIN exercise_progress ep
+        ON ep.exercise_id = e.id AND ep.user_id = ${userId}::uuid
+      WHERE e.visibility = 'public' AND e.status = 'published'
+      GROUP BY t.id, t.slug, t.name, t.category
+      ORDER BY COUNT(DISTINCT e.id) DESC, t.name ASC`;
+  }
+
+  async progressSummary(userId: string): Promise<ExerciseProgressSummary> {
+    const rows = await this.prisma.$queryRaw<ExerciseProgressSummary[]>`
+      SELECT COUNT(DISTINCT e.id)::int AS total,
+             COUNT(DISTINCT e.id) FILTER (WHERE ep.status = 'solved')::int AS solved,
+             COUNT(DISTINCT e.id) FILTER (WHERE ep.status = 'attempted')::int AS attempted,
+             COUNT(DISTINCT e.id) FILTER (WHERE COALESCE(ep.status::text, 'todo') <> 'solved')::int AS unsolved
+      FROM exercises e
+      LEFT JOIN exercise_progress ep
+        ON ep.exercise_id = e.id AND ep.user_id = ${userId}::uuid
+      WHERE e.visibility = 'public' AND e.status = 'published'`;
+    return rows[0] ?? { total: 0, solved: 0, attempted: 0, unsolved: 0 };
   }
 
   async save(exercise: Exercise): Promise<void> {
@@ -175,7 +257,9 @@ export class PrismaExerciseRepository implements ExerciseRepository {
     }
   }
 
-  async findReferencingCourses(exerciseId: string): Promise<{ id: string; title: string; slug: string }[]> {
+  async findReferencingCourses(
+    exerciseId: string,
+  ): Promise<{ id: string; title: string; slug: string }[]> {
     return this.prisma.$queryRaw<{ id: string; title: string; slug: string }[]>`
       SELECT DISTINCT c.id, c.title, c.slug::text AS slug
       FROM courses c

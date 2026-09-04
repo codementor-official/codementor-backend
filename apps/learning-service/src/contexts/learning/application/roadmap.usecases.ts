@@ -3,7 +3,16 @@ import { randomUUID } from 'node:crypto';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
 import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
-import { DEFAULT_PAGE_LIMIT, canEditRoadmap, decodeCursor, requireHumanId, toPage, ContentAuthorLookup, type AuthenticatedUser, type Page } from '@codementor/platform';
+import {
+  DEFAULT_PAGE_LIMIT,
+  canEditRoadmap,
+  decodeCursor,
+  requireHumanId,
+  toPage,
+  ContentAuthorLookup,
+  type AuthenticatedUser,
+  type Page,
+} from '@codementor/platform';
 import { Roadmap } from '../domain/model/roadmap';
 import type { CurrentLevel, RoadmapEdit, RoadmapField } from '../domain/model/roadmap';
 import {
@@ -13,10 +22,12 @@ import {
   type RoadmapRepository,
 } from '../domain/port/roadmap.repository';
 import { toRoadmapView, type RoadmapView } from './roadmap-view';
+import type { CatalogueTopicSummary } from '../domain/port/catalogue-topic';
 
 export interface ListRoadmapsQuery {
   field?: string;
   level?: string;
+  topicIds?: string[];
   status?: string;
   authorId?: string;
   updatedFrom?: string;
@@ -58,10 +69,7 @@ export class RoadmapUseCases {
 
   async list(
     scope:
-      | { createdBy: string }
-      | { publishedOnly: true }
-      | { pendingOnly: true }
-      | { adminAll: true },
+      { createdBy: string } | { publishedOnly: true } | { pendingOnly: true } | { adminAll: true },
     query: ListRoadmapsQuery,
   ): Promise<Page<RoadmapListItem>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
@@ -74,6 +82,7 @@ export class RoadmapUseCases {
       excludeDraft: 'adminAll' in scope,
       field: query.field,
       level: query.level,
+      topicIds: query.topicIds,
       status,
       authorId: query.authorId,
       updatedFrom: query.updatedFrom ? new Date(query.updatedFrom) : undefined,
@@ -85,11 +94,18 @@ export class RoadmapUseCases {
     return toPage(rows, limit);
   }
 
+  topics(): Promise<CatalogueTopicSummary[]> {
+    return this.roadmaps.listTopics();
+  }
+
   async get(user: AuthenticatedUser, id: string): Promise<RoadmapView> {
     const roadmap = await this.mustFind(id);
     // Lộ trình chưa công khai chỉ chủ nhân và admin thấy. 404 chứ không 403: trả 403 là
     // xác nhận nó tồn tại.
-    if (roadmap.status !== 'published' && !canEditRoadmap(user, { created_by: roadmap.createdBy })) {
+    if (
+      roadmap.status !== 'published' &&
+      !canEditRoadmap(user, { created_by: roadmap.createdBy })
+    ) {
       throw new NotFound('Lộ trình', id);
     }
     return toRoadmapView(roadmap, await this.roadmaps.listCourses(id));
@@ -233,7 +249,10 @@ export class RoadmapUseCases {
     if (denied.isFail) throw denied.error;
 
     await this.roadmaps.save(roadmap);
-    await this.announceModerated(roadmap, 'deny_removal', null, { displayName: user.displayName, externalId: user.externalId });
+    await this.announceModerated(roadmap, 'deny_removal', null, {
+      displayName: user.displayName,
+      externalId: user.externalId,
+    });
     return toRoadmapView(roadmap, await this.roadmaps.listCourses(id));
   }
 
@@ -290,7 +309,10 @@ export class RoadmapUseCases {
         );
       }
     }
-    await this.announceModerated(entity, decision, reason, { displayName: user.displayName, externalId: user.externalId });
+    await this.announceModerated(entity, decision, reason, {
+      displayName: user.displayName,
+      externalId: user.externalId,
+    });
     return toRoadmapView(entity, await this.roadmaps.listCourses(id));
   }
 
@@ -298,13 +320,7 @@ export class RoadmapUseCases {
   private async announceModerated(
     roadmap: Roadmap,
     decision:
-      | 'approve'
-      | 'request_changes'
-      | 'reject'
-      | 'archive'
-      | 'restore'
-      | 'revert'
-      | 'deny_removal',
+      'approve' | 'request_changes' | 'reject' | 'archive' | 'restore' | 'revert' | 'deny_removal',
     reason: string | null,
     moderator: { displayName: string; externalId: string },
   ): Promise<void> {
@@ -353,7 +369,10 @@ export class RoadmapUseCases {
       return explicit;
     }
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const candidate = slugify(title, attempt === 0 ? undefined : Math.random().toString(36).slice(2, 7));
+      const candidate = slugify(
+        title,
+        attempt === 0 ? undefined : Math.random().toString(36).slice(2, 7),
+      );
       if (!(await this.roadmaps.existsBySlug(candidate))) return candidate;
     }
     return slugify(title, randomUUID().slice(0, 8));

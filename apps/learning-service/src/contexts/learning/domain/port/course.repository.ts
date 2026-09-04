@@ -1,5 +1,6 @@
 import type { Course } from '../model/course';
 import type { ChapterDraft, LessonType } from '../model/curriculum';
+import type { CatalogueTopic, CatalogueTopicSummary } from './catalogue-topic';
 
 export interface CourseListFilter {
   ids?: string[];
@@ -10,6 +11,7 @@ export interface CourseListFilter {
   /** Trang quản trị: mọi tác giả, mọi trạng thái TRỪ `draft`, trừ khi có `status` ép cụ thể. */
   excludeDraft?: boolean;
   level?: string;
+  topicIds?: string[];
   status?: string;
   /** Lọc theo giảng viên đứng tên — trang quản trị xem theo từng tác giả. */
   authorId?: string;
@@ -33,6 +35,7 @@ export interface CourseListItem {
   totalLessons: number;
   createdBy: string | null;
   authorName: string | null;
+  topics: CatalogueTopic[];
   /**
    * Tác giả đang XIN GỠ nội dung này và chờ admin quyết.
    *
@@ -86,6 +89,7 @@ export interface CourseRepository extends AuthorNameLookup {
   findById(id: string): Promise<Course | null>;
   existsBySlug(slug: string): Promise<boolean>;
   list(filter: CourseListFilter): Promise<CourseListItem[]>;
+  listTopics(): Promise<CatalogueTopicSummary[]>;
   findCurriculum(courseId: string): Promise<StoredChapter[]>;
   /**
    * Ghi cả cây trong MỘT transaction, theo kiểu **so khớp** chứ không xoá sạch rồi chèn lại.

@@ -100,7 +100,6 @@ export class UpdateCourseDto {
   @IsArray()
   @IsUUID('4', { each: true })
   tagIds?: string[];
-
 }
 
 class LessonDraftDto {
@@ -260,14 +259,26 @@ export class SaveLessonContentDto {
 }
 
 export class ListCoursesQueryDto extends PageQuery {
-  @ApiPropertyOptional({ description: 'Up to 20 comma-separated course UUIDs; existing visibility rules still apply' })
+  @ApiPropertyOptional({
+    description: 'Up to 20 comma-separated course UUIDs; existing visibility rules still apply',
+  })
   @IsOptional()
-  @Transform(({ value }) => typeof value === 'string' ? value.split(',') : value)
+  @Transform(({ value }) => (typeof value === 'string' ? value.split(',') : value))
   @IsArray()
   @ArrayNotEmpty()
   @ArrayMaxSize(20)
   @IsUUID('all', { each: true })
   ids?: string[];
+
+  @ApiPropertyOptional({ type: [String], description: 'Lọc theo ít nhất một chủ đề.' })
+  @IsOptional()
+  @Transform(({ value }) => {
+    const values = Array.isArray(value) ? value : String(value).split(',');
+    return [...new Set(values.map((item) => item.trim()).filter(Boolean))];
+  })
+  @IsArray()
+  @IsUUID('4', { each: true })
+  topicIds?: string[];
 
   @ApiPropertyOptional({ enum: LEVELS })
   @IsOptional()

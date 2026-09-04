@@ -40,6 +40,12 @@ export class RoadmapController {
     return this.roadmaps.list({ publishedOnly: true }, query);
   }
 
+  @Get('topics')
+  @ApiOperation({ summary: 'Chủ đề đang có lộ trình công khai, kèm số lượng' })
+  topics() {
+    return this.roadmaps.topics();
+  }
+
   @Get('mine')
   @Roles('lecturer')
   @ApiOperation({ summary: 'Lộ trình của tôi, mọi trạng thái' })

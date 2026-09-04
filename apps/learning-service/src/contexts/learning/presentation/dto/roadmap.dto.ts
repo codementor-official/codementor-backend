@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -16,7 +16,14 @@ import {
 } from 'class-validator';
 import { PageQuery } from '@codementor/platform';
 
-export const FIELDS = ['frontend', 'backend', 'fullstack', 'mobile', 'data_ai', 'foundation'] as const;
+export const FIELDS = [
+  'frontend',
+  'backend',
+  'fullstack',
+  'mobile',
+  'data_ai',
+  'foundation',
+] as const;
 export const LEVELS = ['none', 'basic', 'intermediate', 'experienced'] as const;
 export const MODES = ['linear', 'graph', 'free'] as const;
 export const CONTENT_STATUSES = [
@@ -116,7 +123,6 @@ export class UpdateRoadmapDto {
   @IsArray()
   @IsUUID('4', { each: true })
   tagIds?: string[];
-
 }
 
 class RoadmapCourseDto {
@@ -144,6 +150,16 @@ export class ReplaceRoadmapCoursesDto {
 }
 
 export class ListRoadmapsQueryDto extends PageQuery {
+  @ApiPropertyOptional({ type: [String], description: 'Lọc theo ít nhất một chủ đề.' })
+  @IsOptional()
+  @Transform(({ value }) => {
+    const values = Array.isArray(value) ? value : String(value).split(',');
+    return [...new Set(values.map((item) => item.trim()).filter(Boolean))];
+  })
+  @IsArray()
+  @IsUUID('4', { each: true })
+  topicIds?: string[];
+
   @ApiPropertyOptional({ enum: FIELDS })
   @IsOptional()
   @IsIn(FIELDS)

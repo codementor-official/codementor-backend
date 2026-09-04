@@ -13,6 +13,11 @@ import type {
   StoredChapter,
   StoredLesson,
 } from '../domain/port/course.repository';
+import type { CatalogueTopicSummary } from '../domain/port/catalogue-topic';
+
+interface CourseListRow extends Omit<CourseListItem, 'topics'> {
+  topics: CourseListItem['topics'] | null;
+}
 
 interface CourseRow {
   id: string;
@@ -80,13 +85,31 @@ export class PrismaCourseRepository implements CourseRepository {
     if (filter.pendingOnly) where.push(Prisma.sql`c.status = 'pending_review'`);
     if (filter.excludeDraft && !filter.status) where.push(Prisma.sql`c.status <> 'draft'`);
     if (filter.level) where.push(Prisma.sql`c.level = ${filter.level}::current_level`);
+    if (filter.topicIds?.length) {
+      where.push(Prisma.sql`EXISTS (
+        SELECT 1 FROM course_tags selected_topic
+        WHERE selected_topic.course_id = c.id
+          AND selected_topic.tag_id = ANY (${filter.topicIds}::uuid[])
+      )`);
+    }
     if (filter.status) where.push(Prisma.sql`c.status = ${filter.status}::content_status`);
     if (filter.authorId) where.push(Prisma.sql`c.created_by = ${filter.authorId}::uuid`);
-    if (filter.updatedFrom) where.push(Prisma.sql`c.updated_at >= ${filter.updatedFrom}::timestamptz`);
+    if (filter.updatedFrom)
+      where.push(Prisma.sql`c.updated_at >= ${filter.updatedFrom}::timestamptz`);
     if (filter.updatedTo) where.push(Prisma.sql`c.updated_at <= ${filter.updatedTo}::timestamptz`);
     if (filter.q) {
       where.push(
-        Prisma.sql`(c.title ILIKE ${'%' + filter.q + '%'} OR c.slug::text ILIKE ${'%' + filter.q + '%'})`,
+        Prisma.sql`(
+          c.title ILIKE ${'%' + filter.q + '%'}
+          OR c.slug::text ILIKE ${'%' + filter.q + '%'}
+          OR c.description ILIKE ${'%' + filter.q + '%'}
+          OR EXISTS (
+            SELECT 1 FROM course_tags search_topic
+            JOIN tags search_tag ON search_tag.id = search_topic.tag_id
+            WHERE search_topic.course_id = c.id
+              AND search_tag.name ILIKE ${'%' + filter.q + '%'}
+          )
+        )`,
       );
     }
     // Hàng chờ xếp cũ trước: ai gửi sớm được xem trước.
@@ -98,16 +121,25 @@ export class PrismaCourseRepository implements CourseRepository {
           : Prisma.sql`(c.updated_at, c.id) < (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`,
       );
     }
-    const clause = where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
+    const clause =
+      where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
     const order = oldestFirst
       ? Prisma.sql`ORDER BY c.updated_at ASC, c.id ASC`
       : Prisma.sql`ORDER BY c.updated_at DESC, c.id DESC`;
 
-    return this.prisma.$queryRaw<CourseListItem[]>`
+    const rows = await this.prisma.$queryRaw<CourseListRow[]>`
       SELECT c.id, c.slug::text AS slug, c.title, c.description,
              c.cover_image_url AS "coverImageUrl", c.level::text AS level, c.status::text AS status,
              c.duration_hours AS "durationHours", c.total_chapters AS "totalChapters",
              c.total_lessons AS "totalLessons", c.created_by AS "createdBy",
+             COALESCE((
+               SELECT jsonb_agg(
+                 jsonb_build_object('id', t.id, 'slug', t.slug::text, 'name', t.name, 'category', t.category)
+                 ORDER BY t.name
+               )
+               FROM course_tags ct JOIN tags t ON t.id = ct.tag_id
+               WHERE ct.course_id = c.id
+             ), '[]'::jsonb) AS topics,
              u.display_name AS "authorName", (c.status = 'published' AND c.rejection_reason IS NOT NULL) AS "removalRequested",
              c.updated_at AS "updatedAt"
       FROM courses c
@@ -115,6 +147,19 @@ export class PrismaCourseRepository implements CourseRepository {
       ${clause}
       ${order}
       LIMIT ${filter.limit + 1}`;
+    return rows.map((row) => ({ ...row, topics: row.topics ?? [] }));
+  }
+
+  async listTopics(): Promise<CatalogueTopicSummary[]> {
+    return this.prisma.$queryRaw<CatalogueTopicSummary[]>`
+      SELECT t.id, t.slug::text AS slug, t.name, t.category,
+             COUNT(DISTINCT c.id)::int AS count
+      FROM tags t
+      JOIN course_tags ct ON ct.tag_id = t.id
+      JOIN courses c ON c.id = ct.course_id
+      WHERE c.status = 'published'
+      GROUP BY t.id, t.slug, t.name, t.category
+      ORDER BY COUNT(DISTINCT c.id) DESC, t.name ASC`;
   }
 
   async authorNameOf(userId: string): Promise<string | null> {
@@ -328,7 +373,9 @@ export class PrismaCourseRepository implements CourseRepository {
     }
   }
 
-  async findReferencingRoadmaps(courseId: string): Promise<{ id: string; title: string; slug: string }[]> {
+  async findReferencingRoadmaps(
+    courseId: string,
+  ): Promise<{ id: string; title: string; slug: string }[]> {
     return this.prisma.$queryRaw<{ id: string; title: string; slug: string }[]>`
       SELECT DISTINCT r.id, r.title, r.slug::text AS slug
       FROM roadmaps r

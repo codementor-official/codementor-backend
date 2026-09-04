@@ -756,6 +756,7 @@ model tags {
   id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   slug          String          @unique @db.Citext
   name          String
+  category      String          @default("other")
   created_at    DateTime        @default(now()) @db.Timestamptz(6)
   articles      articles[]
   exercise_tags exercise_tags[]

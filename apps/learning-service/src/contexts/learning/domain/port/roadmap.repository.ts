@@ -1,4 +1,5 @@
 import type { ContentStatus, Roadmap } from '../model/roadmap';
+import type { CatalogueTopic, CatalogueTopicSummary } from './catalogue-topic';
 
 export interface RoadmapListFilter {
   createdBy: string | null;
@@ -9,6 +10,7 @@ export interface RoadmapListFilter {
   excludeDraft?: boolean;
   field?: string;
   level?: string;
+  topicIds?: string[];
   status?: string;
   authorId?: string;
   updatedFrom?: Date;
@@ -31,6 +33,7 @@ export interface RoadmapListItem {
   courseCount: number;
   createdBy: string | null;
   authorName: string | null;
+  topics: CatalogueTopic[];
   /**
    * Tác giả đang XIN GỠ nội dung này và chờ admin quyết.
    *
@@ -64,6 +67,7 @@ export interface RoadmapRepository {
   findById(id: string): Promise<Roadmap | null>;
   existsBySlug(slug: string): Promise<boolean>;
   list(filter: RoadmapListFilter): Promise<RoadmapListItem[]>;
+  listTopics(): Promise<CatalogueTopicSummary[]>;
   listCourses(roadmapId: string): Promise<RoadmapCourseItem[]>;
   /**
    * Ghi lại toàn bộ danh sách trong MỘT transaction.
