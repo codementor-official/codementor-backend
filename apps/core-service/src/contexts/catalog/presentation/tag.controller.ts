@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
-import { IsString, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { ApiBearerAuth, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { InvalidInput } from '@codementor/kernel';
 import { PrismaService, Roles } from '@codementor/platform';
@@ -8,7 +8,18 @@ interface TagRow {
   id: string;
   slug: string;
   name: string;
+  category: string;
 }
+
+const TAG_CATEGORIES = [
+  'algorithms',
+  'database',
+  'web',
+  'systems',
+  'data_ai',
+  'foundations',
+  'other',
+] as const;
 
 class CreateTagDto {
   @ApiProperty({ example: 'Quy hoạch động' })
@@ -16,6 +27,11 @@ class CreateTagDto {
   @MinLength(2)
   @MaxLength(60)
   name!: string;
+
+  @ApiProperty({ enum: TAG_CATEGORIES, required: false, default: 'other' })
+  @IsOptional()
+  @IsIn(TAG_CATEGORIES)
+  category?: (typeof TAG_CATEGORIES)[number];
 }
 
 /**
@@ -57,7 +73,7 @@ export class TagController {
   @ApiOperation({ summary: 'Toàn bộ chủ đề, xếp theo tên' })
   list(): Promise<TagRow[]> {
     return this.prisma.$queryRaw<TagRow[]>`
-      SELECT id, slug, name FROM tags ORDER BY name`;
+      SELECT id, slug, name, category FROM tags ORDER BY name`;
   }
 
   /**
@@ -78,9 +94,10 @@ export class TagController {
     }
 
     const rows = await this.prisma.$queryRaw<TagRow[]>`
-      INSERT INTO tags (slug, name) VALUES (${slug}::citext, ${name})
+      INSERT INTO tags (slug, name, category)
+      VALUES (${slug}::citext, ${name}, ${dto.category ?? 'other'})
       ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug
-      RETURNING id, slug, name`;
+      RETURNING id, slug, name, category`;
     return rows[0];
   }
 }

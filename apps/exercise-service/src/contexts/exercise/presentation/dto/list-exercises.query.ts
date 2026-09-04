@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsIn, IsOptional, IsUUID } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsArray, IsDateString, IsIn, IsOptional, IsUUID } from 'class-validator';
 import { PageQuery } from '@codementor/platform';
 import { DIFFICULTIES, KINDS, STATUSES } from './exercise.dto';
 
@@ -13,6 +14,25 @@ export class ListExercisesQueryDto extends PageQuery {
   @IsOptional()
   @IsIn(DIFFICULTIES)
   difficulty?: (typeof DIFFICULTIES)[number];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Lọc theo một hoặc nhiều chủ đề. Nhận danh sách phân cách bằng dấu phẩy; bài khớp ít nhất một chủ đề sẽ được trả về.',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: string | string[] }) => {
+    const values = Array.isArray(value) ? value : String(value).split(',');
+    return [...new Set(values.map((item) => item.trim()).filter(Boolean))];
+  })
+  @IsArray()
+  @IsUUID('4', { each: true })
+  topicIds?: string[];
+
+  @ApiPropertyOptional({ enum: ['solved', 'attempted', 'unsolved'] })
+  @IsOptional()
+  @IsIn(['solved', 'attempted', 'unsolved'])
+  progress?: 'solved' | 'attempted' | 'unsolved';
 
   /** Có tác dụng ở `/mine` và `/moderation`; kho chung theo định nghĩa chỉ có bài `published`. */
   @ApiPropertyOptional({ enum: STATUSES })

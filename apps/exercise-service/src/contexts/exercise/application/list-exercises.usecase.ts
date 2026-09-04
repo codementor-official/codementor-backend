@@ -9,6 +9,8 @@ import {
 export interface ListExercisesQuery {
   kind?: string;
   difficulty?: string;
+  topicIds?: string[];
+  progress?: 'solved' | 'attempted' | 'unsolved';
   status?: string;
   authorId?: string;
   updatedFrom?: string;
@@ -30,7 +32,7 @@ export class ListExercisesUseCase {
   async execute(
     scope:
       | { authorId: string }
-      | { publishedOnly: true }
+      | { publishedOnly: true; viewerId: string }
       | { pendingOnly: true }
       | { adminAll: true },
     query: ListExercisesQuery,
@@ -54,6 +56,9 @@ export class ListExercisesUseCase {
       excludeDraft: 'adminAll' in scope,
       kind: query.kind,
       difficulty: query.difficulty,
+      topicIds: query.topicIds,
+      viewerId: 'viewerId' in scope ? scope.viewerId : undefined,
+      progress: 'publishedOnly' in scope ? query.progress : undefined,
       status,
       updatedFrom: query.updatedFrom ? new Date(query.updatedFrom) : undefined,
       updatedTo: query.updatedTo ? new Date(query.updatedTo) : undefined,

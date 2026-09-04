@@ -15,6 +15,11 @@ import type {
   RoadmapListItem,
   RoadmapRepository,
 } from '../domain/port/roadmap.repository';
+import type { CatalogueTopicSummary } from '../domain/port/catalogue-topic';
+
+interface RoadmapListRow extends Omit<RoadmapListItem, 'topics'> {
+  topics: RoadmapListItem['topics'] | null;
+}
 
 interface RoadmapRow {
   id: string;
@@ -69,13 +74,31 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
     if (filter.excludeDraft && !filter.status) where.push(Prisma.sql`r.status <> 'draft'`);
     if (filter.field) where.push(Prisma.sql`r.field = ${filter.field}::roadmap_field`);
     if (filter.level) where.push(Prisma.sql`r.level = ${filter.level}::current_level`);
+    if (filter.topicIds?.length) {
+      where.push(Prisma.sql`EXISTS (
+        SELECT 1 FROM roadmap_tags selected_topic
+        WHERE selected_topic.roadmap_id = r.id
+          AND selected_topic.tag_id = ANY (${filter.topicIds}::uuid[])
+      )`);
+    }
     if (filter.status) where.push(Prisma.sql`r.status = ${filter.status}::content_status`);
     if (filter.authorId) where.push(Prisma.sql`r.created_by = ${filter.authorId}::uuid`);
-    if (filter.updatedFrom) where.push(Prisma.sql`r.updated_at >= ${filter.updatedFrom}::timestamptz`);
+    if (filter.updatedFrom)
+      where.push(Prisma.sql`r.updated_at >= ${filter.updatedFrom}::timestamptz`);
     if (filter.updatedTo) where.push(Prisma.sql`r.updated_at <= ${filter.updatedTo}::timestamptz`);
     if (filter.q) {
       where.push(
-        Prisma.sql`(r.title ILIKE ${'%' + filter.q + '%'} OR r.slug::text ILIKE ${'%' + filter.q + '%'})`,
+        Prisma.sql`(
+          r.title ILIKE ${'%' + filter.q + '%'}
+          OR r.slug::text ILIKE ${'%' + filter.q + '%'}
+          OR r.short_description ILIKE ${'%' + filter.q + '%'}
+          OR EXISTS (
+            SELECT 1 FROM roadmap_tags search_topic
+            JOIN tags search_tag ON search_tag.id = search_topic.tag_id
+            WHERE search_topic.roadmap_id = r.id
+              AND search_tag.name ILIKE ${'%' + filter.q + '%'}
+          )
+        )`,
       );
     }
     // Hàng chờ xếp cũ trước: ai gửi sớm được xem trước.
@@ -87,17 +110,26 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
           : Prisma.sql`(r.updated_at, r.id) < (${filter.cursor.updatedAt}::timestamptz, ${filter.cursor.id}::uuid)`,
       );
     }
-    const clause = where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
+    const clause =
+      where.length > 0 ? Prisma.sql`WHERE ${Prisma.join(where, ' AND ')}` : Prisma.empty;
     const order = oldestFirst
       ? Prisma.sql`ORDER BY r.updated_at ASC, r.id ASC`
       : Prisma.sql`ORDER BY r.updated_at DESC, r.id DESC`;
 
-    return this.prisma.$queryRaw<RoadmapListItem[]>`
+    const rows = await this.prisma.$queryRaw<RoadmapListRow[]>`
       SELECT r.id, r.slug::text AS slug, r.title,
              r.short_description AS "shortDescription", r.cover_image_url AS "coverImageUrl",
              r.field::text AS field, r.level::text AS level,
              r.status::text AS status, r.estimated_hours AS "estimatedHours",
              (SELECT count(*)::int FROM roadmap_courses rc WHERE rc.roadmap_id = r.id) AS "courseCount",
+             COALESCE((
+               SELECT jsonb_agg(
+                 jsonb_build_object('id', t.id, 'slug', t.slug::text, 'name', t.name, 'category', t.category)
+                 ORDER BY t.name
+               )
+               FROM roadmap_tags rt JOIN tags t ON t.id = rt.tag_id
+               WHERE rt.roadmap_id = r.id
+             ), '[]'::jsonb) AS topics,
              r.created_by AS "createdBy", u.display_name AS "authorName",
              (r.status = 'published' AND r.rejection_reason IS NOT NULL) AS "removalRequested", r.updated_at AS "updatedAt"
       FROM roadmaps r
@@ -105,6 +137,19 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
       ${clause}
       ${order}
       LIMIT ${filter.limit + 1}`;
+    return rows.map((row) => ({ ...row, topics: row.topics ?? [] }));
+  }
+
+  async listTopics(): Promise<CatalogueTopicSummary[]> {
+    return this.prisma.$queryRaw<CatalogueTopicSummary[]>`
+      SELECT t.id, t.slug::text AS slug, t.name, t.category,
+             COUNT(DISTINCT r.id)::int AS count
+      FROM tags t
+      JOIN roadmap_tags rt ON rt.tag_id = t.id
+      JOIN roadmaps r ON r.id = rt.roadmap_id
+      WHERE r.status = 'published'
+      GROUP BY t.id, t.slug, t.name, t.category
+      ORDER BY COUNT(DISTINCT r.id) DESC, t.name ASC`;
   }
 
   async listCourses(roadmapId: string): Promise<RoadmapCourseItem[]> {

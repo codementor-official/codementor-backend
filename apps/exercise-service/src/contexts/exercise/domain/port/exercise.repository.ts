@@ -11,6 +11,10 @@ export interface ExerciseListFilter {
   excludeDraft?: boolean;
   kind?: string;
   difficulty?: string;
+  /** OR semantics: bài mang ít nhất một chủ đề đã chọn. */
+  topicIds?: string[];
+  viewerId?: string;
+  progress?: 'solved' | 'attempted' | 'unsolved';
   status?: string;
   /** Chỉ dùng cho kho chung: buộc public + published. */
   publishedOnly: boolean;
@@ -25,12 +29,17 @@ export interface ExerciseListItem {
   id: string;
   slug: string;
   title: string;
+  summary: string | null;
   kind: string;
   difficulty: string;
   status: string;
   visibility: string;
   authorId: string | null;
   authorName: string | null;
+  topics: ExerciseTopic[];
+  progressStatus: 'todo' | 'attempted' | 'solved';
+  attemptCount: number;
+  bestScore: number | null;
   /**
    * Tác giả đang XIN GỠ nội dung này và chờ admin quyết.
    *
@@ -45,14 +54,37 @@ export interface ExerciseListItem {
   updatedAt: Date;
 }
 
+export interface ExerciseTopic {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+}
+
+export interface ExerciseTopicSummary extends ExerciseTopic {
+  count: number;
+}
+
+export interface ExerciseProgressSummary {
+  total: number;
+  solved: number;
+  attempted: number;
+  unsolved: number;
+}
+
 export interface ExerciseRepository {
   findById(id: string): Promise<Exercise | null>;
   existsBySlug(slug: Slug): Promise<boolean>;
   /** Đọc dạng phẳng cho màn danh sách: aggregate không phục vụ truy vấn. */
   list(filter: ExerciseListFilter): Promise<ExerciseListItem[]>;
+  /** Chỉ chủ đề đang được dùng bởi bài public + published, kèm số bài. */
+  listTopics(): Promise<ExerciseTopicSummary[]>;
+  progressSummary(userId: string): Promise<ExerciseProgressSummary>;
   save(exercise: Exercise): Promise<void>;
   delete(id: string): Promise<void>;
-  findReferencingCourses(exerciseId: string): Promise<{ id: string; title: string; slug: string }[]>;
+  findReferencingCourses(
+    exerciseId: string,
+  ): Promise<{ id: string; title: string; slug: string }[]>;
 }
 
 /**
