@@ -171,13 +171,17 @@ export class PrismaExerciseRepository implements ExerciseRepository {
     return rows.map((row) => ({ ...row, topics: row.topics ?? [] }));
   }
 
-  async listTopics(): Promise<ExerciseTopicSummary[]> {
+  async listTopics(userId: string): Promise<ExerciseTopicSummary[]> {
     return this.prisma.$queryRaw<ExerciseTopicSummary[]>`
       SELECT t.id, t.slug::text AS slug, t.name, t.category,
-             COUNT(DISTINCT e.id)::int AS count
+             COUNT(DISTINCT e.id)::int AS count,
+             COUNT(DISTINCT e.id) FILTER (WHERE ep.status = 'solved')::int AS solved,
+             COUNT(DISTINCT e.id) FILTER (WHERE ep.status = 'attempted')::int AS attempted
       FROM tags t
       JOIN exercise_tags et ON et.tag_id = t.id
       JOIN exercises e ON e.id = et.exercise_id
+      LEFT JOIN exercise_progress ep
+        ON ep.exercise_id = e.id AND ep.user_id = ${userId}::uuid
       WHERE e.visibility = 'public' AND e.status = 'published'
       GROUP BY t.id, t.slug, t.name, t.category
       ORDER BY COUNT(DISTINCT e.id) DESC, t.name ASC`;

@@ -63,6 +63,8 @@ export interface ExerciseTopic {
 
 export interface ExerciseTopicSummary extends ExerciseTopic {
   count: number;
+  solved: number;
+  attempted: number;
 }
 
 export interface ExerciseProgressSummary {
@@ -78,7 +80,7 @@ export interface ExerciseRepository {
   /** Đọc dạng phẳng cho màn danh sách: aggregate không phục vụ truy vấn. */
   list(filter: ExerciseListFilter): Promise<ExerciseListItem[]>;
   /** Chỉ chủ đề đang được dùng bởi bài public + published, kèm số bài. */
-  listTopics(): Promise<ExerciseTopicSummary[]>;
+  listTopics(userId: string): Promise<ExerciseTopicSummary[]>;
   progressSummary(userId: string): Promise<ExerciseProgressSummary>;
   save(exercise: Exercise): Promise<void>;
   delete(id: string): Promise<void>;

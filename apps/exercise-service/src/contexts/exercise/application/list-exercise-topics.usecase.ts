@@ -9,7 +9,7 @@ import {
 export class ListExerciseTopicsUseCase {
   constructor(@Inject(EXERCISE_REPOSITORY) private readonly exercises: ExerciseRepository) {}
 
-  execute(): Promise<ExerciseTopicSummary[]> {
-    return this.exercises.listTopics();
+  execute(userId: string): Promise<ExerciseTopicSummary[]> {
+    return this.exercises.listTopics(userId);
   }
 }

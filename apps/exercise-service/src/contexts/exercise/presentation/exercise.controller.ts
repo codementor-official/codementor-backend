@@ -98,8 +98,8 @@ export class ExerciseController {
 
   @Get('topics')
   @ApiOperation({ summary: 'Chủ đề đang có bài public, kèm số lượng bài' })
-  topics() {
-    return this.listExerciseTopics.execute();
+  topics(@CurrentUser() user: AuthenticatedUser) {
+    return this.listExerciseTopics.execute(requireHumanId(user));
   }
 
   @Get('progress-summary')
