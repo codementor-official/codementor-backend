@@ -70,3 +70,118 @@ async def test_run_solution_keeps_only_three_failing_cases(monkeypatch):
 def test_auth_token_missing_is_an_explained_error():
     with pytest.raises(http.ToolCallError):
         http.auth_token({"configurable": {}})
+
+
+async def test_tool_error_becomes_a_message_not_a_crash():
+    """`ToolNode` của LangGraph ném lại lỗi theo mặc định, và một lỗi 404 sẽ giết cả run: trình
+    duyệt treo ở dòng tool đang chạy, không câu trả lời, không thông báo."""
+    from app.lecter.graph import tool_error
+
+    assert tool_error(http.ToolCallError("Không tìm thấy")) == "Tool thất bại: Không tìm thấy"
+    # Lỗi ngoài dự tính không được đưa chi tiết vào lịch sử hội thoại.
+    message = tool_error(RuntimeError("connect to 10.0.0.5:5432 failed"))
+    assert "10.0.0.5" not in message and "lỗi hệ thống" in message
+
+
+def test_dangling_tool_call_is_dropped_so_the_thread_survives():
+    """Một run đứt giữa chừng để lại `tool_call` không có output; OpenAI từ chối cả yêu cầu vì nó,
+    nên hội thoại đó sẽ chết vĩnh viễn nếu không dọn."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    from app.lecter.graph import drop_dangling_tool_calls
+
+    call = {"name": "read_exercise", "args": {}, "id": "c1", "type": "tool_call"}
+    dangling = [HumanMessage("hỏi"), AIMessage("", tool_calls=[call]), HumanMessage("hỏi lại")]
+    assert [type(m).__name__ for m in drop_dangling_tool_calls(dangling)] == [
+        "HumanMessage",
+        "HumanMessage",
+    ]
+
+    complete = [HumanMessage("hỏi"), AIMessage("", tool_calls=[call]), ToolMessage("ok", tool_call_id="c1")]
+    assert drop_dangling_tool_calls(complete) == complete
+
+
+async def test_run_solution_rejects_a_bad_language_id_before_calling_judge(monkeypatch):
+    """Trước đây lỗi này đi tới judge và quay về dưới dạng 5xx không kèm lý do, nên model thử lại
+    y hệt ba lần."""
+
+    async def must_not_run(*_args, **_kwargs):  # pragma: no cover - chỉ để phát hiện gọi nhầm
+        raise AssertionError("không được gọi judge với id ngôn ngữ sai")
+
+    monkeypatch.setattr(http, "judge", must_not_run)
+    result = await tools.run_solution.ainvoke(
+        {"language": "Rust", "source_code": "fn main(){}", "test_cases": []},
+        config={"configurable": {"auth_token": "t"}},
+    )
+    assert result.startswith("SAI ID NGÔN NGỮ") and "python" in result
+
+
+async def test_backend_error_text_survives_for_both_nest_and_fastapi(monkeypatch):
+    """Nest dùng khoá `message`, judge (FastAPI) dùng `detail`. Chỉ đọc một khoá thì lỗi thành câu
+    rỗng, model không biết mình sai gì và gửi lại y hệt — đúng thứ đã xảy ra với
+    "chế độ hàm chưa hỗ trợ ngôn ngữ 'Python'"."""
+    import httpx
+
+    real_client = httpx.AsyncClient
+
+    def with_body(body: dict):
+        transport = httpx.MockTransport(lambda _request: httpx.Response(422, json=body))
+
+        def build(*args, **kwargs):
+            return real_client(*args, transport=transport, **kwargs)
+
+        return build
+
+    for body, needle in (
+        ({"message": "Chưa gửi duyệt được, còn thiếu: đề bài"}, "còn thiếu"),
+        ({"detail": "chế độ hàm chưa hỗ trợ ngôn ngữ 'Python'"}, "chưa hỗ trợ ngôn ngữ"),
+    ):
+        monkeypatch.setattr(httpx, "AsyncClient", with_body(body))
+        with pytest.raises(http.ToolCallError) as caught:
+            await http.call(
+                "GET", "http://nowhere.invalid", "/x", {"configurable": {"auth_token": "t"}}
+            )
+        assert needle in str(caught.value)
+
+
+async def test_run_solution_blocks_the_two_payloads_that_crash_judge(monkeypatch):
+    """Judge trả 500 trần (không lý do) cho cả hai; model mất ba lượt thử lại y hệt."""
+
+    async def must_not_run(*_args, **_kwargs):  # pragma: no cover - chỉ để bắt gọi nhầm
+        raise AssertionError("không được gọi judge với payload làm nó nổ")
+
+    monkeypatch.setattr(http, "judge", must_not_run)
+    config = {"configurable": {"auth_token": "t"}}
+
+    # `args` là chế độ hàm, nhưng thiếu `signature` nên judge chạy chế độ stdin.
+    missing_spec = await tools.run_solution.ainvoke(
+        {"language": "python", "source_code": "x", "test_cases": [{"order": 1, "args": [0], "expected": 0}]},
+        config=config,
+    )
+    assert missing_spec.startswith("THIẾU `signature`")
+
+    # Chế độ stdin nhưng `expected` là số: judge gọi `.strip()` trên int.
+    bad_type = await tools.run_solution.ainvoke(
+        {"language": "python", "source_code": "x", "test_cases": [{"order": 1, "input": "3", "expected": 55}]},
+        config=config,
+    )
+    assert bad_type.startswith("SAI KIỂU Ở CHẾ ĐỘ STDIN")
+
+
+def test_dropping_a_message_takes_its_answered_siblings_too():
+    """Hai lời gọi song song, run chết sau khi mới có kết quả của cái thứ nhất. Bỏ AIMessage mà
+    giữ `ToolMessage` còn lại thì nó thành message mồ côi — OpenAI từ chối y hệt."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    from app.lecter.graph import drop_dangling_tool_calls
+
+    calls = [
+        {"name": "list_topics", "args": {}, "id": "a", "type": "tool_call"},
+        {"name": "read_exercise", "args": {}, "id": "b", "type": "tool_call"},
+    ]
+    messages = [
+        HumanMessage("hỏi"),
+        AIMessage("", tool_calls=calls),
+        ToolMessage("xong", tool_call_id="a"),  # "b" không bao giờ có kết quả
+    ]
+    assert drop_dangling_tool_calls(messages) == [messages[0]]

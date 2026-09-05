@@ -8,6 +8,9 @@ Token đi qua `config`, KHÔNG qua state: state được phát ngược về tr�
 STATE_SNAPSHOT/STATE_DELTA.
 """
 
+import logging
+
+from ag_ui.core.events import EventType, RunErrorEvent
 from ag_ui.core.types import RunAgentInput
 from ag_ui.encoder import EventEncoder
 from ag_ui_langgraph import LangGraphAgent
@@ -19,6 +22,8 @@ from app.auth import require_user
 from app.config import settings
 from app.lecter import sessions
 from app.lecter.graph import GRAPH
+
+logger = logging.getLogger("codementor.ai")
 
 router = APIRouter(prefix="/api/v1/ai/lecter")
 
@@ -53,8 +58,20 @@ async def run(input_data: RunAgentInput, request: Request, claims: dict = Depend
     thread_id = input_data.thread_id
 
     async def stream():
-        async for event in agent.run(input_data):
-            yield encoder.encode(event)
+        try:
+            async for event in agent.run(input_data):
+                yield encoder.encode(event)
+        except Exception:
+            # Không có RUN_ERROR thì trình duyệt treo mãi ở dòng tool đang chạy: SSE đã mở, nên
+            # một ngoại lệ ở đây chỉ đóng kết nối, không thành mã lỗi HTTP nào cả.
+            logger.exception("Lecter run hỏng giữa chừng (thread %s)", thread_id)
+            yield encoder.encode(
+                RunErrorEvent(
+                    type=EventType.RUN_ERROR,
+                    message="Lượt này hỏng giữa chừng. Thử lại giúp mình.",
+                    code="internal_error",
+                )
+            )
         await sessions.save(rag.db, claims["sub"], thread_id, GRAPH)
 
     return StreamingResponse(

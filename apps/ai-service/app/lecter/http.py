@@ -67,14 +67,22 @@ async def call(
     if response.status_code == 404:
         raise ToolCallError("Không tìm thấy đối tượng với định danh đã cho.")
     if response.status_code >= 400:
-        # Thông điệp của Nest nói rõ thiếu gì (ví dụ danh sách trường còn thiếu khi gửi duyệt);
-        # nó hữu ích cho model nên giữ lại, nhưng vẫn cắt ngắn.
+        # Câu lỗi của backend là thứ model cần để tự sửa (Nest liệt kê trường còn thiếu; judge nói
+        # rõ "chế độ hàm chưa hỗ trợ ngôn ngữ 'Python'"). Hai service dùng hai khoá khác nhau —
+        # Nest `message`, FastAPI `detail` — và chỉ đọc một khoá thì lỗi thành câu rỗng, model
+        # không biết mình sai gì và gửi lại y hệt.
         detail = ""
         try:
-            detail = str((response.json() or {}).get("message", ""))
+            body = response.json() or {}
+            # `message` là MẢNG khi lỗi đến từ ValidationPipe của Nest; `str()` thẳng vào đó cho
+            # ra "['constraints must be an array']", model đọc được nhưng thừa dấu ngoặc.
+            raw = body.get("message") or body.get("detail") or ""
+            detail = "; ".join(map(str, raw)) if isinstance(raw, list) else str(raw)
         except ValueError:
             detail = response.text
-        raise ToolCallError(f"Dịch vụ từ chối yêu cầu ({response.status_code}): {clip(detail)}")
+        raise ToolCallError(
+            f"Dịch vụ từ chối yêu cầu ({response.status_code}): {clip(detail) or 'không rõ lý do'}"
+        )
 
     if response.status_code == 204 or not response.content:
         return None

@@ -10,9 +10,10 @@ bộ mảng `messages` mỗi run, nên state bền vững là thừa. Đổi san
 dùng `interrupt()` thật, sống qua việc đóng tab.
 """
 
+import logging
 from typing import Annotated, Any, Literal
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
@@ -23,6 +24,7 @@ from langgraph.types import Command
 from typing_extensions import TypedDict
 
 from app.config import settings
+from app.lecter.http import ToolCallError
 from app.lecter.prompt import INSTRUCTIONS
 from app.lecter.tools import SERVER_TOOLS
 
@@ -36,6 +38,8 @@ class LecterState(TypedDict, total=False):
     # thay cho một cái spinner quay.
     step: str
 
+
+logger = logging.getLogger("codementor.ai")
 
 _SERVER_TOOL_NAMES = frozenset(tool.name for tool in SERVER_TOOLS)
 
@@ -51,6 +55,41 @@ def _frontend_names(state: LecterState) -> set[str]:
     return names
 
 
+def drop_dangling_tool_calls(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Bỏ những lời gọi tool không bao giờ có kết quả.
+
+    OpenAI từ chối cả yêu cầu khi lịch sử có `tool_call` mà thiếu output tương ứng
+    ("No tool output found for function call ..."), nên MỘT lượt hỏng giữa chừng sẽ làm hội thoại
+    đó chết vĩnh viễn — mở lại, gõ gì cũng lỗi. Hai đường sinh ra nó: run đứt giữa chừng (mạng,
+    tiến trình chết), và tool của trình duyệt mà người dùng đóng tab trước khi bấm gì.
+
+    An toàn ở đây vì `chat` chỉ chạy lúc bắt đầu hoặc SAU node `tools` — lúc đó mọi lời gọi đã
+    thi hành xong đều đã có `ToolMessage` đi kèm.
+    """
+    answered = {
+        message.tool_call_id
+        for message in messages
+        if isinstance(message, ToolMessage) and message.tool_call_id
+    }
+    kept: list[BaseMessage] = []
+    dropped: set[str] = set()
+    for message in messages:
+        calls = getattr(message, "tool_calls", None) if isinstance(message, AIMessage) else None
+        if calls:
+            missing = [call["id"] for call in calls if call["id"] not in answered]
+            if missing:
+                # Bỏ TẤT CẢ id của message này, không chỉ những cái treo: một message có thể
+                # mang nhiều lời gọi song song, và giữ lại `ToolMessage` của cái đã trả lời sẽ
+                # thành message mồ côi — OpenAI từ chối cái đó y như từ chối lời gọi treo.
+                dropped.update(call["id"] for call in calls)
+                logger.info("Bỏ %d lời gọi tool treo khỏi lịch sử", len(missing))
+                continue
+        if isinstance(message, ToolMessage) and message.tool_call_id in dropped:
+            continue
+        kept.append(message)
+    return kept
+
+
 async def chat(state: LecterState, config: RunnableConfig) -> Command[Literal["tools", "__end__"]]:
     frontend = _frontend_names(state)
     model = ChatOpenAI(
@@ -61,7 +100,8 @@ async def chat(state: LecterState, config: RunnableConfig) -> Command[Literal["t
         output_version="responses/v1",
     ).bind_tools([*SERVER_TOOLS, *(state.get("tools") or [])])
 
-    response = await model.ainvoke([SystemMessage(INSTRUCTIONS), *state["messages"]], config)
+    history = drop_dangling_tool_calls(list(state["messages"]))
+    response = await model.ainvoke([SystemMessage(INSTRUCTIONS), *history], config)
     calls = getattr(response, "tool_calls", None) or []
 
     # Tool của trình duyệt: kết thúc lượt. Trình duyệt hiện hộp xác nhận, thi hành bằng token
@@ -74,10 +114,25 @@ async def chat(state: LecterState, config: RunnableConfig) -> Command[Literal["t
     return Command(goto="__end__", update={"messages": response, "step": "done"})
 
 
+def tool_error(exc: Exception) -> str:
+    """Biến lỗi tool thành một câu model đọc được, thay vì để nó giết cả lượt.
+
+    `ToolNode` của LangGraph mặc định NÉM LẠI mọi lỗi (`_default_handle_tool_errors`), nên một bài
+    không tồn tại hay judge tạm hỏng sẽ làm sập cả run: trình duyệt treo ở dòng tool đang chạy,
+    không có câu trả lời, không có lỗi. Trả về chuỗi thì model đọc được, nói lại cho giảng viên,
+    và đi tiếp.
+    """
+    if isinstance(exc, ToolCallError):
+        return f"Tool thất bại: {exc}"
+    # Lỗi ngoài dự tính: không đưa chi tiết vào lịch sử hội thoại (nó có thể kèm URL, payload).
+    logger.exception("Lecter tool lỗi ngoài dự tính")
+    return "Tool gặp lỗi hệ thống. Hãy nói với giảng viên và thử hướng khác."
+
+
 def build() -> Any:
     workflow = StateGraph(LecterState)
     workflow.add_node("chat", chat)
-    workflow.add_node("tools", ToolNode(SERVER_TOOLS))
+    workflow.add_node("tools", ToolNode(SERVER_TOOLS, handle_tool_errors=tool_error))
     workflow.add_edge("tools", "chat")
     workflow.set_entry_point("chat")
     return workflow.compile(checkpointer=MemorySaver())

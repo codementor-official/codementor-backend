@@ -15,12 +15,56 @@ from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from app.lecter import http
+from app.lecter import http, validate
 from app.lecter.http import ToolCallError, clip
+from app.lecter.validate import JUDGE_LANGUAGES, normalize_language
 
 # Trần trả về. Model không cần 20 bài để biết "chủ đề này đã có bài rồi".
 MAX_SEARCH_ITEMS = 10
 MAX_FAILING_CASES = 3
+
+
+def _check_run_mode(test_cases: list[dict], signature: dict | None) -> str | None:
+    """Chặn hai cách gọi làm bộ chấm nổ thay vì trả verdict.
+
+    Bỏ `signature` là rơi vào chế độ stdin/stdout, và ở đó bộ chấm SO SÁNH CHUỖI: nó gọi
+    `expected.strip()`, nên một `expected` dạng số làm nó ném AttributeError và trả 500 không kèm
+    lý do (`apps/judge-service/app/services/judgement.py:65`). Model đã mất ba lượt vì đúng chỗ này.
+    """
+    if signature:
+        return None
+
+    with_args = [case.get("order") for case in test_cases if case.get("args") is not None]
+    if with_args:
+        return (
+            f"THIẾU `signature`: test case {', '.join(map(str, with_args))} dùng `args`, tức "
+            "chế độ hàm, nhưng lời gọi không có `signature`. Gửi kèm signature (functionName, "
+            "parameters, "
+            "returnType) — đúng cái sẽ lưu vào `content.signature`."
+        )
+
+    bad = [
+        case.get("order")
+        for case in test_cases
+        if not isinstance(case.get("input", ""), str)
+        or not isinstance(case.get("expected", ""), str)
+    ]
+    if bad:
+        return (
+            f"SAI KIỂU Ở CHẾ ĐỘ STDIN: test case {', '.join(map(str, bad))} có `input` hoặc "
+            "`expected` không phải chuỗi. Chế độ stdin so sánh văn bản, nên dùng \"55\" chứ không "
+            "phải 55. Muốn dùng giá trị có kiểu thì gửi `signature` để chạy chế độ hàm."
+        )
+    return None
+
+
+def _unsupported_language_error(unknown: list[str]) -> str:
+    """Chặn tại chỗ thay vì để bộ chấm trả lỗi 5xx — model đọc câu này rồi sửa ngay trong lượt."""
+    return (
+        f"SAI ID NGÔN NGỮ: {', '.join(unknown)}. "
+        f"Bộ chấm chỉ nhận id viết thường: {', '.join(JUDGE_LANGUAGES)}. "
+        "Dùng đúng id đó cho cả `run_solution` lẫn `languages[].id` khi lưu nội dung."
+    )
 
 
 @tool
@@ -92,13 +136,18 @@ async def generate_starter(
     KHÔNG tự viết starter code — bộ chấm sinh starter và driver từ cùng một module, tự viết tay là
     chữ ký hai bên lệch nhau.
 
-    `languages`: ví dụ ["python", "cpp"].
+    `languages`: id viết THƯỜNG, một trong python, javascript, typescript, java, go, php, c,
+    cpp. Ví dụ ["python", "cpp"].
     `signature`: {"functionName": "two_sum", "parameters": [{"name": "nums",
     "type": {"kind": "list", "of": {"kind": "int"}}}, {"name": "k", "type": {"kind": "int"}}],
     "returnType": {"kind": "list", "of": {"kind": "int"}}}.
     """
+    ids = [normalize_language(language) for language in languages]
+    unknown = [language for language in ids if language not in JUDGE_LANGUAGES]
+    if unknown:
+        return _unsupported_language_error(unknown)
     data = await http.judge(
-        "POST", "/api/v1/judge/starter", config, json_body={"languages": languages, "spec": signature}
+        "POST", "/api/v1/judge/starter", config, json_body={"languages": ids, "spec": signature}
     )
     starters = (data or {}).get("starters") or {}
     unsupported = (data or {}).get("unsupported") or {}
@@ -119,6 +168,10 @@ async def run_solution(
 ) -> str:
     """Chạy lời giải mẫu qua bộ chấm thật. Đây là bước xác nhận bắt buộc trước khi đề xuất bài.
 
+    `language` là ID viết THƯỜNG, không phải nhãn hiển thị: một trong
+    python, javascript, typescript, java, go, php, c, cpp. Gửi "Python" hay "Python 3.11" sẽ bị
+    bộ chấm từ chối.
+
     Hai chế độ, quyết định bởi việc có `signature` hay không:
     - Chế độ hàm (có `signature`): mỗi test case là {"order": 1, "args": [[1,2,3], 5],
       "expected": [0,1]}. `args` phải đúng thứ tự và đúng số lượng tham số của signature.
@@ -128,8 +181,16 @@ async def run_solution(
     Chưa biết `expected` thì cứ để null: kết quả trả về có `actual` của từng case, dùng chính nó
     làm `expected` — đó là cách sinh đáp án đúng theo định nghĩa, vì nó chạy lời giải mẫu thật.
     """
+    language_id = normalize_language(language)
+    if language_id not in JUDGE_LANGUAGES:
+        return _unsupported_language_error([language_id])
+
+    mode_error = _check_run_mode(test_cases, signature)
+    if mode_error:
+        return mode_error
+
     body: dict[str, Any] = {
-        "language": language,
+        "language": language_id,
         "sourceCode": source_code,
         "timeLimitMs": time_limit_ms,
         "memoryLimitKb": memory_limit_kb,
@@ -171,8 +232,33 @@ async def run_solution(
     return "\n".join(lines)
 
 
+@tool
+async def validate_exercise_content(content: dict) -> str:
+    """Kiểm nội dung bài code TRƯỚC khi đề xuất lưu. Bắt buộc gọi trước `save_exercise_content`.
+
+    Trả về hoặc "HỢP LỆ" kèm cảnh báo, hoặc danh sách lỗi phải sửa. Đề xuất một nội dung còn lỗi
+    nghĩa là người soạn bấm xác nhận rồi mới thấy lỗi, và họ không sửa được payload — chỉ còn cách
+    bỏ qua.
+
+    `content` là đúng object sẽ gửi cho `save_exercise_content`, không phải bản rút gọn.
+    """
+    errors = validate.check_shape(content)
+    if errors:
+        return "CHƯA LƯU ĐƯỢC, phải sửa:\n" + "\n".join(f"- {line}" for line in errors)
+
+    warnings = validate.check_submission(content)
+    if warnings:
+        return (
+            "HỢP LỆ để lưu. Nhưng chưa gửi duyệt được, còn thiếu:\n"
+            + "\n".join(f"- {line}" for line in warnings)
+            + "\nCứ đề xuất lưu, và nói cho người soạn biết những thiếu sót này."
+        )
+    return "HỢP LỆ. Lưu được và gửi duyệt được."
+
+
 SERVER_TOOLS: tuple[Any, ...] = (
     search_exercises,
+    validate_exercise_content,
     read_exercise,
     list_topics,
     generate_starter,
