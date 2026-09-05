@@ -1,0 +1,182 @@
+"""Tool chạy phía server: chỉ ĐỌC kho nội dung và CHẠY THỬ mã.
+
+Không có tool nào ở đây ghi vào cơ sở dữ liệu. Ba tool ghi (`create_exercise`,
+`update_exercise_meta`, `save_exercise_content`) do trình duyệt khai báo và tự thi hành sau khi
+người dùng bấm xác nhận — xem `apps/lecturer/src/features/lecter/hitl.tsx`. Đó không phải quy ước
+mềm: kẻ tấn công tự khai thêm một tool `delete_exercise` cũng chỉ gọi được thứ token của họ vốn đã
+gọi được, còn ai-service thì không cầm credential ghi nào cả.
+
+Không đăng ký: xoá, gửi duyệt, kiểm duyệt, công khai, fork. Không phải vì prompt cấm — vì chúng
+không tồn tại trong danh sách này.
+"""
+
+from typing import Any, Literal
+
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
+
+from app.lecter import http
+from app.lecter.http import ToolCallError, clip
+
+# Trần trả về. Model không cần 20 bài để biết "chủ đề này đã có bài rồi".
+MAX_SEARCH_ITEMS = 10
+MAX_FAILING_CASES = 3
+
+
+@tool
+async def search_exercises(
+    query: str,
+    config: RunnableConfig,
+    difficulty: Literal["easy", "medium", "hard"] | None = None,
+) -> str:
+    """Tìm bài code đã công khai trong kho, theo từ khoá tiêu đề. Dùng TRƯỚC khi soạn bài mới để
+    biết chủ đề đó đã có bài chưa. Chỉ trả về bài đã public — bài nháp của giảng viên không nằm ở
+    đây."""
+    params: dict[str, Any] = {"q": query[:200], "limit": MAX_SEARCH_ITEMS}
+    if difficulty:
+        params["difficulty"] = difficulty
+    page = await http.exercise("GET", "/api/v1/exercises", config, params=params)
+    items = (page or {}).get("items", [])[:MAX_SEARCH_ITEMS]
+    if not items:
+        return "Không có bài nào khớp."
+    return "\n".join(
+        f"- {item['id']} · {item['title']} · {item.get('difficulty', '?')}"
+        f" · chủ đề: {', '.join(topic['name'] for topic in item.get('topics') or []) or 'chưa gắn'}"
+        for item in items
+    )
+
+
+@tool
+async def read_exercise(exercise_id: str, config: RunnableConfig) -> str:
+    """Đọc chi tiết một bài code theo id, gồm cả đề bài và cấu hình chấm nếu người dùng là tác giả.
+    Dùng khi cần sửa một bài đã có, hoặc lấy một bài đã tốt làm mẫu."""
+    data = await http.exercise("GET", f"/api/v1/exercises/{exercise_id}", config)
+    content = (data or {}).get("content") or {}
+    return clip(
+        {
+            "id": data.get("id"),
+            "slug": data.get("slug"),
+            "title": data.get("title"),
+            "status": data.get("status"),
+            "difficulty": data.get("difficulty"),
+            "summary": data.get("summary"),
+            "timeLimitMs": data.get("timeLimitMs"),
+            "memoryLimitKb": data.get("memoryLimitKb"),
+            "tagIds": data.get("tagIds"),
+            "ioMode": content.get("ioMode"),
+            "signature": content.get("signature"),
+            "statement": clip(content.get("statement") or "", 2000),
+            "testCaseCount": len(content.get("testCases") or []),
+            "languages": [lang.get("id") for lang in content.get("languages") or []],
+        },
+        6000,
+    )
+
+
+@tool
+async def list_topics(config: RunnableConfig) -> str:
+    """Danh sách chủ đề (tag) có thật trong hệ thống, kèm id. Bắt buộc gọi trước khi đề xuất
+    `tagIds` — id bịa ra sẽ bị backend từ chối."""
+    tags = await http.core("GET", "/api/v1/tags", config)
+    return "\n".join(f"- {tag['id']} · {tag['name']}" for tag in (tags or [])[:200]) or "Chưa có chủ đề nào."
+
+
+@tool
+async def generate_starter(
+    languages: list[str],
+    signature: dict,
+    config: RunnableConfig,
+) -> str:
+    """Sinh mã khởi tạo (starter code) từ chữ ký hàm, cho từng ngôn ngữ.
+
+    KHÔNG tự viết starter code — bộ chấm sinh starter và driver từ cùng một module, tự viết tay là
+    chữ ký hai bên lệch nhau.
+
+    `languages`: ví dụ ["python", "cpp"].
+    `signature`: {"functionName": "two_sum", "parameters": [{"name": "nums",
+    "type": {"kind": "list", "of": {"kind": "int"}}}, {"name": "k", "type": {"kind": "int"}}],
+    "returnType": {"kind": "list", "of": {"kind": "int"}}}.
+    """
+    data = await http.judge(
+        "POST", "/api/v1/judge/starter", config, json_body={"languages": languages, "spec": signature}
+    )
+    starters = (data or {}).get("starters") or {}
+    unsupported = (data or {}).get("unsupported") or {}
+    lines = [f"### {lang}\n{code}" for lang, code in starters.items()]
+    lines += [f"### {lang}: KHÔNG hỗ trợ — {reason}" for lang, reason in unsupported.items()]
+    return clip("\n\n".join(lines), 8000)
+
+
+@tool
+async def run_solution(
+    language: str,
+    source_code: str,
+    test_cases: list[dict],
+    config: RunnableConfig,
+    signature: dict | None = None,
+    time_limit_ms: int = 1000,
+    memory_limit_kb: int = 262144,
+) -> str:
+    """Chạy lời giải mẫu qua bộ chấm thật. Đây là bước xác nhận bắt buộc trước khi đề xuất bài.
+
+    Hai chế độ, quyết định bởi việc có `signature` hay không:
+    - Chế độ hàm (có `signature`): mỗi test case là {"order": 1, "args": [[1,2,3], 5],
+      "expected": [0,1]}. `args` phải đúng thứ tự và đúng số lượng tham số của signature.
+    - Chế độ stdin/stdout (không `signature`): mỗi test case là {"order": 1, "input": "3\\n1 2 3",
+      "expected": "6"}. `order` bắt đầu từ 1.
+
+    Chưa biết `expected` thì cứ để null: kết quả trả về có `actual` của từng case, dùng chính nó
+    làm `expected` — đó là cách sinh đáp án đúng theo định nghĩa, vì nó chạy lời giải mẫu thật.
+    """
+    body: dict[str, Any] = {
+        "language": language,
+        "sourceCode": source_code,
+        "timeLimitMs": time_limit_ms,
+        "memoryLimitKb": memory_limit_kb,
+        "testCases": test_cases,
+    }
+    if signature:
+        body["spec"] = signature
+
+    try:
+        result = await http.judge("POST", "/api/v1/judge/run", config, json_body=body)
+    except ToolCallError as exc:
+        # Bộ chấm hỏng KHÔNG được làm chết cả lượt. Trả về câu mô tả để model biết mà nói lại với
+        # giảng viên, thay vì im lặng đề xuất một bài chưa được kiểm chứng.
+        return f"CHƯA XÁC NHẬN ĐƯỢC: {exc}"
+
+    result = result or {}
+    cases = result.get("cases") or []
+    failing = [case for case in cases if case.get("verdict") != "accepted"][:MAX_FAILING_CASES]
+
+    lines = [
+        f"verdict={result.get('verdict')} "
+        f"pass={result.get('passedTests')}/{result.get('totalTests')} "
+        f"{result.get('runtimeMs')}ms"
+    ]
+    if result.get("compileOutput"):
+        lines.append(f"Lỗi biên dịch: {clip(result['compileOutput'], 1500)}")
+    for case in failing:
+        lines.append(
+            f"- case #{case.get('order')} {case.get('verdict')}: "
+            f"expected={clip(case.get('expected'))} actual={clip(case.get('actual'))}"
+            + (f" stderr={clip(case.get('stderr'))}" if case.get("stderr") else "")
+        )
+    if cases and not failing:
+        lines.append("Tất cả case đều đúng. Kết quả `actual` dùng làm `expected` được.")
+        lines.append(
+            "actual theo thứ tự case: "
+            + clip([case.get("actual") for case in cases], 2000)
+        )
+    return "\n".join(lines)
+
+
+SERVER_TOOLS: tuple[Any, ...] = (
+    search_exercises,
+    read_exercise,
+    list_topics,
+    generate_starter,
+    run_solution,
+)
+
+__all__ = ["SERVER_TOOLS", "ToolCallError"]

@@ -22,6 +22,19 @@ class Settings(BaseSettings):
     ai_request_timeout_ms: int = Field(default=90000, ge=5000, le=180000)
     ai_daily_request_limit: int = Field(default=50, ge=1, le=1000)
     ai_suggest_daily_limit: int = Field(default=100, ge=1, le=2000)
+    # Một run Lecter tiêu 5-15 lời gọi model (soạn đề -> solution -> chạy thử -> sửa ->
+    # chạy lại), nên hạn mức của nó thấp hơn hẳn hai bề mặt kia và đếm bằng namespace
+    # riêng trong `ai_usage`.
+    ai_lecter_daily_limit: int = Field(default=30, ge=1, le=500)
+    # Việc suy luận (soạn đề, viết lời giải) cần model khác việc mẫu (gợi ý testcase).
+    # Để trống thì rơi về `openai_chat_model`.
+    ai_model_smart: str = ""
+    # Lecter gọi thẳng service, không vòng lại Kong: mỗi service tự verify JWT Keycloak
+    # (kong.yml không có plugin jwt) nên forward Authorization là đủ, và đi thẳng thì
+    # không phải hairpin qua gateway từ bên trong mạng nội bộ.
+    core_service_url: str = "http://localhost:3001"
+    exercise_service_url: str = "http://localhost:3003"
+    judge_service_url: str = "http://localhost:3007"
     # Cùng tên biến mà Nest và judge-service đang dùng. KHÔNG đặt biến riêng cho
     # ai-service: hai issuer lệch nhau thì đăng nhập vẫn được mà mọi lời gọi trả 401.
     keycloak_issuer: str = ""
@@ -39,6 +52,10 @@ class Settings(BaseSettings):
     @property
     def configured(self) -> bool:
         return bool(self.openai_api_key.get_secret_value().strip())
+
+    @property
+    def smart_model(self) -> str:
+        return self.ai_model_smart.strip() or self.openai_chat_model
 
 
 settings = Settings()

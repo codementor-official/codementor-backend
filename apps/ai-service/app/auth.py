@@ -61,4 +61,9 @@ def require_user(
     if not subject:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token không có chủ thể.")
     request.state.user_id = subject
+    # Lecter forward chính token này khi đọc exercise-service / judge-service, để Nest áp
+    # đúng guard @Roles của nó thay vì ai-service viết lại phân quyền bằng Python. Chỉ sống
+    # trong tiến trình, không log, không đưa vào state của graph (state bị phát ngược về
+    # trình duyệt bằng STATE_SNAPSHOT).
+    request.state.access_token = credentials.credentials
     return claims

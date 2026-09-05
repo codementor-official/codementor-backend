@@ -10,6 +10,7 @@ from pymongo.errors import PyMongoError
 
 from app.config import settings
 from app.documents import DocumentStorage
+from app.lecter.endpoint import router as lecter_router
 from app.models import InternalRequest
 from app.provider import OpenAIProvider
 from app.rag import RagService
@@ -81,6 +82,7 @@ async def mongo_error(_request: Request, _exc: PyMongoError):
 
 
 app.include_router(suggest_router)
+app.include_router(lecter_router)
 
 
 @app.get("/api/v1/health")

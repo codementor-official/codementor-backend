@@ -16,10 +16,20 @@ dependencies = [
   "tiktoken>=0.12,<1",
   # Verify JWT Keycloak cho đường công khai /api/v1/ai/*, y hệt judge-service.
   "pyjwt[crypto]>=2.10,<3",
+  # Agent Lecter. `langchain` (không chỉ `langchain-core`) là yêu cầu cứng của
+  # ag-ui-langgraph; nó dịch graph LangGraph sang sự kiện AG-UI mà trình duyệt hiểu.
+  # Chưa cài langgraph-checkpoint-mongodb: HITL kiểu frontend-tool kết thúc lượt, và
+  # client AG-UI gửi lại toàn bộ mảng messages mỗi run, nên MemorySaver là đủ đúng.
+  "langgraph>=1.2,<2",
+  "langchain>=1.4,<2",
+  "langchain-openai>=1.6,<2",
+  "ag-ui-langgraph>=0.0.44,<0.1",
+  # Gọi Nest/judge bằng token của chính người dùng. Trước ở dev-dep (chỉ để test).
+  "httpx>=0.28,<1",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.9,<1", "httpx>=0.28,<1"]
+dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.9,<1"]
 
 [tool.ruff]
 line-length = 100
