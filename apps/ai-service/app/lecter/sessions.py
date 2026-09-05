@@ -47,8 +47,13 @@ async def save(db, user_id: str, thread_id: str, graph) -> None:
         state = await graph.aget_state({"configurable": {"thread_id": thread_id}})
         # `langchain_messages_to_agui` trả về model Pydantic của ag-ui; pymongo không mã hoá
         # được chúng, phải đổi sang dict trước.
+        #
+        # `by_alias=True` không phải tuỳ chọn: model của ag-ui đặt tên trường theo snake_case còn
+        # dây dẫn AG-UI là camelCase (`tool_calls` → `toolCalls`, `tool_call_id` → `toolCallId`).
+        # Thiếu nó thì bản ghi lưu xuống không hợp lệ với schema TypeScript, và lịch sử nạp lại
+        # sẽ rụng mất toàn bộ tool call.
         messages = [
-            message.model_dump(exclude_none=True)
+            message.model_dump(exclude_none=True, by_alias=True)
             for message in langchain_messages_to_agui(state.values.get("messages", []))
         ]
         if not messages:
