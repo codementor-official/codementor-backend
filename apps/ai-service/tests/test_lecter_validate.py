@@ -67,7 +67,7 @@ def test_submission_warnings_do_not_block_saving():
     thin = {"statement": "x", "languages": [{"id": "python", "label": "Python"}], "testCases": []}
     assert validate.check_shape(thin) == []
     warnings = validate.check_submission(thin)
-    assert any("lời giải mẫu" in w for w in warnings)
+    assert any("referenceSolution" in w for w in warnings)
     assert any("test case" in w for w in warnings)
 
 
@@ -113,3 +113,25 @@ def test_stdin_mode_requires_string_expected():
     assert validate.check_shape(stdin_content) == []
     warnings = validate.check_submission(stdin_content)
     assert any("dạng chuỗi" in w for w in warnings)
+
+
+def test_missing_languages_blocks_saving():
+    """Bug thật (thread 7d2ffe9c): model soạn xong content nhưng quên `languages`, validate trả
+    "HỢP LỆ để lưu, nhưng còn thiếu…", model đọc nửa sau rồi gửi lại y hệt ba lần và bỏ cuộc —
+    giảng viên nhận về bài nháp chỉ có tiêu đề. `languages` giờ chặn thẳng."""
+    without = {key: value for key, value in VALID.items() if key != "languages"}
+    # Backend vẫn cho lưu: đây là luật của riêng Lecter, không phải của `SaveContentDto`.
+    assert validate.check_shape(without) == []
+    blocking = validate.check_reference_solutions(without)
+    assert len(blocking) == 1
+    assert "content.languages" in blocking[0] and "referenceSolution" in blocking[0]
+
+
+def test_language_without_reference_solution_blocks_saving():
+    half = {**VALID, "languages": [{"id": "go", "label": "Go"}]}
+    assert any("referenceSolution" in line for line in validate.check_reference_solutions(half))
+
+
+def test_complete_content_has_nothing_blocking():
+    assert validate.check_reference_solutions(VALID) == []
+    assert validate.check_submission(VALID) == []

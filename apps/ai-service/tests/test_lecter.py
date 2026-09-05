@@ -7,9 +7,10 @@ bộ chấm hỏng có thể làm chết cả lượt thay vì báo lại, và k
 import json
 
 import pytest
+from langchain_core.messages import AIMessage, ToolMessage
 
 from app.lecter import http, tools
-from app.lecter.graph import _frontend_names
+from app.lecter.graph import _frontend_names, repeated_calls
 
 
 def test_frontend_names_excludes_server_tools():
@@ -185,3 +186,50 @@ def test_dropping_a_message_takes_its_answered_siblings_too():
         ToolMessage("xong", tool_call_id="a"),  # "b" không bao giờ có kết quả
     ]
     assert drop_dangling_tool_calls(messages) == [messages[0]]
+
+
+def _ai(call_id: str, name: str, args: dict):
+    return AIMessage(
+        content="",
+        tool_calls=[{"id": call_id, "name": name, "args": args, "type": "tool_call"}],
+    )
+
+
+def test_repeated_call_is_nudged_once():
+    """Bug thật: `validate_exercise_content` bị gọi bốn lần, ba lần cuối với payload giống nhau
+    từng byte. Model đọc lại đúng một câu trả lời rồi bỏ cuộc, tiêu ba lượt gọi model."""
+    args = {"content": {"statement": "x"}}
+    history = [
+        _ai("a", "validate_exercise_content", args),
+        ToolMessage(tool_call_id="a", content="CHƯA LƯU ĐƯỢC, phải sửa:\n- thiếu languages"),
+    ]
+    again = [{"id": "b", "name": "validate_exercise_content", "args": args, "type": "tool_call"}]
+
+    nudges = repeated_calls(history, again)
+    assert len(nudges) == 1 and nudges[0].tool_call_id == "b"
+
+    # Nhắc lần hai sẽ thành vòng lặp `chat` -> `chat` và bật recursion_limit: tệ hơn hiện trạng.
+    history += [_ai("b", "validate_exercise_content", args), nudges[0]]
+    assert repeated_calls(history, [{**again[0], "id": "c"}]) == []
+
+
+def test_changed_args_are_not_nudged():
+    history = [
+        _ai("a", "validate_exercise_content", {"content": {"statement": "x"}}),
+        ToolMessage(tool_call_id="a", content="CHƯA LƯU ĐƯỢC"),
+    ]
+    fixed = [{
+        "id": "b",
+        "name": "validate_exercise_content",
+        "args": {"content": {"statement": "x", "languages": [{"id": "python"}]}},
+        "type": "tool_call",
+    }]
+    assert repeated_calls(history, fixed) == []
+
+
+def test_unanswered_call_is_not_a_repeat():
+    """Lời gọi chưa có kết quả không tính là lặp — `drop_dangling_tool_calls` sẽ dọn nó."""
+    args = {"content": {}}
+    history = [_ai("a", "validate_exercise_content", args)]
+    again = [{"id": "b", "name": "validate_exercise_content", "args": args, "type": "tool_call"}]
+    assert repeated_calls(history, again) == []

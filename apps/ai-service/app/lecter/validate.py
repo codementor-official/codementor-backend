@@ -267,34 +267,56 @@ def check_shape(content: Any) -> list[str]:
     return errors
 
 
+def check_reference_solutions(content: dict) -> list[str]:
+    """Thiếu sót về `languages` — luật của riêng Lecter, KHÔNG phải của backend.
+
+    Backend cho lưu content không có `languages`: soạn dở trong studio rồi bổ sung sau là chuyện
+    thường. Lecter thì khác — nó chỉ đề xuất lưu SAU khi đã chạy lời giải mẫu qua bộ chấm, nên
+    lúc đó đoạn code cần lưu đang nằm sẵn trong tay nó. Bỏ qua là ra đúng cái vỏ rỗng: bài nháp
+    có tiêu đề, không đề, không testcase, không ngôn ngữ nào để học viên mở editor.
+
+    Tách khỏi `check_submission` để `validate_exercise_content` chặn thẳng. Xếp chung với cảnh
+    báo gửi duyệt thì câu trả lời thành "HỢP LỆ để lưu, nhưng còn thiếu…" — model đọc nửa sau,
+    quay lại sửa, gửi lại y hệt ba lần rồi bỏ cuộc và bảo người soạn tự lưu trong studio.
+    """
+    languages = content.get("languages") or []
+    if not languages:
+        return [
+            "thiếu `content.languages`. Mỗi ngôn ngữ một object "
+            '{"id": "python", "label": "Python", "referenceSolution": "<đúng sourceCode vừa '
+            'chạy qua bộ chấm>"} — `id` viết thường, một trong '
+            f"{', '.join(JUDGE_LANGUAGES)}"
+        ]
+
+    missing: list[str] = []
+    # Id sai thì bài lưu được nhưng KHÔNG chấm được — học viên nộp bài mới phát hiện.
+    wrong = [
+        lang.get("id")
+        for lang in languages
+        if isinstance(lang, dict) and lang.get("id") not in JUDGE_LANGUAGES
+    ]
+    if wrong:
+        missing.append(
+            f"id ngôn ngữ không hợp lệ: {', '.join(map(str, wrong))} "
+            f"(phải là một trong {', '.join(JUDGE_LANGUAGES)}, viết thường)"
+        )
+    without = [
+        lang.get("label") or lang.get("id")
+        for lang in languages
+        if isinstance(lang, dict) and not (lang.get("referenceSolution") or "").strip()
+    ]
+    if without:
+        missing.append(f"thiếu `referenceSolution` cho {', '.join(map(str, without))}")
+    return missing
+
+
 def check_submission(content: dict) -> list[str]:
     """Thiếu sót chặn GỬI DUYỆT nhưng không chặn lưu. Trả về dạng cảnh báo."""
     missing: list[str] = []
     if not (content.get("statement") or "").strip():
         missing.append("đề bài")
 
-    languages = content.get("languages") or []
-    if not languages:
-        missing.append("ít nhất một ngôn ngữ")
-    else:
-        # Id sai thì bài lưu được nhưng KHÔNG chấm được — học viên nộp bài mới phát hiện.
-        wrong = [
-            lang.get("id")
-            for lang in languages
-            if isinstance(lang, dict) and lang.get("id") not in JUDGE_LANGUAGES
-        ]
-        if wrong:
-            missing.append(
-                f"id ngôn ngữ không hợp lệ: {', '.join(map(str, wrong))} "
-                f"(phải là một trong {', '.join(JUDGE_LANGUAGES)}, viết thường)"
-            )
-        without = [
-            lang.get("label") or lang.get("id")
-            for lang in languages
-            if isinstance(lang, dict) and not (lang.get("referenceSolution") or "").strip()
-        ]
-        if without:
-            missing.append(f"lời giải mẫu cho {', '.join(map(str, without))}")
+    missing.extend(check_reference_solutions(content))
 
     cases = content.get("testCases") or []
     if len(cases) < MIN_TEST_CASES:

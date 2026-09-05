@@ -27,8 +27,11 @@ class Settings(BaseSettings):
     # riêng trong `ai_usage`.
     ai_lecter_daily_limit: int = Field(default=30, ge=1, le=500)
     # Việc suy luận (soạn đề, viết lời giải) cần model khác việc mẫu (gợi ý testcase).
-    # Để trống thì rơi về `openai_chat_model`.
-    ai_model_smart: str = ""
+    # Mặc định KHÔNG để trống nữa: rơi về `gpt-5-nano` nghĩa là Lecter chạy bằng model không
+    # bám nổi một quy trình gọi tool 5 bước — nó gửi lại cùng một payload ba lần rồi bỏ cuộc,
+    # để lại bài nháp chỉ có tiêu đề. Đặt biến môi trường để đổi; đặt rỗng để rơi về
+    # `openai_chat_model`.
+    ai_model_smart: str = "gpt-5.4-mini"
     # Lecter gọi thẳng service, không vòng lại Kong: mỗi service tự verify JWT Keycloak
     # (kong.yml không có plugin jwt) nên forward Authorization là đủ, và đi thẳng thì
     # không phải hairpin qua gateway từ bên trong mạng nội bộ.

@@ -10,6 +10,7 @@ bộ mảng `messages` mỗi run, nên state bền vững là thừa. Đổi san
 dùng `interrupt()` thật, sống qua việc đóng tab.
 """
 
+import json
 import logging
 from typing import Annotated, Any, Literal
 
@@ -90,7 +91,58 @@ def drop_dangling_tool_calls(messages: list[BaseMessage]) -> list[BaseMessage]:
     return kept
 
 
-async def chat(state: LecterState, config: RunnableConfig) -> Command[Literal["tools", "__end__"]]:
+REPEATED_CALL = (
+    "Bạn vừa gọi `{name}` với ĐÚNG tham số của một lần gọi trước, nên kết quả cũng y hệt và "
+    "không có gì mới để đọc. Đọc lại kết quả lần trước, SỬA tham số theo đúng thứ nó chỉ ra, "
+    "rồi mới gọi lại — hoặc chuyển sang bước kế tiếp."
+)
+
+
+def _call_key(call: dict) -> str:
+    return call["name"] + "\x00" + json.dumps(
+        call.get("args") or {}, sort_keys=True, ensure_ascii=False
+    )
+
+
+def repeated_calls(history: list[BaseMessage], calls: list[dict]) -> list[ToolMessage]:
+    """`ToolMessage` nhắc việc cho những lời gọi lặp lại y hệt, hoặc rỗng nếu cứ để chạy.
+
+    Chuyện đã xảy ra: `validate_exercise_content` bị gọi bốn lần, ba lần cuối với payload giống
+    nhau từng byte, nhận về đúng một câu trả lời, rồi model bỏ cuộc. Tốn ba lượt gọi model, một
+    phần hạn mức ngày của giảng viên, và kết thúc bằng một bài nháp rỗng.
+
+    Chỉ nhắc MỘT lần cho mỗi tool trong một hội thoại: lần nhắc thứ hai sẽ thành vòng lặp mới
+    giữa `chat` và chính nó, và bật `recursion_limit` — tệ hơn hiện trạng. Nhắc rồi mà vẫn lặp
+    thì cứ cho chạy, tốn một lời gọi tool nhưng không làm hỏng lượt.
+    """
+    answered = {
+        message.tool_call_id
+        for message in history
+        if isinstance(message, ToolMessage) and message.tool_call_id
+    }
+    seen = {
+        _call_key(call)
+        for message in history
+        if isinstance(message, AIMessage)
+        for call in (message.tool_calls or [])
+        if call["id"] in answered
+    }
+    nudged = {
+        message.content for message in history if isinstance(message, ToolMessage)
+    }
+    nudges: list[ToolMessage] = []
+    for call in calls:
+        text = REPEATED_CALL.format(name=call["name"])
+        # Còn một lời gọi mới, hoặc đã nhắc rồi → không can thiệp.
+        if _call_key(call) not in seen or text in nudged:
+            return []
+        nudges.append(ToolMessage(tool_call_id=call["id"], content=text))
+    return nudges
+
+
+async def chat(
+    state: LecterState, config: RunnableConfig
+) -> Command[Literal["chat", "tools", "__end__"]]:
     frontend = _frontend_names(state)
     model = ChatOpenAI(
         model=settings.smart_model,
@@ -110,6 +162,15 @@ async def chat(state: LecterState, config: RunnableConfig) -> Command[Literal["t
         return Command(goto="__end__", update={"messages": response, "step": "awaiting_user"})
 
     if calls:
+        # Chỉ soi tool server. Tool của trình duyệt đề xuất lại y hệt sau khi người soạn bấm
+        # "Bỏ qua" là chuyện hợp lệ — họ có thể vừa bảo "thử lại đi".
+        nudges = repeated_calls(history, calls)
+        if nudges:
+            logger.info("Lecter gọi lặp `%s`, nhắc thay vì chạy lại", calls[0]["name"])
+            return Command(
+                goto="chat",
+                update={"messages": [response, *nudges], "step": calls[0]["name"]},
+            )
         return Command(goto="tools", update={"messages": response, "step": calls[0]["name"]})
     return Command(goto="__end__", update={"messages": response, "step": "done"})
 

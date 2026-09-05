@@ -229,6 +229,13 @@ async def run_solution(
             "actual theo thứ tự case: "
             + clip([case.get("actual") for case in cases], 2000)
         )
+        # Chỗ đứt duy nhất của cả quy trình: đoạn code vừa chạy qua ĐANG nằm trong tay model,
+        # nhưng không gì nối nó với `content.languages`, nên nó soạn payload thiếu hẳn trường đó
+        # rồi kẹt ở bước validate.
+        lines.append(
+            f'Mang chính `sourceCode` vừa chạy sang content.languages: {{"id": "{language_id}", '
+            f'"label": "…", "referenceSolution": <sourceCode>}}. Thiếu là không lưu được.'
+        )
     return "\n".join(lines)
 
 
@@ -242,18 +249,22 @@ async def validate_exercise_content(content: dict) -> str:
 
     `content` là đúng object sẽ gửi cho `save_exercise_content`, không phải bản rút gọn.
     """
-    errors = validate.check_shape(content)
+    # `check_reference_solutions` là luật của riêng Lecter, không phải của backend — xem
+    # docstring của nó. Gộp vào danh sách CHẶN chứ không xếp cùng cảnh báo gửi duyệt.
+    errors = validate.check_shape(content) + validate.check_reference_solutions(content)
     if errors:
         return "CHƯA LƯU ĐƯỢC, phải sửa:\n" + "\n".join(f"- {line}" for line in errors)
 
+    # Mệnh lệnh đứng TRƯỚC cảnh báo. Đặt sau, model đọc phần "còn thiếu" rồi quay lại sửa thay vì
+    # đi tiếp, và bài không bao giờ được lưu.
     warnings = validate.check_submission(content)
     if warnings:
         return (
-            "HỢP LỆ để lưu. Nhưng chưa gửi duyệt được, còn thiếu:\n"
+            "HỢP LỆ. Gọi `save_exercise_content` NGAY BÂY GIỜ với đúng object này.\n"
+            "Rồi nói thêm cho người soạn biết — những thứ sau chỉ chặn GỬI DUYỆT, không chặn lưu:\n"
             + "\n".join(f"- {line}" for line in warnings)
-            + "\nCứ đề xuất lưu, và nói cho người soạn biết những thiếu sót này."
         )
-    return "HỢP LỆ. Lưu được và gửi duyệt được."
+    return "HỢP LỆ. Gọi `save_exercise_content` NGAY BÂY GIỜ với đúng object này."
 
 
 SERVER_TOOLS: tuple[Any, ...] = (
