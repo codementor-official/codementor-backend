@@ -65,6 +65,12 @@ export class WorkspaceController {
     private readonly config: ConfigService,
   ) {}
 
+  @Get('me/pending-assignments')
+  @ApiOperation({ summary: 'My next eight unfinished assignments across active workspaces' })
+  myPendingAssignments(@CurrentUser() user: AuthenticatedUser) {
+    return this.content.myPendingAssignments(requireHumanId(user));
+  }
+
   @Get('internal/assignments/:assignmentId/submission-context')
   @ApiOperation({ summary: 'Internal: kiểm tra bài giao trước khi submission-service chấm' })
   async assignmentSubmissionContext(

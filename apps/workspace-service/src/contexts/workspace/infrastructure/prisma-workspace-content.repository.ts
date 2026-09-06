@@ -861,6 +861,24 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     };
   }
 
+  async myPendingAssignments(userId: string) {
+    return this.prisma.$queryRaw<{ id: string; exerciseTitle: string; workspaceName: string; workspaceSlug: string; dueAt: Date | null; status: string }[]>`
+      SELECT a.id, e.title AS "exerciseTitle", g.name AS "workspaceName",
+             g.slug::text AS "workspaceSlug", ge.due_at AS "dueAt", a.status::text AS status
+      FROM assignments a
+      JOIN group_members m ON m.id = a.member_id AND m.group_id = a.group_id
+      JOIN study_groups g ON g.id = a.group_id
+      JOIN group_exercises ge ON ge.id = a.group_exercise_id AND ge.group_id = a.group_id
+      JOIN exercises e ON e.id = ge.exercise_id
+      LEFT JOIN group_member_permissions mp ON mp.group_member_id = m.id AND mp.permission = 'view_exercise'
+      LEFT JOIN group_role_permissions rp ON rp.group_id = g.id AND rp.role = m.role AND rp.permission = 'view_exercise'
+      WHERE m.user_id = ${userId}::uuid AND m.status = 'active' AND g.status = 'active'
+        AND a.status <> 'done' AND ge.deleted_at IS NULL AND ge.publication_status = 'published'
+        AND (m.role = 'owner' OR coalesce(mp.allowed, rp.allowed, true))
+      ORDER BY ge.due_at ASC NULLS LAST, a.created_at ASC, a.id
+      LIMIT 8`;
+  }
+
   async assignmentExists(groupId: string, id: string, memberId?: string) {
     return (
       (await this.prisma.assignments.count({

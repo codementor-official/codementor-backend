@@ -259,6 +259,7 @@ export interface WorkspaceContentRepository {
       groupExerciseId?: string;
     },
   ): Promise<ContentPage<WorkspaceAssignmentRecord>>;
+  myPendingAssignments(userId: string): Promise<{ id: string; exerciseTitle: string; workspaceName: string; workspaceSlug: string; dueAt: Date | null; status: string }[]>;
   assignmentExists(groupId: string, id: string, memberId?: string): Promise<boolean>;
   assignmentSubmissionContext(
     assignmentId: string,

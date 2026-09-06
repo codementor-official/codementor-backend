@@ -54,11 +54,11 @@ export class UserActivityUseCases {
    * Chuỗi đóng góp dùng cho heatmap hồ sơ. Mỗi hàng nguồn là một hành động học tập thật;
    * generate_series lấp cả ngày không hoạt động để frontend không phải tự đoán ngày thiếu.
    */
-  async calendar(actor: AuthenticatedUser, weeks = 13): Promise<ActivityCalendar> {
+  async calendar(actor: AuthenticatedUser, weeks = 13, timezone = 'UTC'): Promise<ActivityCalendar> {
     const userId = requireHumanId(actor);
     const cappedWeeks = Math.min(Math.max(weeks, 4), 52);
-    const end = new Date();
-    end.setUTCHours(0, 0, 0, 0);
+    const dateKey = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const end = new Date(`${dateKey}T00:00:00Z`);
     const start = new Date(end);
     start.setUTCDate(start.getUTCDate() - cappedWeeks * 7 + 1);
 
@@ -94,7 +94,7 @@ export class UserActivityUseCases {
              count(activities.occurred_at)::int AS count
       FROM days
       LEFT JOIN activities
-        ON (activities.occurred_at AT TIME ZONE 'UTC')::date = days.day
+        ON (activities.occurred_at AT TIME ZONE ${timezone})::date = days.day
       GROUP BY days.day
       ORDER BY days.day`;
 
@@ -109,9 +109,15 @@ export class UserActivityUseCases {
       days: rows,
       totalActivities: rows.reduce((sum, day) => sum + day.count, 0),
       activeDays: rows.filter((day) => day.count > 0).length,
-      currentStreakDays: running,
+      currentStreakDays: rows.at(-1)?.count ? running : this.trailingStreak(rows.slice(0, -1)),
       longestStreakDays,
     };
+  }
+
+  private trailingStreak(rows: ActivityCalendarDay[]): number {
+    let streak = 0;
+    for (let i = rows.length - 1; i >= 0 && rows[i].count > 0; i--) streak++;
+    return streak;
   }
 
   private async timeline(userId: string, limit: number): Promise<ActivityEntry[]> {

@@ -543,6 +543,10 @@ export class WorkspaceContentService {
     if (!(await this.content.purgeExercise(detail.id, id))) throw new NotFound('Bài tập nhóm', id);
   }
 
+  myPendingAssignments(userId: string) {
+    return this.content.myPendingAssignments(userId);
+  }
+
   async assignments(userId: string, slug: string, query: WorkspaceContentQueryDto) {
     const detail = await this.workspaces.detail(userId, slug);
     const canReview =

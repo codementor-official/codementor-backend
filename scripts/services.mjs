@@ -90,9 +90,13 @@ function stopOne(name, port) {
 // hẳn nhánh riêng để không bao giờ còn phụ thuộc vào một thư mục dist có tồn tại hay không.
 function pythonCommand(name, port) {
   const cwd = join(repoRoot, "apps", `${name}-service`);
+  // Invoke Uvicorn as a Python module instead of its generated console launcher.
+  // Windows launchers embed the virtualenv's absolute path and stop working when
+  // the repository (including .venv) is moved or copied to another directory.
+  const args = ["run", "python", "-m", "uvicorn", "app.main:app", "--host", name === "ai" ? "127.0.0.1" : "0.0.0.0", "--port", String(port)];
   return isWindows
-    ? { cmd: "cmd.exe", args: ["/c", "uv", "run", "uvicorn", "app.main:app", "--host", name === "ai" ? "127.0.0.1" : "0.0.0.0", "--port", String(port)], cwd }
-    : { cmd: "uv", args: ["run", "uvicorn", "app.main:app", "--host", name === "ai" ? "127.0.0.1" : "0.0.0.0", "--port", String(port)], cwd };
+    ? { cmd: "cmd.exe", args: ["/c", "uv", ...args], cwd }
+    : { cmd: "uv", args, cwd };
 }
 
 // Một dist cũ hơn source khởi động ngon lành và phục vụ bản build của tháng trước: service

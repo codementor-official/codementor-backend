@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # (kong.yml không có plugin jwt) nên forward Authorization là đủ, và đi thẳng thì
     # không phải hairpin qua gateway từ bên trong mạng nội bộ.
     core_service_url: str = "http://localhost:3001"
+    learning_service_url: str = "http://localhost:3002"
+    recommendation_service_url: str = "http://localhost:3013"
+    ai_dashboard_daily_limit: int = Field(default=5, ge=1, le=100)
     exercise_service_url: str = "http://localhost:3003"
     judge_service_url: str = "http://localhost:3007"
     # Cùng tên biến mà Nest và judge-service đang dùng. KHÔNG đặt biến riêng cho

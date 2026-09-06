@@ -9,6 +9,7 @@ from pymongo import AsyncMongoClient
 from pymongo.errors import PyMongoError
 
 from app.config import settings
+from app.dashboard import router as dashboard_router
 from app.documents import DocumentStorage
 from app.lecter.endpoint import router as lecter_router
 from app.models import InternalRequest
@@ -82,6 +83,7 @@ async def mongo_error(_request: Request, _exc: PyMongoError):
 
 
 app.include_router(suggest_router)
+app.include_router(dashboard_router)
 app.include_router(lecter_router)
 
 

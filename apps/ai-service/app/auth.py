@@ -48,6 +48,8 @@ def require_user(
             signing_key.key,
             algorithms=["RS256"],
             issuer=settings.keycloak_issuer,
+            # Allow small host/Keycloak clock skew, not a bypass of JWT validation.
+            leeway=5,
             # Keycloak chỉ đặt `aud` khi client được cấu hình audience mapper; bỏ kiểm khi
             # không khai báo, thay vì từ chối mọi token.
             audience=settings.keycloak_audience or None,

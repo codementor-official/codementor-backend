@@ -5,6 +5,7 @@ import { IsInt, IsOptional, Max, Min } from 'class-validator';
 import { CurrentUser, Roles } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { UserActivityUseCases } from '../application/user-activity.usecases';
+import { LearningDashboardService } from '../application/learning-dashboard.service';
 
 export class ActivityQueryDto {
   @ApiPropertyOptional({ minimum: 1, maximum: 200, default: 50 })
@@ -37,7 +38,13 @@ export class ActivityCalendarQueryDto {
 @ApiBearerAuth('access-token')
 @Controller({ path: 'activity', version: '1' })
 export class UserActivityController {
-  constructor(private readonly activity: UserActivityUseCases) {}
+  constructor(private readonly activity: UserActivityUseCases, private readonly dashboard: LearningDashboardService) {}
+
+  @Get('me/dashboard')
+  @ApiOperation({ summary: 'My learning dashboard: enrollments, activity and recorded study time' })
+  dashboardSummary(@CurrentUser() actor: AuthenticatedUser) {
+    return this.dashboard.mine(actor);
+  }
 
   @Get('me')
   @ApiOperation({ summary: 'Dòng thời gian học tập của chính tôi' })
