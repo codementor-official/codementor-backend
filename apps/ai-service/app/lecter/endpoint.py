@@ -52,6 +52,11 @@ async def run(input_data: RunAgentInput, request: Request, claims: dict = Depend
             "configurable": {
                 "auth_token": request.state.access_token,
                 "user_id": claims["sub"],
+                # Tool tài liệu đọc thẳng Mongo/S3 chứ không qua HTTP, nên nó cần chính hai
+                # đối tượng của tiến trình. Đi qua `config`, KHÔNG qua state: state được phát
+                # ngược về trình duyệt bằng STATE_SNAPSHOT.
+                "library": request.app.state.library,
+                "index": request.app.state.index,
             },
         },
     )
