@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     exercise_service_url: str = "http://localhost:3003"
     learning_service_url: str = "http://localhost:3002"
     judge_service_url: str = "http://localhost:3007"
-    workspace_service_url: str = "http://localhost:3006"
+    workspace_service_url: str = "http://localhost:3004"
     # Cùng tên biến mà Nest và judge-service đang dùng. KHÔNG đặt biến riêng cho
     # ai-service: hai issuer lệch nhau thì đăng nhập vẫn được mà mọi lời gọi trả 401.
     keycloak_issuer: str = ""

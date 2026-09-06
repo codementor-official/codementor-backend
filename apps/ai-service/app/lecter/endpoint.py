@@ -29,6 +29,7 @@ from app.auth import require_user
 from app.lecter import http, sessions, validate, verify
 from app.lecter.capability import LECTURER, WORKSPACE, Capability
 from app.lecter.graph import GRAPHS
+from app.lecter.http import ToolCallError
 
 logger = logging.getLogger("codementor.ai")
 
@@ -60,7 +61,13 @@ async def _workspace_gate(slug: str, request: Request) -> str:
     một nguồn sự thật, không viết lại luật phân quyền bằng Python.
     """
     config = {"configurable": {"auth_token": request.state.access_token}}
-    detail = await http.workspace("GET", f"/api/v1/workspaces/{slug}", config)
+    try:
+        detail = await http.workspace("GET", f"/api/v1/workspaces/{slug}", config)
+    except ToolCallError as exc:
+        # `ToolCallError` là câu dành cho MODEL đọc giữa một lượt chat. Ở đây chưa có lượt nào —
+        # để nó thoát ra ngoài thì FastAPI trả 500 kèm stack trace, và trình duyệt chỉ thấy
+        # "Internal Server Error" cho một sự cố có câu giải thích sẵn.
+        raise HTTPException(503, str(exc)) from None
     membership = (detail or {}).get("currentMembership") or {}
     permissions = membership.get("permissions") or {}
     if membership.get("role") != "owner" and not permissions.get("create_exercise"):
