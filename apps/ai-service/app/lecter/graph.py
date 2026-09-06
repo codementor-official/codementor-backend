@@ -45,15 +45,29 @@ logger = logging.getLogger("codementor.ai")
 _SERVER_TOOL_NAMES = frozenset(tool.name for tool in SERVER_TOOLS)
 
 
+def _tool_name(tool: Any) -> str | None:
+    return tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", None)
+
+
+def frontend_tools(state: LecterState) -> list[Any]:
+    """Tool do trình duyệt khai, đã loại những cái trùng tên với tool server.
+
+    Lọc ở MỘT chỗ rồi dùng cho cả định tuyến lẫn `bind_tools`. Trước đây chỉ định tuyến mới lọc,
+    nên tính chất bảo mật thì giữ được — tool server luôn thắng — nhưng danh sách gửi lên OpenAI
+    vẫn có hai mục cùng tên, và OpenAI từ chối cả yêu cầu. Một trang khai nhầm tên `run_solution`
+    không chiếm được quyền nhưng làm chết hẳn cả run.
+    """
+    return [
+        tool
+        for tool in (state.get("tools") or [])
+        if (name := _tool_name(tool)) and name not in _SERVER_TOOL_NAMES
+    ]
+
+
 def _frontend_names(state: LecterState) -> set[str]:
     """Tên tool do trình duyệt khai. Tên trùng với tool server thì tool server thắng —
     nếu không, một trang bị chèn mã có thể chiếm chỗ `run_solution` và bịa kết quả chạy thử."""
-    names = set()
-    for tool in state.get("tools") or []:
-        name = tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", None)
-        if name and name not in _SERVER_TOOL_NAMES:
-            names.add(name)
-    return names
+    return {name for tool in frontend_tools(state) if (name := _tool_name(tool))}
 
 
 def drop_dangling_tool_calls(messages: list[BaseMessage]) -> list[BaseMessage]:
@@ -89,6 +103,30 @@ def drop_dangling_tool_calls(messages: list[BaseMessage]) -> list[BaseMessage]:
             continue
         kept.append(message)
     return kept
+
+
+SKIPPED_CALL = (
+    "Chưa chạy: lượt dừng ở đây để giảng viên xác nhận đề xuất. Cần kết quả này thì gọi lại ở "
+    "lượt sau."
+)
+
+
+def unrun_tool_results(calls: list[dict], frontend: set[str]) -> list[ToolMessage]:
+    """`ToolMessage` cho những tool server bị gọi kèm một tool trình duyệt.
+
+    Model có thể gọi cả hai loại trong cùng một message. Tool trình duyệt kết thúc lượt, nên tool
+    server trong đó không bao giờ chạy — và một `tool_call` không có `ToolMessage` sẽ bị
+    `drop_dangling_tool_calls` coi là treo ở lượt sau, rồi nó bỏ CẢ MESSAGE. Kèm theo là lời gọi
+    tool trình duyệt và kết quả `{"outcome": "applied", "lessons": [...]}` của nó: mất bằng chứng
+    giảng viên đã bấm đồng ý, mất luôn danh sách `lessonId` vừa sinh ra — thứ
+    `save_lesson_contents` không có đường nào khác để biết. `_since_last_write` cũng không còn
+    thấy lệnh ghi nào để reset bộ nhớ nhắc-lặp.
+    """
+    return [
+        ToolMessage(tool_call_id=call["id"], content=SKIPPED_CALL)
+        for call in calls
+        if call["name"] not in frontend
+    ]
 
 
 REPEATED_CALL = (
@@ -176,9 +214,12 @@ async def chat(
         model=settings.smart_model,
         api_key=settings.openai_api_key.get_secret_value(),
         timeout=settings.ai_request_timeout_ms / 1000,
-        max_retries=0,
+        # Một mã 429 hay 500 lẻ của OpenAI là lỗi tạm thời. Để 0 thì nó giết cả run, trong
+        # khi suất hạn mức ngày đã bị trừ trước lúc stream mở — giảng viên mất lượt vì lỗi
+        # của nhà cung cấp, và câu họ nhận được là "đã dùng hết lượt AI hôm nay".
+        max_retries=2,
         output_version="responses/v1",
-    ).bind_tools([*SERVER_TOOLS, *(state.get("tools") or [])])
+    ).bind_tools([*SERVER_TOOLS, *frontend_tools(state)])
 
     history = drop_dangling_tool_calls(list(state["messages"]))
     response = await model.ainvoke([SystemMessage(INSTRUCTIONS), *history], config)
@@ -187,7 +228,18 @@ async def chat(
     # Tool của trình duyệt: kết thúc lượt. Trình duyệt hiện hộp xác nhận, thi hành bằng token
     # của chính người dùng, rồi gửi kết quả vào lượt kế tiếp.
     if calls and any(call["name"] in frontend for call in calls):
-        return Command(goto="__end__", update={"messages": response, "step": "awaiting_user"})
+        # Model có thể gọi kèm tool server trong cùng một message. Chúng sẽ KHÔNG chạy vì lượt
+        # dừng ở đây, nên phải tự trả lời cho chúng: một `tool_call` không có `ToolMessage` sẽ
+        # bị `drop_dangling_tool_calls` coi là treo ở lượt sau, và nó bỏ CẢ MESSAGE — kéo theo
+        # lời gọi tool trình duyệt cùng kết quả `{"outcome": "applied", "lessons": [...]}`.
+        # Mất bằng chứng giảng viên đã bấm đồng ý, mất luôn danh sách `lessonId` vừa sinh ra.
+        return Command(
+            goto="__end__",
+            update={
+                "messages": [response, *unrun_tool_results(calls, frontend)],
+                "step": "awaiting_user",
+            },
+        )
 
     if calls:
         # Chỉ soi tool server. Tool của trình duyệt đề xuất lại y hệt sau khi người soạn bấm

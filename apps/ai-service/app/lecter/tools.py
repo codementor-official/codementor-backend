@@ -27,6 +27,32 @@ MAX_SEARCH_ITEMS = 10
 MAX_FAILING_CASES = 3
 
 
+def _stdin_field_ok(value: Any) -> bool:
+    """`None` nghĩa là chưa điền — hợp lệ. Ngoài ra phải là chuỗi.
+
+    Không viết `value or ""`: `0` và `False` cũng falsy, nên chúng sẽ lọt qua đúng cái hàng rào
+    này rồi làm bộ chấm ném `AttributeError` lúc gọi `.strip()`.
+    """
+    return value is None or isinstance(value, str)
+
+
+def _drop_empty_expected(test_cases: list[dict]) -> list[dict]:
+    """Bỏ hẳn khoá `expected` khi nó là `None`.
+
+    Docstring của `run_solution` bảo model "chưa biết `expected` thì cứ để null", và cả quy trình
+    soạn bài dựng trên việc lấy `actual` làm đáp án. Nhưng `JudgeCase` là dataclass thường với
+    `expected: Any = ""`: VẮNG MẶT thì thành `""`, còn `null` tường minh thì giữ nguyên `None` và
+    đi thẳng vào `expected_output.strip()` — AttributeError, 500 không kèm lý do
+    (`apps/judge-service/app/services/judgement.py:39,65`).
+
+    Bỏ khoá đi là cách duy nhất diễn đạt "chưa có đáp án" mà bộ chấm hiểu.
+    """
+    return [
+        {key: value for key, value in case.items() if not (key == "expected" and value is None)}
+        for case in test_cases
+    ]
+
+
 def _check_run_mode(test_cases: list[dict], signature: dict | None) -> str | None:
     """Chặn hai cách gọi làm bộ chấm nổ thay vì trả verdict.
 
@@ -49,8 +75,7 @@ def _check_run_mode(test_cases: list[dict], signature: dict | None) -> str | Non
     bad = [
         case.get("order")
         for case in test_cases
-        if not isinstance(case.get("input", ""), str)
-        or not isinstance(case.get("expected", ""), str)
+        if not _stdin_field_ok(case.get("input")) or not _stdin_field_ok(case.get("expected"))
     ]
     if bad:
         return (
@@ -197,7 +222,7 @@ async def run_solution(
         "sourceCode": source_code,
         "timeLimitMs": time_limit_ms,
         "memoryLimitKb": memory_limit_kb,
-        "testCases": test_cases,
+        "testCases": _drop_empty_expected(test_cases),
     }
     if signature:
         body["spec"] = signature
@@ -290,7 +315,11 @@ def _payload_tree(chapters: list[dict]) -> list[dict]:
             "description": chapter.get("description"),
             "isOptional": bool(chapter.get("isOptional")),
             "lessons": [
-                {key: lesson.get(key) for key in _PAYLOAD_LESSON_KEYS}
+                {
+                    **{key: lesson.get(key) for key in _PAYLOAD_LESSON_KEYS},
+                    "isPreview": bool(lesson.get("isPreview")),
+                    "isOptional": bool(lesson.get("isOptional")),
+                }
                 for lesson in (chapter.get("lessons") or [])
             ],
         }

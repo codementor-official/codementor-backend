@@ -10,7 +10,13 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from app.lecter import http, tools
-from app.lecter.graph import _frontend_names, repeated_calls
+from app.lecter.graph import (
+    _frontend_names,
+    drop_dangling_tool_calls,
+    frontend_tools,
+    repeated_calls,
+    unrun_tool_results,
+)
 
 
 def test_frontend_names_excludes_server_tools():
@@ -266,3 +272,30 @@ def test_write_resets_the_repeat_memory():
         ToolMessage(tool_call_id="w", content='{"outcome":"applied"}'),
     ]
     assert repeated_calls(written, again, {"save_curriculum"}) == []
+
+
+def test_server_call_beside_a_browser_call_gets_answered():
+    """F1. Model gọi kèm `read_course` cùng `save_curriculum` trong một message. Lượt dừng ở tool
+    trình duyệt nên `read_course` không chạy — không trả lời nó thì lượt sau
+    `drop_dangling_tool_calls` bỏ CẢ message, kéo theo lệnh ghi đã được giảng viên duyệt."""
+    calls = [
+        {"id": "s", "name": "read_course", "args": {}, "type": "tool_call"},
+        {"id": "w", "name": "save_curriculum", "args": {}, "type": "tool_call"},
+    ]
+    answers = unrun_tool_results(calls, {"save_curriculum"})
+    assert [m.tool_call_id for m in answers] == ["s"]
+
+    # Có câu trả lời cho `s` rồi thì cả message sống sót qua lượt sau.
+    history = [
+        AIMessage(content="", tool_calls=calls),
+        *answers,
+        ToolMessage(tool_call_id="w", content='{"outcome":"applied"}'),
+    ]
+    assert len(drop_dangling_tool_calls(history)) == 3
+
+
+def test_duplicate_tool_name_is_dropped_before_bind():
+    """F8. Định tuyến đã ưu tiên tool server, nhưng `bind_tools` vẫn gửi hai mục cùng tên lên
+    OpenAI và bị từ chối cả yêu cầu — trang khai nhầm không chiếm được quyền nhưng giết cả run."""
+    state = {"tools": [{"name": "run_solution"}, {"name": "save_curriculum"}]}
+    assert [tool["name"] for tool in frontend_tools(state)] == ["save_curriculum"]

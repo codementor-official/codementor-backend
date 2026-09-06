@@ -5,7 +5,7 @@ một payload quên echo id sẽ xóa chương/bài đó cùng tiến độ củ
 lỗi CHẶN, không phải cảnh báo.
 """
 
-from app.lecter import validate
+from app.lecter import tools, validate
 
 CH1 = "11111111-1111-4111-8111-111111111111"
 CH2 = "11111111-1111-4111-8111-222222222222"
@@ -212,3 +212,41 @@ def test_unchanged_tree_is_detected():
 
     changed = [{**same[0], "lessons": [*same[0]["lessons"], {"title": "Bài mới", "type": "article"}]}]
     assert not validate.is_unchanged(current, changed)
+
+
+# --- Chế độ stdin: `expected` chưa biết ------------------------------------
+
+
+def test_none_expected_is_not_a_type_error():
+    """F2. `run_solution` dạy "chưa biết `expected` thì cứ để null", rồi chính hàng rào của mình
+    chặn lại vì `case.get("expected", "")` trả `None` khi khoá có mặt với giá trị null."""
+    cases = [{"order": 1, "input": "3", "expected": None}]
+    assert tools._check_run_mode(cases, None) is None
+
+
+def test_zero_expected_is_still_a_type_error():
+    """Không được sửa bằng `or ""`: `0` cũng falsy, mà `0` chính là thứ làm bộ chấm ném
+    AttributeError lúc gọi `.strip()`."""
+    cases = [{"order": 1, "input": "3", "expected": 0}]
+    assert "SAI KIỂU" in (tools._check_run_mode(cases, None) or "")
+
+
+def test_null_expected_never_reaches_the_judge():
+    """`JudgeCase.expected` mặc định `""` khi VẮNG MẶT, nhưng giữ nguyên `None` khi gửi null —
+    rồi `expected_output.strip()` nổ. Bỏ hẳn khoá là cách duy nhất bộ chấm hiểu."""
+    sent = tools._drop_empty_expected([
+        {"order": 1, "input": "3", "expected": None},
+        {"order": 2, "input": "4", "expected": "7"},
+    ])
+    assert "expected" not in sent[0]
+    assert sent[1]["expected"] == "7"
+
+
+def test_payload_tree_coerces_lesson_booleans():
+    """F9. Chương đã ép `bool()`, bài thì không — mà zod phía trình duyệt khai
+    `z.boolean().optional()`, không nhận null, và khối này là thứ model copy nguyên."""
+    tree = tools._payload_tree([
+        {"id": CH1, "title": "C", "lessons": [{"id": L1, "title": "B", "type": "article"}]},
+    ])
+    lesson = tree[0]["lessons"][0]
+    assert lesson["isPreview"] is False and lesson["isOptional"] is False

@@ -58,6 +58,10 @@ async def run(input_data: RunAgentInput, request: Request, claims: dict = Depend
     thread_id = input_data.thread_id
 
     async def stream():
+        # `finally`, không phải dòng sau vòng lặp: đóng tab giữa lúc Lecter đang trả lời làm
+        # Starlette đóng generator bằng `GeneratorExit` ngay tại `yield`, mà `GeneratorExit` là
+        # `BaseException` nên `except Exception` không bắt. Lượt đó mất trắng — đúng lúc cần lưu
+        # nhất, vì người dùng bỏ đi giữa chừng rồi sẽ quay lại tìm hội thoại.
         try:
             async for event in agent.run(input_data):
                 yield encoder.encode(event)
@@ -72,7 +76,9 @@ async def run(input_data: RunAgentInput, request: Request, claims: dict = Depend
                     code="internal_error",
                 )
             )
-        await sessions.save(rag.db, claims["sub"], thread_id, GRAPH)
+        finally:
+            # Checkpoint đã có mọi thứ đã stream ra, nên phần đã trả lời vẫn lưu nguyên.
+            await sessions.save(rag.db, claims["sub"], thread_id, GRAPH)
 
     return StreamingResponse(
         stream(),
