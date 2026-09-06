@@ -321,3 +321,35 @@ async def test_read_course_puts_the_tree_last_and_whole(monkeypatch):
     # Khối cây đứng cuối và là JSON đóng ngoặc đầy đủ.
     assert tree.rstrip().endswith("]")
     assert L1 in tree and "cắt bớt" not in tree
+
+
+def test_declaring_a_chapter_declares_its_lessons():
+    """Ca thật (`lecter:bdb77b74-…`): giảng viên bảo "bỏ chương 2", model gửi đúng
+    `remove_ids: [id chương]` — rồi vẫn bị chặn vì hai BÀI trong chương đó không được khai riêng.
+    Câu lỗi không hề nói phải làm vậy, nên model bỏ cuộc và nói với giảng viên rằng chương đó
+    "không còn nữa" — một câu sai nó suy ra từ chính lời từ chối của tool."""
+    without_chapter = [VALID[0]]  # bỏ hẳn chương thứ hai khỏi payload
+    current = {
+        "chapters": [
+            *CURRENT["chapters"],
+            {
+                "id": CH2,
+                "title": "Rẽ nhánh và vòng lặp",
+                "lessons": [
+                    {"id": "44444444-4444-4444-8444-111111111111", "title": "if / else"},
+                    {"id": "44444444-4444-4444-8444-222222222222", "title": "for và while"},
+                ],
+            },
+        ],
+    }
+
+    # Chưa khai gì: cả chương lẫn hai bài đều là xóa ngoài ý muốn.
+    assert validate.check_removals(current, without_chapter) != []
+
+    # Khai id CHƯƠNG là đủ — không phải liệt kê thêm từng bài con.
+    assert validate.check_removals(current, without_chapter, [CH2]) == []
+
+    # Nhưng cả ba vẫn phải hiện lên thẻ xác nhận để người duyệt thấy mình sắp mất gì.
+    gone = validate.find_removals(current, without_chapter, [CH2])
+    assert len(gone) == 3 and all(item["declared"] for item in gone)
+    assert {item["kind"] for item in gone} == {"chapter", "lesson"}

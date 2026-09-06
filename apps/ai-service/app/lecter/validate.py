@@ -556,21 +556,39 @@ def find_removals(
     trên hộp xác nhận. Trước đây hộp xác nhận tự tra tên từ `removeIds` do MODEL khai — nên một
     lượt quên echo id thì nó không hiện gì cả, và người duy nhất có thẩm quyền lại là người không
     có thông tin.
+
+    Khai một CHƯƠNG là khai luôn mọi bài trong nó. Bắt liệt kê thêm từng id bài là việc thừa mà
+    câu lỗi không hề nói tới: model đã gửi đúng `remove_ids` của chương, vẫn bị chặn vì hai bài
+    con, rồi bỏ cuộc và nói với giảng viên rằng chương đó "không còn nữa" — một câu sai mà nó suy
+    ra từ chính lời từ chối của tool.
     """
-    current_chapters, current_lessons = _tree_ids((current or {}).get("chapters"))
     payload_chapters, payload_lessons = _tree_ids(chapters)
     declared = set(remove_ids or [])
 
     gone: list[dict] = []
-    for kind, existing, sent in (
-        ("chapter", current_chapters, payload_chapters),
-        ("lesson", current_lessons, payload_lessons),
-    ):
-        gone += [
-            {"kind": kind, "id": identifier, "title": title, "declared": identifier in declared}
-            for identifier, title in existing.items()
-            if identifier not in sent
-        ]
+    for chapter in ((current or {}).get("chapters") or []):
+        if not isinstance(chapter, dict):
+            continue
+        chapter_id = chapter.get("id")
+        chapter_gone = bool(chapter_id) and chapter_id not in payload_chapters
+        if chapter_gone:
+            gone.append({
+                "kind": "chapter",
+                "id": chapter_id,
+                "title": str(chapter.get("title") or "chưa đặt tên"),
+                "declared": chapter_id in declared,
+            })
+        for lesson in chapter.get("lessons") or []:
+            lesson_id = lesson.get("id") if isinstance(lesson, dict) else None
+            if not lesson_id or lesson_id in payload_lessons:
+                continue
+            gone.append({
+                "kind": "lesson",
+                "id": lesson_id,
+                "title": str(lesson.get("title") or "chưa đặt tên"),
+                "declared": lesson_id in declared
+                or (chapter_gone and chapter_id in declared),
+            })
     return gone
 
 
