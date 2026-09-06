@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # chạy lại), nên hạn mức của nó thấp hơn hẳn hai bề mặt kia và đếm bằng namespace
     # riêng trong `ai_usage`.
     ai_lecter_daily_limit: int = Field(default=30, ge=1, le=500)
+    # Lecter trong nhóm học: người dùng đông hơn giảng viên một bậc (mỗi nhóm có chủ nhóm và
+    # vài phó nhóm), còn chuỗi việc thì ngắn hơn hẳn vì không có nhánh khóa học/lộ trình.
+    ai_lecter_workspace_daily_limit: int = Field(default=10, ge=1, le=200)
     # Việc suy luận (soạn đề, viết lời giải) cần model khác việc mẫu (gợi ý testcase).
     # Mặc định KHÔNG để trống nữa: rơi về `gpt-5-nano` nghĩa là Lecter chạy bằng model không
     # bám nổi một quy trình gọi tool 5 bước — nó gửi lại cùng một payload ba lần rồi bỏ cuộc,
@@ -42,6 +45,7 @@ class Settings(BaseSettings):
     exercise_service_url: str = "http://localhost:3003"
     learning_service_url: str = "http://localhost:3002"
     judge_service_url: str = "http://localhost:3007"
+    workspace_service_url: str = "http://localhost:3006"
     # Cùng tên biến mà Nest và judge-service đang dùng. KHÔNG đặt biến riêng cho
     # ai-service: hai issuer lệch nhau thì đăng nhập vẫn được mà mọi lời gọi trả 401.
     keycloak_issuer: str = ""
