@@ -1,11 +1,13 @@
 import asyncio
 import io
 import json
+import logging
 import math
 import subprocess
 import sys
 import zipfile
 from functools import lru_cache
+from urllib.parse import quote
 
 import boto3
 import tiktoken
@@ -14,33 +16,28 @@ from fastapi import HTTPException
 
 from app.config import Settings
 
+logger = logging.getLogger("codementor.ai")
+
 SUPPORTED_TYPES = ["pdf", "docx", "pptx", "txt", "md"]
 MAX_FILE_BYTES = 20 * 1024 * 1024
+# Cùng con số `AWS_S3_PRESIGNED_EXPIRES` mặc định bên Nest (`ObjectStorageService`).
+PRESIGN_SECONDS = 900
 
 
 class DocumentStorage:
-    """Read the existing Workspace S3 objects; no second upload or storage flow."""
+    """Đọc đối tượng S3 đã có; không có luồng tải lên thứ hai ở đây."""
 
     def __init__(self, config: Settings):
         self.config = config
 
-    def read(self, workspace_id: str, source: dict) -> bytes:
-        key = source.get("storageKey")
-        if not key:
-            if source["docType"] in ("txt", "md") and source.get("previewText"):
-                return source["previewText"].encode("utf-8")
-            raise HTTPException(422, "Tài liệu chưa có tệp gốc trên storage. Hãy tải lại tệp.")
-        expected = (
-            "/".join(
-                filter(
-                    None,
-                    [self.config.aws_s3_document_prefix.strip("/"), "workspaces", workspace_id],
-                )
-            )
-            + "/"
-        )
-        if not key.startswith(expected) or ".." in key:
-            raise HTTPException(403, "Tài liệu không thuộc Workspace này.")
+    def client(self):
+        """Một client S3 mới cho mỗi thao tác.
+
+        Dựng theo lượt chứ không giữ sẵn: `boto3` client không phải thứ an toàn để dùng chung
+        giữa nhiều thread, và mọi lối gọi ở đây đều chạy trong `asyncio.to_thread`. Không khai
+        khoá tường minh thì rơi về chuỗi credential mặc định, tức là IAM role trên EC2/ECS chạy
+        được mà không cần biến môi trường nào.
+        """
         if not self.config.aws_s3_bucket:
             raise HTTPException(503, "Chưa cấu hình kho lưu trữ tài liệu.")
         credentials = {}
@@ -51,8 +48,7 @@ class DocumentStorage:
             }
             if self.config.aws_session_token.get_secret_value():
                 credentials["aws_session_token"] = self.config.aws_session_token.get_secret_value()
-        # Construct a session per worker read; default credential chain supports instance roles.
-        client = boto3.session.Session().client(
+        return boto3.session.Session().client(
             "s3",
             region_name=self.config.aws_region,
             endpoint_url=self.config.aws_s3_endpoint or None,
@@ -64,6 +60,26 @@ class DocumentStorage:
             ),
             **credentials,
         )
+
+    def read(self, allowed_prefix: str, source: dict) -> bytes:
+        """Đọc tệp gốc, chỉ khi khoá của nó nằm dưới `allowed_prefix`.
+
+        Prefix do NƠI GỌI đưa vào chứ không tự dựng ở đây: mỗi chủ thể có một nhánh riêng
+        trong bucket (`…/workspaces/{id}/` cho nhóm học, `…/lecturer/{sub}/` cho tài liệu của
+        giảng viên), và tầng này không biết — cũng không nên biết — chủ thể nào đang gọi.
+
+        Hàng rào vẫn nguyên vẹn: nó là thứ duy nhất chặn một `storageKey` trỏ sang thư mục của
+        người khác. Ai gọi cũng phải dựng prefix từ danh tính ĐÃ XÁC THỰC, đừng lấy từ payload.
+        """
+        key = source.get("storageKey")
+        if not key:
+            if source["docType"] in ("txt", "md") and source.get("previewText"):
+                return source["previewText"].encode("utf-8")
+            raise HTTPException(422, "Tài liệu chưa có tệp gốc trên storage. Hãy tải lại tệp.")
+        expected = allowed_prefix if allowed_prefix.endswith("/") else allowed_prefix + "/"
+        if not key.startswith(expected) or ".." in key:
+            raise HTTPException(403, "Tài liệu không thuộc phạm vi này.")
+        client = self.client()
         try:
             result = client.get_object(Bucket=self.config.aws_s3_bucket, Key=key)
             body = result["Body"]
@@ -83,6 +99,92 @@ class DocumentStorage:
             raise HTTPException(
                 502, "Không đọc được tài liệu từ storage. Kiểm tra tệp và ENV."
             ) from None
+        finally:
+            client.close()
+
+
+    # Cùng danh sách `SUPPORTED_TYPES`, tra ngược từ đuôi tệp. Không tin `contentType` trình
+    # duyệt gửi lên: Windows gửi `application/octet-stream` cho .md, còn kẻ tấn công thì gửi gì
+    # cũng được — đuôi tệp mới là thứ quyết định trình trích văn bản nào chạy.
+    CONTENT_TYPES = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "txt": "text/plain",
+        "md": "text/markdown",
+    }
+
+    def presign_put(self, key: str, doc_type: str, size_bytes: int) -> dict:
+        """URL để trình duyệt `PUT` thẳng lên S3.
+
+        `ContentLength` nằm TRONG chữ ký, không phải chỉ kiểm ở tầng trên: thiếu nó thì một URL
+        xin ký cho 1 MB đẩy được 1 GB, và mọi giới hạn phía trên chỉ còn là lời đề nghị.
+        `ContentType` cũng vậy — ký cố định theo đuôi tệp nên trình duyệt không tự chọn được.
+        """
+        content_type = self.CONTENT_TYPES[doc_type]
+        client = self.client()
+        try:
+            url = client.generate_presigned_url(
+                "put_object",
+                Params={
+                    "Bucket": self.config.aws_s3_bucket,
+                    "Key": key,
+                    "ContentType": content_type,
+                    "ContentLength": size_bytes,
+                },
+                ExpiresIn=PRESIGN_SECONDS,
+            )
+        finally:
+            client.close()
+        return {
+            "uploadUrl": url,
+            "headers": {"Content-Type": content_type, "Content-Length": str(size_bytes)},
+            "objectKey": key,
+            "expiresInSeconds": PRESIGN_SECONDS,
+        }
+
+    def presign_get(self, key: str, filename: str, doc_type: str) -> str:
+        """URL đọc lại tệp gốc. Nhánh của tài liệu cá nhân KHÔNG công khai nên đây là đường duy nhất."""
+        client = self.client()
+        try:
+            return client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": self.config.aws_s3_bucket,
+                    "Key": key,
+                    "ResponseContentType": self.CONTENT_TYPES[doc_type],
+                    "ResponseContentDisposition": (
+                        "attachment; filename*=UTF-8''" + quote(filename, safe="")
+                    ),
+                },
+                ExpiresIn=PRESIGN_SECONDS,
+            )
+        finally:
+            client.close()
+
+    def head(self, key: str) -> int | None:
+        """Kích thước thật của đối tượng, hoặc `None` nếu chưa có.
+
+        Đây là chỗ xác nhận trình duyệt đã `PUT` xong thật. Tin lời nó nói thì một lời gọi đăng
+        ký có thể tạo ra một tài liệu trỏ tới khoá rỗng, và người dùng chỉ phát hiện khi worker
+        báo lỗi mấy giây sau.
+        """
+        client = self.client()
+        try:
+            return client.head_object(Bucket=self.config.aws_s3_bucket, Key=key)["ContentLength"]
+        except Exception:
+            return None
+        finally:
+            client.close()
+
+    def delete(self, key: str) -> None:
+        client = self.client()
+        try:
+            client.delete_object(Bucket=self.config.aws_s3_bucket, Key=key)
+        except Exception:
+            # Xoá hàng trong Mongo mới là thứ người dùng thấy; một đối tượng mồ côi trên S3 sẽ
+            # hết hạn theo lifecycle rule của bucket, và làm hỏng lệnh xoá vì nó thì tệ hơn.
+            logger.warning("Không xoá được đối tượng S3; bỏ lại cho lifecycle rule.")
         finally:
             client.close()
 

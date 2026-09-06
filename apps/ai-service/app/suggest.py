@@ -197,9 +197,9 @@ async def suggest_test_cases(
 ):
     validate_request(body)
 
-    rag = request.app.state.rag
-    rag.provider.require_configured()
-    await budget.consume(rag.db, claims["sub"], "suggest", settings.ai_suggest_daily_limit)
+    state = request.app.state
+    state.provider.require_configured()
+    await budget.consume(state.db, claims["sub"], "suggest", settings.ai_suggest_daily_limit)
 
     payload = {
         "ioMode": body.ioMode,
@@ -213,7 +213,7 @@ async def suggest_test_cases(
         ),
         "existing": [case.model_dump(mode="json", exclude_none=True) for case in body.existing],
     }
-    raw = await rag.provider.complete_json(
+    raw = await state.provider.complete_json(
         INSTRUCTIONS,
         json.dumps(payload, ensure_ascii=False),
         schema_name="test_case_suggestions",

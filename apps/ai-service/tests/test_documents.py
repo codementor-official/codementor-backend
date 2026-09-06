@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from pypdf import PdfWriter
 
 from app.config import Settings
-from app.documents import (
+from app.rag.documents import (
     DocumentStorage,
     chunk_pages,
     cosine,

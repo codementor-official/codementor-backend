@@ -42,6 +42,7 @@
     "start:document": "nest start document-service --watch",
     "start:submission": "nest start submission-service --watch",
     "start:ai": "cd apps/ai-service && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 3008",
+    "ai:start": "cd apps/ai-service && uv run python -m uvicorn app.main:app --host 127.0.0.1 --port 3008",
     "ai:install": "cd apps/ai-service && uv sync --locked",
     "ai:test": "cd apps/ai-service && uv run pytest",
     "ai:lint": "cd apps/ai-service && uv run ruff check .",

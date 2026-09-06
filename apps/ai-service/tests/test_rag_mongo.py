@@ -10,9 +10,10 @@ from fastapi import HTTPException
 from pymongo import AsyncMongoClient
 
 from app.config import settings
-from app.documents import DocumentStorage
 from app.models import InternalRequest
-from app.rag import RagService, now
+from app.rag.documents import DocumentStorage
+from app.rag.index import DocumentIndex, now
+from app.rag.service import RagService
 
 pytestmark = pytest.mark.skipif(
     os.getenv("AI_TEST_LIVE_MONGO") != "1", reason="Requires explicit live Mongo opt-in"
@@ -43,7 +44,8 @@ async def test_mongo_queue_persistence_isolation_replay_and_recovery():
     test_database_name = "codementor_ai_test_" + uuid4().hex
     db = client[test_database_name]
     provider = FakeProvider()
-    rag = RagService(db, settings, provider, DocumentStorage(settings))
+    index = DocumentIndex(db, settings, provider, DocumentStorage(settings))
+    rag = RagService(db, settings, index)
     user_id, workspace_id, document_id = str(uuid4()), str(uuid4()), str(uuid4())
     source = {
         "id": document_id,
@@ -64,7 +66,7 @@ async def test_mongo_queue_persistence_isolation_replay_and_recovery():
             assert info, "Run npm run migrate:ai first"
             await db.create_collection(name, validator=info[0]["options"]["validator"])
         assert (await rag.queue_index(req))["state"] == "queued"
-        await rag.process_next()
+        await index.process_next()
         assert (await rag.states(req))[0]["state"] == "ready"
         created = await rag.create(req)
         turn_request = InternalRequest(
@@ -75,7 +77,8 @@ async def test_mongo_queue_persistence_isolation_replay_and_recovery():
         assert await rag.ask(turn_request) == turn
         assert provider.calls == 1
         # New service object reads persisted data; no process-local history.
-        restarted = RagService(db, settings, provider, DocumentStorage(settings))
+        restarted_index = DocumentIndex(db, settings, provider, DocumentStorage(settings))
+        restarted = RagService(db, settings, restarted_index)
         loaded = await restarted.read(InternalRequest(**body, id=created["id"]))
         assert len(loaded["turns"]) == 1
         assert loaded["turns"][0]["answer"] == "> Stack dùng LIFO. [S1]"
@@ -109,7 +112,7 @@ async def test_mongo_queue_persistence_isolation_replay_and_recovery():
             {"documentId": document_id},
             {"$set": {"state": "processing", "leaseUntil": now() - timedelta(minutes=1)}},
         )
-        await restarted.process_next()
+        await restarted_index.process_next()
         assert (await restarted.states(req))[0]["state"] == "ready"
         await rag.delete(InternalRequest(**body, id=created["id"]))
         assert await db["ai_conversations"].count_documents({"_id": created["id"]}) == 0

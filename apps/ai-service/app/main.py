@@ -10,11 +10,11 @@ from pymongo.errors import PyMongoError
 
 from app.config import settings
 from app.dashboard import router as dashboard_router
-from app.documents import DocumentStorage
 from app.lecter.endpoint import router as lecter_router
 from app.models import InternalRequest
 from app.provider import OpenAIProvider
-from app.rag import RagService
+from app.rag import DocumentIndex, DocumentLibrary, DocumentStorage, RagService
+from app.rag.endpoint import router as documents_router
 from app.suggest import router as suggest_router
 
 
@@ -22,10 +22,20 @@ from app.suggest import router as suggest_router
 async def lifespan(app: FastAPI):
     client = AsyncMongoClient(settings.mongo_uri, serverSelectionTimeoutMS=3000, tz_aware=True)
     provider = OpenAIProvider(settings)
-    app.state.rag = RagService(
-        client[settings.mongo_db], settings, provider, DocumentStorage(settings)
-    )
-    worker = asyncio.create_task(app.state.rag.worker())
+    database = client[settings.mongo_db]
+    # Hạ tầng dùng chung nằm THẲNG trên `app.state`, không nấp trong một service nghiệp vụ.
+    # Trước đây dashboard, gợi ý testcase và Lecter đều lấy provider qua `app.state.rag.provider`,
+    # nên `RagService` thành sổ tra cứu dịch vụ: đổi hình dạng nó một lần là cả ba trả 500 ngay
+    # dòng đầu, và không router nào trong ba cái đó liên quan gì tới hỏi đáp tài liệu.
+    app.state.db = database
+    app.state.provider = provider
+    # MỘT `DocumentIndex` cho cả tiến trình, và đúng MỘT worker. Mỗi bề mặt dựng một bản riêng
+    # nghĩa là mỗi bản một vòng lặp poll cùng một collection, tranh nhau lease của cùng một job.
+    storage = DocumentStorage(settings)
+    app.state.index = DocumentIndex(database, settings, provider, storage)
+    app.state.rag = RagService(database, settings, app.state.index)
+    app.state.library = DocumentLibrary(database, settings, app.state.index, storage)
+    worker = asyncio.create_task(app.state.index.worker())
     try:
         yield
     finally:
@@ -85,6 +95,7 @@ async def mongo_error(_request: Request, _exc: PyMongoError):
 app.include_router(suggest_router)
 app.include_router(dashboard_router)
 app.include_router(lecter_router)
+app.include_router(documents_router)
 
 
 @app.get("/api/v1/health")

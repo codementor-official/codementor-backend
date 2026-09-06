@@ -35,9 +35,9 @@ RECURSION_LIMIT = 24
 
 @router.post("/run")
 async def run(input_data: RunAgentInput, request: Request, claims: dict = Depends(require_user)):
-    rag = request.app.state.rag
-    rag.provider.require_configured()
-    await budget.consume(rag.db, claims["sub"], "lecter", settings.ai_lecter_daily_limit)
+    state = request.app.state
+    state.provider.require_configured()
+    await budget.consume(state.db, claims["sub"], "lecter", settings.ai_lecter_daily_limit)
 
     agent = LangGraphAgent(
         name="lecter",
@@ -52,6 +52,11 @@ async def run(input_data: RunAgentInput, request: Request, claims: dict = Depend
             "configurable": {
                 "auth_token": request.state.access_token,
                 "user_id": claims["sub"],
+                # Tool tài liệu đọc thẳng Mongo/S3 chứ không qua HTTP, nên nó cần chính hai
+                # đối tượng của tiến trình. Đi qua `config`, KHÔNG qua state: state được phát
+                # ngược về trình duyệt bằng STATE_SNAPSHOT.
+                "library": request.app.state.library,
+                "index": request.app.state.index,
             },
         },
     )
@@ -79,7 +84,7 @@ async def run(input_data: RunAgentInput, request: Request, claims: dict = Depend
             )
         finally:
             # Checkpoint đã có mọi thứ đã stream ra, nên phần đã trả lời vẫn lưu nguyên.
-            await sessions.save(rag.db, claims["sub"], thread_id, GRAPH)
+            await sessions.save(state.db, claims["sub"], thread_id, GRAPH)
 
     return StreamingResponse(
         stream(),
@@ -98,6 +103,12 @@ class CurriculumCheck(BaseModel):
 
 class ExerciseContentCheck(BaseModel):
     content: dict = Field(default_factory=dict)
+
+
+class RoadmapCoursesCheck(BaseModel):
+    roadmapId: str
+    courses: list[dict] = Field(default_factory=list)
+    removeIds: list[str] = Field(default_factory=list)
 
 
 def _as_config(request: Request) -> dict:
@@ -158,14 +169,43 @@ async def check_exercise_content(
     return {"data": {"errors": errors, "warnings": warnings, "runs": runs}}
 
 
+@router.post("/check/roadmap-courses")
+async def check_roadmap_courses(
+    payload: RoadmapCoursesCheck, request: Request, claims: dict = Depends(require_user)
+):
+    """Kiểm danh sách khóa học NGAY TRƯỚC khi trình duyệt ghi.
+
+    Cùng lý do như `check_curriculum`: `validate_roadmap_courses` là một tool model TÙY Ý gọi, và
+    mảng nó đưa cho tool đó không nhất thiết là mảng nó gửi đi lưu. Endpoint này nhận đúng mảng
+    sắp ghi.
+
+    Không tiêu hạn mức ngày: ở đây không có lời gọi model nào.
+    """
+    current = await http.learning(
+        "GET", f"/api/v1/roadmaps/{payload.roadmapId}", _as_config(request)
+    ) or {}
+    errors = validate.check_roadmap_courses_shape(payload.courses)
+    errors += validate.check_course_removals(current, payload.courses, payload.removeIds)
+    return {
+        "data": {
+            "errors": errors,
+            "warnings": validate.check_roadmap_submission(current, payload.courses),
+            "removals": validate.find_course_removals(
+                current, payload.courses, payload.removeIds
+            ),
+            "status": current.get("status"),
+        }
+    }
+
+
 @router.get("/sessions")
 async def list_sessions(request: Request, claims: dict = Depends(require_user)):
-    return {"data": {"items": await sessions.listing(request.app.state.rag.db, claims["sub"])}}
+    return {"data": {"items": await sessions.listing(request.app.state.db, claims["sub"])}}
 
 
 @router.get("/sessions/{thread_id}")
 async def read_session(thread_id: str, request: Request, claims: dict = Depends(require_user)):
-    found = await sessions.read(request.app.state.rag.db, claims["sub"], thread_id)
+    found = await sessions.read(request.app.state.db, claims["sub"], thread_id)
     if not found:
         raise HTTPException(404, "Không tìm thấy hội thoại.")
     return {"data": found}
@@ -173,5 +213,5 @@ async def read_session(thread_id: str, request: Request, claims: dict = Depends(
 
 @router.delete("/sessions/{thread_id}", status_code=204)
 async def delete_session(thread_id: str, request: Request, claims: dict = Depends(require_user)):
-    if not await sessions.remove(request.app.state.rag.db, claims["sub"], thread_id):
+    if not await sessions.remove(request.app.state.db, claims["sub"], thread_id):
         raise HTTPException(404, "Không tìm thấy hội thoại.")

@@ -6,6 +6,7 @@ const schemaDir = '../../codementor-infra/database/mongo/schemas';
 const definitions = [
   ...require(`${schemaDir}/07-ai-rag.js`).definitions,
   ...require(`${schemaDir}/08-ai-agent-sessions.js`).definitions,
+  ...require(`${schemaDir}/09-ai-documents.js`).definitions,
 ];
 if (!process.env.MONGO_URI) throw new Error('MONGO_URI is required');
 const client = new MongoClient(process.env.MONGO_URI, { serverSelectionTimeoutMS: 5000 });

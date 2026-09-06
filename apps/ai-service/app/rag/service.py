@@ -1,25 +1,16 @@
-import asyncio
 import logging
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import uuid4
 
 from fastapi import HTTPException
 from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError
 
-from app import budget
 from app.config import Settings
-from app.documents import SUPPORTED_TYPES, DocumentStorage, cosine, extract_isolated
 from app.models import InternalRequest
-from app.provider import OpenAIProvider
+from app.rag.index import EPOCH, MAX_SOURCES, DocumentIndex, now
 
 logger = logging.getLogger("codementor.ai")
-EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-
-
-def now():
-    return datetime.now(UTC)
 
 
 def public_conversation(row: dict) -> dict:
@@ -96,184 +87,35 @@ def grounded_turn(request: InternalRequest, result: dict, matches: list[dict]) -
 
 
 class RagService:
-    def __init__(self, db, config: Settings, provider: OpenAIProvider, storage: DocumentStorage):
+    """Hỏi đáp tài liệu của nhóm học: hội thoại nhiều lượt, câu trả lời có trích dẫn.
+
+    Dựng TRÊN `DocumentIndex` chứ không sở hữu nó — phần xếp hàng, worker và tìm kiếm là hạ
+    tầng dùng chung, còn `ai_conversations` và `grounded_turn` chỉ nghiệp vụ này cần.
+
+    Phạm vi ở đây luôn là `workspace:{id}`; `scope` của Mongo (`{userId, workspaceId}`) là bộ
+    lọc hội thoại, khác với `scope` chuỗi của tầng index.
+    """
+
+    def __init__(self, db, config: Settings, index: DocumentIndex):
         self.db = db
         self.config = config
-        self.provider = provider
-        self.storage = storage
-        self.indexes = db["ai_document_indexes"]
+        self.index = index
         self.conversations = db["ai_conversations"]
 
-    def index_id(self, workspace_id, document_id):
-        return f"{workspace_id}:{document_id}:{self.config.openai_embedding_model}:v1"
+    @staticmethod
+    def index_scope(request: InternalRequest) -> str:
+        return f"workspace:{request.workspaceId}"
 
     def status(self):
-        return {
-            "configured": self.config.configured,
-            "embeddingModel": self.config.openai_embedding_model,
-            "chatModel": self.config.openai_chat_model,
-            "supportedTypes": SUPPORTED_TYPES,
-            "maxDocuments": 8,
-        }
+        return self.index.status()
 
     async def states(self, request: InternalRequest):
-        sources = request.source_dicts
-        keys = [self.index_id(request.workspaceId, source["id"]) for source in sources]
-        rows = await self.indexes.find({"_id": {"$in": keys}}, {"chunks": 0}).to_list(30)
-        result = []
-        for source in sources:
-            row = next(
-                (
-                    row
-                    for row in rows
-                    if row["documentId"] == source["id"]
-                    and row["source"]["revision"] == source["revision"]
-                ),
-                None,
-            )
-            result.append(
-                {
-                    "id": source["id"],
-                    "state": "unsupported"
-                    if source["docType"] not in SUPPORTED_TYPES
-                    else row["state"]
-                    if row
-                    else "not_indexed",
-                    "chunkCount": row.get("chunkCount", 0) if row else 0,
-                    **({"error": row["error"]} if row and row.get("error") else {}),
-                }
-            )
-        return result
+        return await self.index.states(self.index_scope(request), request.source_dicts)
 
     async def queue_index(self, request: InternalRequest):
-        self.provider.require_configured()
-        source = request.source_dicts[0]
-        if source["docType"] not in SUPPORTED_TYPES:
-            raise HTTPException(400, "Dùng PDF có text, DOCX, PPTX, TXT hoặc Markdown.")
-        key = self.index_id(request.workspaceId, source["id"])
-        previous = await self.indexes.find_one({"_id": key})
-        if (
-            previous
-            and previous["source"]["revision"] == source["revision"]
-            and previous["state"] in ("ready", "queued", "processing")
-        ):
-            return (await self.states(request))[0]
-        await self.consume_budget(str(request.userId))
-        try:
-            await self.indexes.update_one(
-                {
-                    "_id": key,
-                    "$or": [{"state": {"$ne": "processing"}}, {"leaseUntil": {"$lt": now()}}],
-                },
-                {
-                    "$set": {
-                        "workspaceId": str(request.workspaceId),
-                        "documentId": source["id"],
-                        "model": self.config.openai_embedding_model,
-                        "source": source,
-                        "state": "queued",
-                        "chunks": [],
-                        "chunkCount": 0,
-                        "updatedAt": now(),
-                        "leaseUntil": EPOCH,
-                        "expiresAt": now() + timedelta(days=30),
-                    },
-                    "$unset": {"error": "", "leaseId": ""},
-                },
-                upsert=True,
-            )
-        except DuplicateKeyError:
-            raise HTTPException(409, "Tài liệu đang được xử lý; vui lòng chờ.") from None
-        return (await self.states(request))[0]
-
-    async def worker(self):
-        while True:
-            try:
-                if self.config.configured:
-                    await self.process_next()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # No prompts, source text, storage keys, or credentials in logs.
-                logger.warning("Document queue unavailable; retrying on the next poll.")
-            await asyncio.sleep(3)
-
-    async def process_next(self):
-        lease = str(uuid4())
-        job = await self.indexes.find_one_and_update(
-            {
-                "model": self.config.openai_embedding_model,
-                "$or": [
-                    {"state": "queued"},
-                    {"state": "processing", "leaseUntil": {"$lt": now()}},
-                ],
-            },
-            {
-                "$set": {
-                    "state": "processing",
-                    "leaseId": lease,
-                    "leaseUntil": now() + timedelta(minutes=15),
-                    "updatedAt": now(),
-                }
-            },
-            sort=[("updatedAt", 1)],
-            return_document=ReturnDocument.AFTER,
+        return await self.index.queue(
+            self.index_scope(request), request.source_dicts[0], str(request.userId)
         )
-        if not job:
-            return
-        lock = {"_id": job["_id"], "leaseId": lease}
-        try:
-            data = await asyncio.to_thread(self.storage.read, job["workspaceId"], job["source"])
-            chunks = await extract_isolated(job["source"]["docType"], data)
-            for offset in range(0, len(chunks), 32):
-                batch = chunks[offset : offset + 32]
-                vectors = await self.provider.embed([chunk["text"] for chunk in batch])
-                for chunk, vector in zip(batch, vectors, strict=True):
-                    chunk["embedding"] = vector
-            await self.indexes.update_one(
-                lock,
-                {
-                    "$set": {
-                        "state": "ready",
-                        "chunks": chunks,
-                        "chunkCount": len(chunks),
-                        "updatedAt": now(),
-                        "leaseUntil": EPOCH,
-                        "expiresAt": now() + timedelta(days=30),
-                    },
-                    "$unset": {"leaseId": "", "error": ""},
-                },
-            )
-        except asyncio.CancelledError:
-            await self.indexes.update_one(
-                lock, {"$set": {"state": "queued", "leaseUntil": EPOCH}, "$unset": {"leaseId": ""}}
-            )
-            raise
-        except Exception as exc:
-            logger.warning("Document processing failed (%s).", type(exc).__name__)
-            message = (
-                exc.detail
-                if isinstance(exc, HTTPException)
-                else (
-                    "Xử lý tài liệu quá thời gian."
-                    if isinstance(exc, TimeoutError)
-                    else "Không xử lý được tài liệu. Kiểm tra định dạng và cấu hình backend."
-                )
-            )
-            await self.indexes.update_one(
-                lock,
-                {
-                    "$set": {
-                        "state": "failed",
-                        "error": message,
-                        "chunks": [],
-                        "chunkCount": 0,
-                        "updatedAt": now(),
-                        "leaseUntil": EPOCH,
-                    },
-                    "$unset": {"leaseId": ""},
-                },
-            )
 
     async def create(self, request: InternalRequest):
         row = {
@@ -339,7 +181,7 @@ class RagService:
         return {"deleted": True}
 
     async def ask(self, request: InternalRequest):
-        self.provider.require_configured()
+        self.index.provider.require_configured()
         row = await self.find_conversation(request)
         validate_sources(row, request.source_dicts)
         previous = next(
@@ -364,38 +206,25 @@ class RagService:
                 return self.replay(previous, request)
             if len(row["turns"]) >= 50:
                 raise HTTPException(400, "Hội thoại đã đủ 50 lượt. Hãy tạo hội thoại mới.")
-            keys = [
-                self.index_id(request.workspaceId, source["id"]) for source in request.source_dicts
-            ]
-            indexes = await self.indexes.find({"_id": {"$in": keys}, "state": "ready"}).to_list(8)
+            scope = self.index_scope(request)
+            # Kiểm ĐỦ và ĐÚNG BẢN trước khi tiêu hạn mức: `search` chỉ trả về những gì sẵn
+            # sàng, nên thiếu một nguồn ở đó là im lặng trả lời bằng tài liệu còn lại.
+            indexes = await self.index.ready_rows(scope, request.source_dicts)
             expected = {(source["id"], source["revision"]) for source in request.source_dicts}
             actual = {(index["documentId"], index["source"]["revision"]) for index in indexes}
             if actual != expected:
                 raise HTTPException(
                     400, "Tài liệu chưa sẵn sàng. Vui lòng gửi lại để hệ thống tự chuẩn bị."
                 )
-            await self.consume_budget(str(request.userId))
+            await self.index.consume_budget(str(request.userId))
             previous_questions = [turn["question"] for turn in row["turns"][-3:]]
-            vector = (
-                await self.provider.embed(["\n".join([*previous_questions[-1:], request.question])])
-            )[0]
-            matches = sorted(
-                (
-                    {
-                        **chunk,
-                        "documentId": index["documentId"],
-                        "title": index["source"]["title"],
-                        "similarity": cosine(vector, chunk["embedding"]),
-                    }
-                    for index in indexes
-                    for chunk in index["chunks"]
-                ),
-                key=lambda chunk: chunk["similarity"],
-                reverse=True,
+            # Lượt trước đi kèm câu hỏi: "còn gì nữa" một mình không đủ để tìm ra đoạn nào.
+            matches = await self.index.search(
+                scope,
+                request.source_dicts,
+                "\n".join([*previous_questions[-1:], request.question]),
+                MAX_SOURCES,
             )
-            # Short follow-ups can score poorly despite being on topic. Let the model see
-            # a bounded fallback from the selected sources, not an automatic empty refusal.
-            matches = [chunk for chunk in matches if chunk["similarity"] >= 0.2][:8] or matches[:3]
             evidence = [
                 {
                     "id": f"S{i + 1}",
@@ -406,7 +235,9 @@ class RagService:
                 for i, chunk in enumerate(matches)
             ]
             result = (
-                await self.provider.answer(request.question, evidence, previous_questions)
+                await self.index.provider.answer(
+                    request.question, evidence, previous_questions
+                )
                 if evidence
                 else {
                     "sourceQuotes": [],
@@ -438,8 +269,3 @@ class RagService:
         if turn["question"] != request.question:
             raise HTTPException(409, "Mã yêu cầu đã dùng cho câu hỏi khác.")
         return turn
-
-    async def consume_budget(self, user_id: str):
-        # Ngân sách sống ở `budget.py` từ khi có bề mặt thứ hai (gợi ý testcase); ở đây
-        # chỉ còn tên gọi cũ để phần RAG không phải đổi một dòng nào.
-        await budget.consume(self.db, user_id, "rag", self.config.ai_daily_request_limit)

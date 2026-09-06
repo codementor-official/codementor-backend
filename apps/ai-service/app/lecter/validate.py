@@ -726,3 +726,187 @@ def is_unchanged(current: Any, chapters: Any) -> bool:
     ra ngay lượt đầu của một hội thoại thật — model đọc cây rồi lưu lại y nguyên.
     """
     return _canonical((current or {}).get("chapters")) == _canonical(chapters)
+
+
+# ---------------------------------------------------------------------------
+# Lộ trình. Cùng doctrine với hai phần trên: chép luật backend để model sửa được
+# ngay trong lượt, và backend vẫn là nơi từ chối cuối cùng.
+# ---------------------------------------------------------------------------
+
+# `ReplaceRoadmapCoursesDto` — ArrayMaxSize ở `roadmap.dto.ts:146`.
+MAX_ROADMAP_COURSES = 200
+# `Roadmap.submit` ở `domain/model/roadmap.ts:60`.
+MIN_COURSES_TO_SUBMIT = 2
+ROADMAP_COURSE_KEYS = {"courseId", "isOptional"}
+
+
+def _course_uuid(where: str, value: Any, errors: list[str]) -> None:
+    """Như `_uuid` nhưng nói ĐÚNG cách sửa của lộ trình.
+
+    Không dùng chung được: câu của `_uuid` khuyên gửi `id: null` cho mục mới, mà ở đây không có
+    "khóa học mới" — mọi phần tử phải là một khóa CÓ THẬT. Model đọc lời khuyên sai chỗ rồi gửi
+    `courseId: null` là ăn 400 mà không hiểu vì sao.
+    """
+    if not isinstance(value, str) or not UUID.match(value):
+        errors.append(
+            f"{where} = {value!r} không phải id khóa học hợp lệ. Lộ trình chỉ chứa khóa CÓ THẬT — "
+            "lấy id từ `read_roadmap` hoặc `search_courses`, đừng tự đặt và đừng gửi null."
+        )
+
+
+def check_roadmap_courses_shape(courses: Any) -> list[str]:
+    """Lỗi làm `PUT /roadmaps/:id/courses` thất bại. Rỗng = lưu được."""
+    if not isinstance(courses, list):
+        return [
+            "courses phải là MẢNG khóa học, thứ tự trong mảng chính là thứ tự học. "
+            'Mỗi phần tử là {"courseId": "<uuid>", "isOptional": false}.'
+        ]
+    if len(courses) > MAX_ROADMAP_COURSES:
+        return [f"tối đa {MAX_ROADMAP_COURSES} khóa học, đang có {len(courses)}"]
+
+    errors: list[str] = []
+    ids: list[str] = []
+
+    for index, course in enumerate(courses):
+        where = f"courses[{index}]"
+        if not isinstance(course, dict):
+            errors.append(f"{where} phải là object")
+            continue
+
+        # `position` là chỗ dễ sai nhất: DTO KHÔNG nhận nó (thứ tự lấy theo thứ tự mảng), nên gửi
+        # thêm là 400 — và model rất hay gửi vì `read_roadmap` của API gốc có trường đó.
+        _extra(where, course, ROADMAP_COURSE_KEYS, errors)
+
+        if "courseId" not in course:
+            errors.append(f"{where} thiếu 'courseId' (bắt buộc)")
+        else:
+            _course_uuid(f"{where}.courseId", course["courseId"], errors)
+            if isinstance(course["courseId"], str):
+                ids.append(course["courseId"])
+
+        if "isOptional" in course and not isinstance(course["isOptional"], bool):
+            errors.append(f"{where}.isOptional phải là true/false")
+
+    # `RoadmapUseCases.replaceCourses` ném 409 `AlreadyExists` trước khi chạm cơ sở dữ liệu.
+    for duplicate in sorted({x for x in ids if ids.count(x) > 1}):
+        errors.append(
+            f"khóa học {duplicate} xuất hiện hai lần — một khóa chỉ nằm được một chỗ trong lộ trình"
+        )
+
+    return errors
+
+
+def _stored_courses(current: Any) -> list[dict]:
+    return [
+        course
+        for course in ((current or {}).get("courses") or [])
+        if isinstance(course, dict) and course.get("courseId")
+    ]
+
+
+def find_course_removals(
+    current: Any, courses: Any, remove_ids: list[str] | None = None
+) -> list[dict]:
+    """Khóa sẽ rời khỏi lộ trình nếu lưu danh sách này, kèm cờ model có khai ý định gỡ hay không.
+
+    Một nguồn sự thật cho hai người đọc — xem chú thích đầy đủ ở `find_removals`. Tên lấy từ cây
+    THẬT, không tra từ thứ agent tự khai.
+    """
+    payload_ids = {
+        course["courseId"]
+        for course in (courses or [])
+        if isinstance(course, dict) and course.get("courseId")
+    }
+    declared = set(remove_ids or [])
+    return [
+        {
+            "kind": "course",
+            "id": course["courseId"],
+            "title": str(course.get("title") or "chưa đặt tên"),
+            "declared": course["courseId"] in declared,
+        }
+        for course in _stored_courses(current)
+        if course["courseId"] not in payload_ids
+    ]
+
+
+def check_course_removals(
+    current: Any, courses: Any, remove_ids: list[str] | None = None
+) -> list[str]:
+    """Chặn việc gỡ khóa ngoài ý muốn — lý do tồn tại của `validate_roadmap_courses`.
+
+    `PUT /roadmaps/:id/courses` thay TOÀN BỘ danh sách: khóa nào không có `courseId` trong payload
+    thì biến mất khỏi lộ trình. Nhẹ hơn cây chương trình một bậc — `course_enrollments` và
+    `lesson_progress` nằm ở khóa học nên KHÔNG có dữ liệu nào bị xoá. Cái đổi là thứ phái sinh:
+    `fn_recalc_roadmap_progress` tính lại phần trăm trên số khóa còn lại, nên tiến độ lộ trình của
+    mọi học viên đang theo nhảy giá trị, và một lộ trình có thể lật sang `completed`.
+
+    Vẫn là lỗi CHẶN chứ không phải cảnh báo: một lượt model quên echo lại id — chuyện thường gặp
+    khi nó chỉ định "thêm một khóa" — sẽ dọn sạch phần còn lại của lộ trình, và không có gì hoàn
+    tác được việc đó ngoài việc gõ lại bằng tay.
+    """
+    errors = [
+        f"Khóa học '{item['title']}' ({item['id']})"
+        for item in find_course_removals(current, courses, remove_ids)
+        if not item["declared"]
+    ]
+    if not errors:
+        return []
+    return [
+        "SẼ GỠ MẤT KHÓA HỌC — payload thay TOÀN BỘ danh sách, nên thiếu id là gỡ: "
+        + "; ".join(errors)
+        + ". Gọi `read_roadmap` rồi gửi lại ĐỦ mọi khóa kèm `courseId` của chúng. "
+        "Thật sự muốn gỡ thì liệt kê đúng những id đó vào `remove_ids` — tiến độ lộ trình của "
+        "học viên đang theo sẽ được tính lại theo số khóa còn lại."
+    ]
+
+
+def check_roadmap_submission(current: Any, courses: Any) -> list[str]:
+    """Thiếu sót chặn GỬI DUYỆT nhưng không chặn lưu. Trả về dạng cảnh báo.
+
+    Gương của `Roadmap.submit` ở `domain/model/roadmap.ts:274`.
+
+    Trạng thái từng khóa chỉ đọc được từ danh sách ĐANG lưu (`current.courses[].status`). Khóa vừa
+    được thêm vào payload thì chưa có ở đó, và ở đây KHÔNG đi hỏi từng khóa một: mỗi lần kiểm sẽ
+    thành N lời gọi HTTP, còn cái giá của việc im lặng chỉ là một cảnh báo hiện muộn một lượt —
+    lần kiểm sau, khi khóa đã nằm trong danh sách, nó sẽ hiện.
+    """
+    current = current if isinstance(current, dict) else {}
+    missing: list[str] = []
+
+    if not str(current.get("description") or "").strip():
+        missing.append("mô tả lộ trình (`description`)")
+
+    payload = [course for course in (courses or []) if isinstance(course, dict)]
+    if len(payload) < MIN_COURSES_TO_SUBMIT:
+        missing.append(f"tối thiểu {MIN_COURSES_TO_SUBMIT} khóa học (đang có {len(payload)})")
+
+    stored = {course["courseId"]: course for course in _stored_courses(current)}
+    unpublished = [
+        str(stored[course["courseId"]].get("title") or "chưa đặt tên")
+        + f" ({stored[course['courseId']].get('status')})"
+        for course in payload
+        if course.get("courseId") in stored
+        and stored[course["courseId"]].get("status") != "published"
+    ]
+    if unpublished:
+        missing.append("khóa học chưa công khai: " + ", ".join(unpublished))
+
+    return missing
+
+
+def _canonical_courses(courses: Any) -> list[tuple[str, bool]]:
+    return [
+        (str(course.get("courseId")), bool(course.get("isOptional")))
+        for course in (courses or [])
+        if isinstance(course, dict) and course.get("courseId")
+    ]
+
+
+def roadmap_is_unchanged(current: Any, courses: Any) -> bool:
+    """Payload giống hệt danh sách đang lưu — xem chú thích ở `is_unchanged`.
+
+    So cả thứ tự: `position` của danh sách lưu chính là thứ tự mảng payload, nên đảo hai khóa là
+    một thay đổi thật dù tập hợp không đổi.
+    """
+    return _canonical_courses(_stored_courses(current)) == _canonical_courses(courses)
