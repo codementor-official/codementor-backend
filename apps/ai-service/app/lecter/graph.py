@@ -27,7 +27,7 @@ from typing_extensions import TypedDict
 from app.config import settings
 from app.lecter.http import ToolCallError
 from app.lecter.prompt import INSTRUCTIONS
-from app.lecter.tools import SERVER_TOOLS
+from app.lecter.tools import NUDGE_ON_REPEAT, SERVER_TOOLS
 
 
 class LecterState(TypedDict, total=False):
@@ -104,7 +104,25 @@ def _call_key(call: dict) -> str:
     )
 
 
-def repeated_calls(history: list[BaseMessage], calls: list[dict]) -> list[ToolMessage]:
+def _since_last_write(history: list[BaseMessage], frontend: set[str]) -> list[BaseMessage]:
+    """Phần lịch sử tính từ sau lệnh ghi gần nhất.
+
+    Mọi tool của trình duyệt đều là lệnh ghi, nên sau nó dữ liệu đã khác: một lời gọi giống hệt
+    trước đó KHÔNG còn là lặp thừa. Không cắt ở đây thì `validate_curriculum` sau `save_curriculum`
+    bị coi là lặp, đúng lúc nó cần chạy nhất.
+    """
+    cut = 0
+    for index, message in enumerate(history):
+        if isinstance(message, AIMessage) and any(
+            call["name"] in frontend for call in (message.tool_calls or [])
+        ):
+            cut = index + 1
+    return history[cut:]
+
+
+def repeated_calls(
+    history: list[BaseMessage], calls: list[dict], frontend: set[str] | None = None
+) -> list[ToolMessage]:
     """`ToolMessage` nhắc việc cho những lời gọi lặp lại y hệt, hoặc rỗng nếu cứ để chạy.
 
     Chuyện đã xảy ra: `validate_exercise_content` bị gọi bốn lần, ba lần cuối với payload giống
@@ -114,21 +132,31 @@ def repeated_calls(history: list[BaseMessage], calls: list[dict]) -> list[ToolMe
     Chỉ nhắc MỘT lần cho mỗi tool trong một hội thoại: lần nhắc thứ hai sẽ thành vòng lặp mới
     giữa `chat` và chính nó, và bật `recursion_limit` — tệ hơn hiện trạng. Nhắc rồi mà vẫn lặp
     thì cứ cho chạy, tốn một lời gọi tool nhưng không làm hỏng lượt.
+
+    Hai hàng rào quanh việc nhắc, cả hai đều do một bug thật: câu nhắc từng bắn ra cho
+    `read_course` và nói "kết quả cũng y hệt" trong khi cây vừa bị `save_curriculum` sửa. Model
+    tin câu đó và báo với giảng viên là nó không đọc lại được khóa học.
+      1. Chỉ nhắc tool trong `NUDGE_ON_REPEAT` — tool đọc không bao giờ bị nhắc.
+      2. Chỉ soi phần lịch sử SAU lệnh ghi gần nhất.
     """
+    if any(call["name"] not in NUDGE_ON_REPEAT for call in calls):
+        return []
+
+    recent = _since_last_write(history, frontend or set())
     answered = {
         message.tool_call_id
-        for message in history
+        for message in recent
         if isinstance(message, ToolMessage) and message.tool_call_id
     }
     seen = {
         _call_key(call)
-        for message in history
+        for message in recent
         if isinstance(message, AIMessage)
         for call in (message.tool_calls or [])
         if call["id"] in answered
     }
     nudged = {
-        message.content for message in history if isinstance(message, ToolMessage)
+        message.content for message in recent if isinstance(message, ToolMessage)
     }
     nudges: list[ToolMessage] = []
     for call in calls:
@@ -164,7 +192,7 @@ async def chat(
     if calls:
         # Chỉ soi tool server. Tool của trình duyệt đề xuất lại y hệt sau khi người soạn bấm
         # "Bỏ qua" là chuyện hợp lệ — họ có thể vừa bảo "thử lại đi".
-        nudges = repeated_calls(history, calls)
+        nudges = repeated_calls(history, calls, frontend)
         if nudges:
             logger.info("Lecter gọi lặp `%s`, nhắc thay vì chạy lại", calls[0]["name"])
             return Command(

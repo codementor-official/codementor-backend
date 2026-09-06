@@ -233,3 +233,36 @@ def test_unanswered_call_is_not_a_repeat():
     history = [_ai("a", "validate_exercise_content", args)]
     again = [{"id": "b", "name": "validate_exercise_content", "args": args, "type": "tool_call"}]
     assert repeated_calls(history, again) == []
+
+
+def test_read_tools_are_never_nudged():
+    """Bug thật (`lecter:b0c50097-…` message [11]→[13]): model gọi lại `read_course` sau khi cây
+    vừa bị sửa, nhận câu nhắc "kết quả cũng y hệt" — SAI, cây đã khác — rồi nói với giảng viên là
+    nó không đọc lại được khóa học. Trông hệt như mất trí nhớ."""
+    args = {"course_id": "e95f16c8-82b7-42ca-9471-476826c1015b"}
+    history = [
+        _ai("a", "read_course", args),
+        ToolMessage(tool_call_id="a", content="THÔNG TIN CHUNG …"),
+    ]
+    again = [{"id": "b", "name": "read_course", "args": args, "type": "tool_call"}]
+    assert repeated_calls(history, again) == []
+
+
+def test_write_resets_the_repeat_memory():
+    """Sau một lệnh ghi, dữ liệu đã đổi nên lời gọi giống hệt trước đó không còn là lặp thừa."""
+    args = {"course_id": "c1", "chapters": []}
+    history = [
+        _ai("a", "validate_curriculum", args),
+        ToolMessage(tool_call_id="a", content="HỢP LỆ."),
+    ]
+    again = [{"id": "b", "name": "validate_curriculum", "args": args, "type": "tool_call"}]
+
+    # Chưa ghi gì: vẫn là lặp thừa, vẫn nhắc.
+    assert len(repeated_calls(history, again, {"save_curriculum"})) == 1
+
+    # `save_curriculum` là tool của trình duyệt, tức một lệnh ghi: cây sau đó đã khác.
+    written = history + [
+        _ai("w", "save_curriculum", {"id": "c1"}),
+        ToolMessage(tool_call_id="w", content='{"outcome":"applied"}'),
+    ]
+    assert repeated_calls(written, again, {"save_curriculum"}) == []

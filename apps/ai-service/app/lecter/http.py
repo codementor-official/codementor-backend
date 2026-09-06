@@ -100,3 +100,7 @@ def core(method: str, path: str, config: RunnableConfig, **kwargs) -> Any:
 
 def judge(method: str, path: str, config: RunnableConfig, **kwargs) -> Any:
     return call(method, settings.judge_service_url, path, config, **kwargs)
+
+
+def learning(method: str, path: str, config: RunnableConfig, **kwargs) -> Any:
+    return call(method, settings.learning_service_url, path, config, **kwargs)

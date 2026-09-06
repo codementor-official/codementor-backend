@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     recommendation_service_url: str = "http://localhost:3013"
     ai_dashboard_daily_limit: int = Field(default=5, ge=1, le=100)
     exercise_service_url: str = "http://localhost:3003"
+    learning_service_url: str = "http://localhost:3002"
     judge_service_url: str = "http://localhost:3007"
     # Cùng tên biến mà Nest và judge-service đang dùng. KHÔNG đặt biến riêng cho
     # ai-service: hai issuer lệch nhau thì đăng nhập vẫn được mà mọi lời gọi trả 401.

@@ -378,3 +378,316 @@ def check_submission(content: dict) -> list[str]:
             missing.append(f"đáp án cho test case {', '.join(map(str, without_expected))}")
 
     return missing
+
+
+# ---------------------------------------------------------------------------
+# Khóa học. Cùng doctrine với phần bài code ở trên: chép luật backend để model
+# sửa được ngay trong lượt, và backend vẫn là nơi từ chối cuối cùng.
+# ---------------------------------------------------------------------------
+
+# `SaveCurriculumDto` — ArrayMaxSize ở `course.dto.ts:105-190`.
+MAX_CHAPTERS = 100
+MAX_LESSONS_PER_CHAPTER = 300
+MAX_TITLE = 200
+MAX_CHAPTER_DESCRIPTION = 2_000
+
+# `lesson_type` trong Postgres. Bài lý thuyết tên là `article`, KHÔNG phải "theory" —
+# `ExerciseContent` có một trường tên `theory` nhưng đó là thứ khác hẳn.
+LESSON_TYPES = ("video", "article", "exercise", "quiz", "challenge", "project")
+# CHECK `lessons_exercise_only_for_exercise_types` ở tầng cơ sở dữ liệu; gắn `exerciseId` vào
+# `article` là 400 chứ không phải bị bỏ qua.
+EXERCISE_BEARING = ("exercise", "quiz", "challenge", "project")
+
+CHAPTER_KEYS = {"id", "title", "description", "isOptional", "lessons"}
+LESSON_KEYS = {
+    "id", "title", "type", "durationMinutes", "isPreview", "isOptional", "exerciseId",
+}
+
+# `@IsUUID()` trên `id` và `exerciseId`. Model bịa "chapter-1" làm id thì Nest trả 400 kèm
+# một câu khó đoán, còn ở đây nó đọc được ngay.
+UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+def _uuid(where: str, value: Any, errors: list[str]) -> None:
+    """Câu lỗi phải nói CÁCH SỬA, không chỉ nói luật.
+
+    Bản trước viết "phải là UUID có thật lấy từ `read_course`". Với một chương/bài MỚI thì lời
+    khuyên đó bất khả thi — id chưa tồn tại ở đâu để mà lấy — nên model đọc xong bảo giảng viên là
+    nó bị chặn và không làm gì thêm được. Nêu cả hai đường ra thì nó tự sửa trong cùng một lượt.
+    """
+    if not isinstance(value, str) or not UUID.match(value):
+        errors.append(
+            f"{where} = {value!r} không phải id hợp lệ. Chương/bài MỚI thì BỎ HẲN trường `id` "
+            "(đừng tự đặt, đừng gửi chuỗi rỗng); mục đã có thì gửi đúng id đọc từ `read_course`."
+        )
+
+
+def _title(where: str, value: Any, errors: list[str]) -> None:
+    if not isinstance(value, str) or not value.strip():
+        errors.append(f"{where} thiếu 'title' hoặc để rỗng (bắt buộc)")
+    elif len(value) > MAX_TITLE:
+        errors.append(f"{where}.title dài {len(value)} ký tự, tối đa {MAX_TITLE}")
+
+
+def _check_lesson(where: str, lesson: Any, errors: list[str]) -> str | None:
+    """Kiểm một bài, trả về `exerciseId` của nó để tầng trên soi trùng trong cùng chương."""
+    if not isinstance(lesson, dict):
+        errors.append(f"{where} phải là object")
+        return None
+
+    _extra(where, lesson, LESSON_KEYS, errors)
+    _title(where, lesson.get("title"), errors)
+    # Rỗng cũng như thiếu: cả hai đều nghĩa là "bài mới, backend tự sinh id".
+    if lesson.get("id"):
+        _uuid(f"{where}.id", lesson["id"], errors)
+
+    kind = lesson.get("type")
+    if kind not in LESSON_TYPES:
+        errors.append(
+            f"{where}.type phải là một trong {', '.join(LESSON_TYPES)} và không được thiếu "
+            "(bài lý thuyết là 'article')"
+        )
+
+    duration = lesson.get("durationMinutes")
+    if duration is not None and (not _is_int(duration) or duration < 1):
+        errors.append(f"{where}.durationMinutes phải là số nguyên >= 1, hoặc null")
+
+    for key in ("isPreview", "isOptional"):
+        if key in lesson and not isinstance(lesson[key], bool):
+            errors.append(f"{where}.{key} phải là true/false")
+
+    exercise_id = lesson.get("exerciseId") or None
+    if exercise_id is None:
+        return None
+    if kind in LESSON_TYPES and kind not in EXERCISE_BEARING:
+        errors.append(
+            f"{where} có `exerciseId` nhưng type là '{kind}'. Chỉ "
+            f"{', '.join(EXERCISE_BEARING)} mới gắn được bài code; bỏ `exerciseId` hoặc đổi type."
+        )
+        return None
+    _uuid(f"{where}.exerciseId", exercise_id, errors)
+    return exercise_id if isinstance(exercise_id, str) else None
+
+
+def check_curriculum_shape(chapters: Any) -> list[str]:
+    """Lỗi làm `PUT /courses/:id/curriculum` thất bại. Rỗng = lưu được."""
+    if not isinstance(chapters, list):
+        return ["chapters phải là MẢNG chương, thứ tự trong mảng chính là thứ tự hiển thị"]
+    if len(chapters) > MAX_CHAPTERS:
+        return [f"tối đa {MAX_CHAPTERS} chương, đang có {len(chapters)}"]
+
+    errors: list[str] = []
+    chapter_ids: list[str] = []
+    lesson_ids: list[str] = []
+
+    for index, chapter in enumerate(chapters):
+        where = f"chapters[{index}]"
+        if not isinstance(chapter, dict):
+            errors.append(f"{where} phải là object")
+            continue
+
+        _extra(where, chapter, CHAPTER_KEYS, errors)
+        _title(where, chapter.get("title"), errors)
+        if chapter.get("id"):
+            _uuid(f"{where}.id", chapter["id"], errors)
+            chapter_ids.append(chapter["id"])
+        if chapter.get("description") is not None:
+            _string(
+                f"{where}.description", chapter["description"], errors,
+                limit=MAX_CHAPTER_DESCRIPTION,
+            )
+        if "isOptional" in chapter and not isinstance(chapter["isOptional"], bool):
+            errors.append(f"{where}.isOptional phải là true/false")
+
+        lessons = chapter.get("lessons")
+        if not isinstance(lessons, list):
+            errors.append(f"{where}.lessons phải là mảng bài học (gửi [] nếu chương chưa có bài)")
+            continue
+        if len(lessons) > MAX_LESSONS_PER_CHAPTER:
+            errors.append(
+                f"{where} có {len(lessons)} bài, tối đa {MAX_LESSONS_PER_CHAPTER} mỗi chương"
+            )
+
+        attached: list[str] = []
+        for position, lesson in enumerate(lessons):
+            exercise_id = _check_lesson(f"{where}.lessons[{position}]", lesson, errors)
+            # Chỉ gom id THẬT. Gom cả chuỗi rỗng thì hai bài mới trong cùng payload bị báo
+            # "id bài học  xuất hiện nhiều lần" — một câu lỗi vô nghĩa in ra id rỗng.
+            if isinstance(lesson, dict) and lesson.get("id"):
+                lesson_ids.append(lesson["id"])
+            if exercise_id:
+                attached.append(exercise_id)
+
+        # Unique index `lessons_exercise_unique_per_chapter`: cùng một bài code hai lần trong
+        # một chương là 422, không phải cảnh báo.
+        for duplicate in sorted({x for x in attached if attached.count(x) > 1}):
+            errors.append(
+                f"{where}: bài code {duplicate} bị gắn vào hai bài học trong cùng một chương"
+            )
+
+    for name, ids in (("chương", chapter_ids), ("bài học", lesson_ids)):
+        for duplicate in sorted({x for x in ids if ids.count(x) > 1}):
+            errors.append(f"id {name} {duplicate} xuất hiện nhiều lần — mỗi id chỉ được một chỗ")
+
+    return errors
+
+
+def _tree_ids(chapters: Any) -> tuple[dict[str, str], dict[str, str]]:
+    """id -> tiêu đề, cho chương và cho bài. Dùng chung cho cả cây hiện tại lẫn payload."""
+    chapter_titles: dict[str, str] = {}
+    lesson_titles: dict[str, str] = {}
+    for chapter in chapters or []:
+        if not isinstance(chapter, dict):
+            continue
+        if chapter.get("id"):
+            chapter_titles[chapter["id"]] = str(chapter.get("title") or "chưa đặt tên")
+        for lesson in chapter.get("lessons") or []:
+            if isinstance(lesson, dict) and lesson.get("id"):
+                lesson_titles[lesson["id"]] = str(lesson.get("title") or "chưa đặt tên")
+    return chapter_titles, lesson_titles
+
+
+def check_removals(
+    current: Any, chapters: Any, remove_ids: list[str] | None = None
+) -> list[str]:
+    """Chặn việc xóa ngoài ý muốn — lý do tồn tại của cả tool `validate_curriculum`.
+
+    `PUT /courses/:id/curriculum` thay TOÀN BỘ cây: chương hay bài nào không có `id` trong payload
+    thì backend `DELETE` nó, và `lesson_progress` của mọi học viên đang học cascade theo. Không có
+    API cấp chương/bài để làm nhẹ hơn.
+
+    Nghĩa là một lượt model quên echo lại id — chuyện thường gặp khi nó chỉ định "thêm một chương"
+    — sẽ xóa sạch phần còn lại của khóa học. Đây không phải cảnh báo: đây là lỗi chặn, và muốn xóa
+    thật thì phải liệt kê vào `remove_ids`.
+    """
+    current_chapters, current_lessons = _tree_ids((current or {}).get("chapters"))
+    payload_chapters, payload_lessons = _tree_ids(chapters)
+    declared = set(remove_ids or [])
+
+    errors: list[str] = []
+    for label, existing, sent in (
+        ("Chương", current_chapters, payload_chapters),
+        ("Bài", current_lessons, payload_lessons),
+    ):
+        vanished = [
+            f"{label} '{title}' ({identifier})"
+            for identifier, title in existing.items()
+            if identifier not in sent and identifier not in declared
+        ]
+        errors.extend(vanished)
+
+    if not errors:
+        return []
+    return [
+        "SẼ XÓA MẤT DỮ LIỆU — payload thay TOÀN BỘ cây, nên thiếu id là xóa: "
+        + "; ".join(errors)
+        + ". Gọi `read_course` rồi gửi lại ĐỦ mọi chương và mọi bài kèm `id` của chúng. "
+        "Thật sự muốn xóa thì liệt kê đúng những id đó vào `remove_ids` — học viên đang học sẽ "
+        "mất tiến độ ở phần bị xóa."
+    ]
+
+
+def check_course_submission(course: Any, chapters: Any) -> list[str]:
+    """Thiếu sót chặn GỬI DUYỆT nhưng không chặn lưu. Trả về dạng cảnh báo.
+
+    Gương của `validateForSubmission` ở `domain/model/course.ts:265-327`. Có nó thì câu hỏi "sao
+    chưa gửi duyệt được" trả lời được bằng một lời gọi tool thay vì bắt giảng viên bấm nút rồi đọc
+    422.
+    """
+    course = course if isinstance(course, dict) else {}
+    missing: list[str] = []
+
+    if not str(course.get("description") or "").strip():
+        missing.append("mô tả khóa học (`description`)")
+
+    if not isinstance(chapters, list) or not chapters:
+        missing.append("ít nhất một chương")
+        return missing
+
+    # `contentRef` và `exerciseStatus` chỉ có ở cây ĐANG lưu, không có trong payload: bài mới
+    # soạn chưa có nội dung là chuyện đương nhiên, và đó chính là thứ cần nhắc.
+    stored: dict[str, dict] = {}
+    for chapter in (course.get("chapters") or []):
+        for lesson in (chapter.get("lessons") or []) if isinstance(chapter, dict) else []:
+            if isinstance(lesson, dict) and isinstance(lesson.get("id"), str):
+                stored[lesson["id"]] = lesson
+
+    empty: list[str] = []
+    without_content: list[str] = []
+    without_exercise: list[str] = []
+    unusable_exercise: list[str] = []
+
+    for chapter in chapters:
+        if not isinstance(chapter, dict):
+            continue
+        lessons = chapter.get("lessons") or []
+        if not lessons:
+            empty.append(str(chapter.get("title") or "chưa đặt tên"))
+        for lesson in lessons:
+            if not isinstance(lesson, dict):
+                continue
+            title = str(lesson.get("title") or "chưa đặt tên")
+            saved = stored.get(lesson.get("id") or "", {})
+            if lesson.get("type") in EXERCISE_BEARING:
+                if not lesson.get("exerciseId"):
+                    without_exercise.append(title)
+                elif saved.get("exerciseStatus") not in (None, "published"):
+                    unusable_exercise.append(f"{title} ({saved['exerciseStatus']})")
+            elif not saved.get("contentRef"):
+                without_content.append(title)
+
+    if empty:
+        missing.append(f"chương không có bài nào: {', '.join(empty)}")
+    if without_content:
+        missing.append(f"nội dung cho bài: {', '.join(without_content)}")
+    if without_exercise:
+        missing.append(f"bài code cho bài: {', '.join(without_exercise)}")
+    if unusable_exercise:
+        missing.append(
+            "bài code chưa công khai (phải công khai hoặc do chính bạn soạn): "
+            + ", ".join(unusable_exercise)
+        )
+    return missing
+
+
+def _canonical(chapters: Any) -> list[dict]:
+    """Dạng so sánh được của một cây, dùng chung cho cả payload lẫn cây đang lưu.
+
+    Phải chuẩn hoá vì hai bên không bao giờ giống nhau từng byte: payload bỏ trống trường tuỳ
+    chọn, còn API trả về đủ trường kèm `null`; `isOptional` khi thiếu nghĩa là `false`.
+    """
+    return [
+        {
+            "id": chapter.get("id") or None,
+            "title": str(chapter.get("title") or "").strip(),
+            "description": (str(chapter.get("description")).strip() or None)
+            if chapter.get("description")
+            else None,
+            "isOptional": bool(chapter.get("isOptional")),
+            "lessons": [
+                {
+                    "id": lesson.get("id") or None,
+                    "title": str(lesson.get("title") or "").strip(),
+                    "type": lesson.get("type"),
+                    "durationMinutes": lesson.get("durationMinutes"),
+                    "isPreview": bool(lesson.get("isPreview")),
+                    "isOptional": bool(lesson.get("isOptional")),
+                    "exerciseId": lesson.get("exerciseId") or None,
+                }
+                for lesson in (chapter.get("lessons") or [])
+                if isinstance(lesson, dict)
+            ],
+        }
+        for chapter in (chapters or [])
+        if isinstance(chapter, dict)
+    ]
+
+
+def is_unchanged(current: Any, chapters: Any) -> bool:
+    """Payload giống hệt cây đang lưu.
+
+    Lưu một cây không đổi không phải vô hại: nó bắt giảng viên bấm một hộp xác nhận cho một thay
+    đổi rỗng, tiêu một lượt HITL, và làm cả hai bên tưởng vừa có việc gì đó xảy ra. Chuyện đã xảy
+    ra ngay lượt đầu của một hội thoại thật — model đọc cây rồi lưu lại y nguyên.
+    """
+    return _canonical((current or {}).get("chapters")) == _canonical(chapters)
