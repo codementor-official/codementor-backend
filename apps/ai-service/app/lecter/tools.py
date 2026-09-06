@@ -1,10 +1,12 @@
 """Tool chạy phía server: chỉ ĐỌC kho nội dung và CHẠY THỬ mã.
 
 Không có tool nào ở đây ghi vào cơ sở dữ liệu. Mọi tool ghi — bài code
-(`create_exercise`, `update_exercise_meta`, `save_exercise_content`) và khóa học
-(`create_course`, `update_course_meta`, `save_curriculum`, `save_lesson_contents`) — do trình
-duyệt khai báo và tự thi hành sau khi người dùng bấm xác nhận, xem
-`apps/lecturer/src/features/lecter/hitl.tsx` và `hitl-course.tsx`. Đó không phải quy ước mềm: kẻ
+(`create_exercise`, `update_exercise_meta`, `save_exercise_content`), khóa học
+(`create_course`, `update_course_meta`, `save_curriculum`, `save_lesson_contents`) và lộ trình
+(`create_roadmap`, `update_roadmap_meta`, `save_roadmap_courses`) — do trình duyệt khai báo và tự
+thi hành sau khi người dùng bấm xác nhận, xem
+`apps/lecturer/src/features/lecter/hitl.tsx`, `hitl-course.tsx` và `hitl-roadmap.tsx`. Đó không
+phải quy ước mềm: kẻ
 tấn công tự khai thêm một tool `delete_exercise` cũng chỉ gọi được thứ token của họ vốn đã gọi
 được, còn ai-service thì không cầm credential ghi nào cả.
 
@@ -481,6 +483,150 @@ async def validate_curriculum(
     return head
 
 
+# --- Lộ trình -------------------------------------------------------------
+
+# Hai khoá `ReplaceRoadmapCoursesDto` cho phép. `read_roadmap` dựng lại payload bằng CHÍNH danh
+# sách này, nên thứ nó trả về copy thẳng sang `save_roadmap_courses` được. `position` KHÔNG có ở
+# đây và đó là cố ý: thứ tự lấy theo thứ tự mảng, gửi thêm là Nest trả 400.
+_PAYLOAD_COURSE_KEYS = ("courseId", "isOptional")
+
+
+@tool
+async def search_roadmaps(query: str, config: RunnableConfig, mine: bool = True) -> str:
+    """Tìm lộ trình theo từ khoá tiêu đề.
+
+    `mine=True` (mặc định) tìm trong lộ trình của chính giảng viên, MỌI trạng thái kể cả nháp —
+    đây gần như luôn là thứ cần khi soạn nội dung. `mine=False` tìm trong kho công khai, dùng khi
+    muốn xem đã có lộ trình tương tự chưa.
+    """
+    path = "/api/v1/roadmaps/mine" if mine else "/api/v1/roadmaps"
+    page = await http.learning(
+        "GET", path, config, params={"q": query[:200], "limit": MAX_SEARCH_ITEMS}
+    )
+    items = (page or {}).get("items", [])[:MAX_SEARCH_ITEMS]
+    if not items:
+        return "Không có lộ trình nào khớp."
+    return "\n".join(
+        f"- {item['id']} · {item.get('title')} · {item.get('status', '?')}"
+        f" · {item.get('field', '?')}/{item.get('level', '?')}"
+        f" · {item.get('courseCount', 0)} khóa"
+        + (f", ~{item['estimatedHours']} giờ" if item.get("estimatedHours") else "")
+        for item in items
+    )
+
+
+@tool
+async def read_roadmap(roadmap_id: str, config: RunnableConfig) -> str:
+    """Đọc một lộ trình kèm TOÀN BỘ danh sách khóa học và id của chúng.
+
+    BẮT BUỘC gọi trước mỗi lần sửa danh sách, kể cả khi chỉ thêm một khóa. Lý do: lệnh lưu thay
+    toàn bộ danh sách, nên khóa bạn không gửi lại sẽ bị gỡ khỏi lộ trình.
+
+    Trả về hai khối tách bạch:
+    - phần trạng thái chỉ-đọc (khóa đã công khai chưa) — KHÔNG được đưa vào payload.
+    - `courses` — ĐÚNG hình dạng của `save_roadmap_courses`. Sao chép nguyên khối này rồi sửa,
+      đừng tự gõ lại.
+    """
+    data = await http.learning("GET", f"/api/v1/roadmaps/{roadmap_id}", config) or {}
+    courses = [course for course in (data.get("courses") or []) if isinstance(course, dict)]
+
+    meta = {
+        "id": data.get("id"),
+        "slug": data.get("slug"),
+        "title": data.get("title"),
+        "status": data.get("status"),
+        "field": data.get("field"),
+        "level": data.get("level"),
+        "estimatedHours": data.get("estimatedHours"),
+        "tagIds": data.get("tagIds"),
+        "shortDescription": clip(data.get("shortDescription") or "", 400),
+        "description": clip(data.get("description") or "", 1000),
+        # KHÔNG đưa `progressionMode` cho model — cùng lý do đã ghi ở `read_course`.
+    }
+
+    status_lines = [
+        f"  - {course.get('title')} [{course.get('courseId')}]:"
+        f" {course.get('status') or '?'}"
+        + (f", ~{course['durationHours']} giờ" if course.get("durationHours") else "")
+        + (" (tuỳ chọn)" if course.get("isOptional") else "")
+        for course in courses
+    ]
+
+    # Cắt TỪNG KHỐI, và để danh sách payload ở CUỐI — cùng lý do đã ghi ở `read_course`: một khối
+    # JSON đứt ngang trông như thật, và thiếu một `courseId` là gỡ khóa đó khỏi lộ trình.
+    payload = json.dumps(
+        [{key: course.get(key) for key in _PAYLOAD_COURSE_KEYS} for course in courses],
+        ensure_ascii=False,
+    )
+    if len(payload) > MAX_TREE_CHARS:
+        return (
+            f"LỘ TRÌNH QUÁ LỚN: danh sách khóa học dài {len(payload)} ký tự, vượt trần "
+            f"{MAX_TREE_CHARS} nên không thể trả nguyên khối. ĐỪNG dựng lại theo trí nhớ — gửi "
+            "thiếu id là gỡ mất khóa học. Nói với giảng viên rằng lộ trình này phải sửa trực tiếp "
+            "trong studio."
+        )
+
+    return (
+        "THÔNG TIN CHUNG\n"
+        + clip(json.dumps(meta, ensure_ascii=False), 2500)
+        + "\n\nTRẠNG THÁI (chỉ để đọc, KHÔNG đưa vào payload):\n"
+        + clip("\n".join(status_lines) or "  (chưa có khóa học nào)", 4000)
+        + "\n\nDANH SÁCH KHÓA HỌC — sao chép nguyên khối này cho `save_roadmap_courses`:\n"
+        + payload
+    )
+
+
+@tool
+async def validate_roadmap_courses(
+    roadmap_id: str,
+    courses: list[dict],
+    config: RunnableConfig,
+    remove_ids: list[str] | None = None,
+) -> str:
+    """Kiểm danh sách khóa học TRƯỚC khi đề xuất lưu. BẮT BUỘC gọi trước `save_roadmap_courses`.
+
+    Kiểm ba thứ: hình dạng payload, khóa SẼ BỊ GỠ vì thiếu id, và những gì còn thiếu để gửi duyệt.
+
+    `courses` là đúng mảng sắp gửi cho `save_roadmap_courses`; thứ tự trong mảng chính là thứ tự
+    học. Mỗi phần tử chỉ có `courseId` và `isOptional` — không có `position`, không có `title`.
+    `remove_ids` chỉ điền khi giảng viên THẬT SỰ muốn gỡ khóa đó; bỏ trống thì mọi khóa đang có
+    đều phải có mặt trong `courses`.
+    """
+    errors = validate.check_roadmap_courses_shape(courses)
+
+    try:
+        current = await http.learning("GET", f"/api/v1/roadmaps/{roadmap_id}", config) or {}
+    except ToolCallError as exc:
+        # Không đọc được danh sách hiện tại thì KHÔNG được kết luận "hợp lệ" — cùng lý do đã ghi ở
+        # `validate_curriculum`: đúng lúc đó phần kiểm gỡ nhầm là phần không chạy được.
+        return f"CHƯA KIỂM ĐƯỢC: không đọc được lộ trình ({exc}). Đừng đề xuất lưu khi chưa kiểm."
+
+    errors += validate.check_course_removals(current, courses, remove_ids)
+    if errors:
+        return "CHƯA LƯU ĐƯỢC, phải sửa:\n" + "\n".join(f"- {line}" for line in errors)
+
+    if validate.roadmap_is_unchanged(current, courses):
+        return (
+            "KHÔNG CÓ GÌ THAY ĐỔI: mảng bạn gửi giống hệt danh sách đang lưu. ĐỪNG gọi "
+            "`save_roadmap_courses` — nó chỉ mở một hộp xác nhận cho một thay đổi rỗng. Sửa danh "
+            "sách theo đúng thứ giảng viên yêu cầu rồi kiểm lại, hoặc nói thẳng với họ là chưa có "
+            "gì để đổi."
+        )
+
+    warnings = validate.check_roadmap_submission(current, courses)
+    head = "HỢP LỆ. Gọi `save_roadmap_courses` NGAY BÂY GIỜ với đúng mảng này."
+    if remove_ids:
+        head += f"\nLƯU Ý: sẽ gỡ {len(remove_ids)} khóa theo `remove_ids` bạn khai."
+    if warnings:
+        return (
+            head
+            + "\nRồi nói thêm cho giảng viên biết — những thứ sau chỉ chặn GỬI DUYỆT, không chặn "
+            "lưu:\n"
+            + "\n".join(f"- {line}" for line in warnings)
+        )
+    return head
+
+
 SERVER_TOOLS: tuple[Any, ...] = (
     # Bài code
     search_exercises,
@@ -494,6 +640,10 @@ SERVER_TOOLS: tuple[Any, ...] = (
     read_course,
     read_lesson_content,
     validate_curriculum,
+    # Lộ trình
+    search_roadmaps,
+    read_roadmap,
+    validate_roadmap_courses,
 )
 
 # Tool mà gọi lại với ĐÚNG tham số cũ chắc chắn ra cùng kết quả, nên lặp lại là lãng phí và
@@ -504,7 +654,13 @@ SERVER_TOOLS: tuple[Any, ...] = (
 # "kết quả cũng y hệt" bắn ra ngay sau `save_curriculum`, tức là SAI SỰ THẬT: cây đã khác. Model
 # đọc câu đó rồi nói với giảng viên là nó "chưa đọc lại được khóa học", trông y như mất trí nhớ.
 NUDGE_ON_REPEAT = frozenset(
-    {"validate_exercise_content", "validate_curriculum", "run_solution", "generate_starter"}
+    {
+        "validate_exercise_content",
+        "validate_curriculum",
+        "validate_roadmap_courses",
+        "run_solution",
+        "generate_starter",
+    }
 )
 
 __all__ = ["NUDGE_ON_REPEAT", "SERVER_TOOLS", "ToolCallError"]

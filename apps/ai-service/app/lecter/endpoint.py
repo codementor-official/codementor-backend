@@ -100,6 +100,12 @@ class ExerciseContentCheck(BaseModel):
     content: dict = Field(default_factory=dict)
 
 
+class RoadmapCoursesCheck(BaseModel):
+    roadmapId: str
+    courses: list[dict] = Field(default_factory=list)
+    removeIds: list[str] = Field(default_factory=list)
+
+
 def _as_config(request: Request) -> dict:
     """Token của người dùng, đóng gói đúng hình dạng mà `http.py` đọc."""
     return {"configurable": {"auth_token": request.state.access_token}}
@@ -156,6 +162,35 @@ async def check_exercise_content(
         warnings += run_warnings
 
     return {"data": {"errors": errors, "warnings": warnings, "runs": runs}}
+
+
+@router.post("/check/roadmap-courses")
+async def check_roadmap_courses(
+    payload: RoadmapCoursesCheck, request: Request, claims: dict = Depends(require_user)
+):
+    """Kiểm danh sách khóa học NGAY TRƯỚC khi trình duyệt ghi.
+
+    Cùng lý do như `check_curriculum`: `validate_roadmap_courses` là một tool model TÙY Ý gọi, và
+    mảng nó đưa cho tool đó không nhất thiết là mảng nó gửi đi lưu. Endpoint này nhận đúng mảng
+    sắp ghi.
+
+    Không tiêu hạn mức ngày: ở đây không có lời gọi model nào.
+    """
+    current = await http.learning(
+        "GET", f"/api/v1/roadmaps/{payload.roadmapId}", _as_config(request)
+    ) or {}
+    errors = validate.check_roadmap_courses_shape(payload.courses)
+    errors += validate.check_course_removals(current, payload.courses, payload.removeIds)
+    return {
+        "data": {
+            "errors": errors,
+            "warnings": validate.check_roadmap_submission(current, payload.courses),
+            "removals": validate.find_course_removals(
+                current, payload.courses, payload.removeIds
+            ),
+            "status": current.get("status"),
+        }
+    }
 
 
 @router.get("/sessions")
