@@ -24,7 +24,36 @@ from app.lecter.validate import JUDGE_LANGUAGES, normalize_language
 
 # Trần trả về. Model không cần 20 bài để biết "chủ đề này đã có bài rồi".
 MAX_SEARCH_ITEMS = 10
+# Trần cho khối cây của `read_course`. Cây phải về NGUYÊN VẸN hoặc không về: model được bảo
+# là copy nguyên khối này, nên một bản cắt dở là payload thiếu id.
+MAX_TREE_CHARS = 24_000
 MAX_FAILING_CASES = 3
+
+
+def _stdin_field_ok(value: Any) -> bool:
+    """`None` nghĩa là chưa điền — hợp lệ. Ngoài ra phải là chuỗi.
+
+    Không viết `value or ""`: `0` và `False` cũng falsy, nên chúng sẽ lọt qua đúng cái hàng rào
+    này rồi làm bộ chấm ném `AttributeError` lúc gọi `.strip()`.
+    """
+    return value is None or isinstance(value, str)
+
+
+def _drop_empty_expected(test_cases: list[dict]) -> list[dict]:
+    """Bỏ hẳn khoá `expected` khi nó là `None`.
+
+    Docstring của `run_solution` bảo model "chưa biết `expected` thì cứ để null", và cả quy trình
+    soạn bài dựng trên việc lấy `actual` làm đáp án. Nhưng `JudgeCase` là dataclass thường với
+    `expected: Any = ""`: VẮNG MẶT thì thành `""`, còn `null` tường minh thì giữ nguyên `None` và
+    đi thẳng vào `expected_output.strip()` — AttributeError, 500 không kèm lý do
+    (`apps/judge-service/app/services/judgement.py:39,65`).
+
+    Bỏ khoá đi là cách duy nhất diễn đạt "chưa có đáp án" mà bộ chấm hiểu.
+    """
+    return [
+        {key: value for key, value in case.items() if not (key == "expected" and value is None)}
+        for case in test_cases
+    ]
 
 
 def _check_run_mode(test_cases: list[dict], signature: dict | None) -> str | None:
@@ -49,8 +78,7 @@ def _check_run_mode(test_cases: list[dict], signature: dict | None) -> str | Non
     bad = [
         case.get("order")
         for case in test_cases
-        if not isinstance(case.get("input", ""), str)
-        or not isinstance(case.get("expected", ""), str)
+        if not _stdin_field_ok(case.get("input")) or not _stdin_field_ok(case.get("expected"))
     ]
     if bad:
         return (
@@ -197,7 +225,7 @@ async def run_solution(
         "sourceCode": source_code,
         "timeLimitMs": time_limit_ms,
         "memoryLimitKb": memory_limit_kb,
-        "testCases": test_cases,
+        "testCases": _drop_empty_expected(test_cases),
     }
     if signature:
         body["spec"] = signature
@@ -290,7 +318,11 @@ def _payload_tree(chapters: list[dict]) -> list[dict]:
             "description": chapter.get("description"),
             "isOptional": bool(chapter.get("isOptional")),
             "lessons": [
-                {key: lesson.get(key) for key in _PAYLOAD_LESSON_KEYS}
+                {
+                    **{key: lesson.get(key) for key in _PAYLOAD_LESSON_KEYS},
+                    "isPreview": bool(lesson.get("isPreview")),
+                    "isOptional": bool(lesson.get("isOptional")),
+                }
                 for lesson in (chapter.get("lessons") or [])
             ],
         }
@@ -364,14 +396,26 @@ async def read_course(course_id: str, config: RunnableConfig) -> str:
                 marks.append("đã có nội dung" if lesson.get("contentRef") else "CHƯA có nội dung")
             status_lines.append(f"  - {lesson.get('title')} [{lesson.get('id')}]: {'; '.join(marks)}")
 
-    return clip(
+    # Cắt TỪNG KHỐI, và để cây ở CUỐI. Trước đây cả chuỗi đã nối bị `clip()` cắt ở 16 000 ký
+    # tự, mà khối cây nằm giữa — nên một khóa lớn trả về JSON đứt ngang. Model không parse được,
+    # dựng lại theo trí nhớ, và thiếu id: đúng đường mất `lesson_progress` của học viên.
+    tree = json.dumps(_payload_tree(chapters), ensure_ascii=False)
+    if len(tree) > MAX_TREE_CHARS:
+        # Trả về một cây thiếu đuôi còn tệ hơn không trả gì: nó trông như thật. Hỏng to tiếng.
+        return (
+            f"KHÓA QUÁ LỚN: cây chương trình dài {len(tree)} ký tự, vượt trần {MAX_TREE_CHARS} "
+            "nên không thể trả nguyên khối. ĐỪNG dựng lại cây theo trí nhớ — gửi thiếu id là xóa "
+            "mất chương/bài cùng tiến độ học viên. Nói với giảng viên rằng khóa này phải sửa cây "
+            "trực tiếp trong studio."
+        )
+
+    return (
         "THÔNG TIN CHUNG\n"
-        + json.dumps(meta, ensure_ascii=False)
-        + "\n\nCÂY CHƯƠNG TRÌNH — sao chép nguyên khối này cho `save_curriculum`:\n"
-        + json.dumps(_payload_tree(chapters), ensure_ascii=False)
+        + clip(json.dumps(meta, ensure_ascii=False), 2000)
         + "\n\nTRẠNG THÁI (chỉ để đọc, KHÔNG đưa vào payload):\n"
-        + ("\n".join(status_lines) or "  (chưa có bài học nào)"),
-        16000,
+        + clip("\n".join(status_lines) or "  (chưa có bài học nào)", 4000)
+        + "\n\nCÂY CHƯƠNG TRÌNH — sao chép nguyên khối này cho `save_curriculum`:\n"
+        + tree
     )
 
 

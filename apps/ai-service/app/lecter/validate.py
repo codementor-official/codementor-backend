@@ -417,7 +417,7 @@ def _uuid(where: str, value: Any, errors: list[str]) -> None:
     """
     if not isinstance(value, str) or not UUID.match(value):
         errors.append(
-            f"{where} = {value!r} không phải id hợp lệ. Chương/bài MỚI thì BỎ HẲN trường `id` "
+            f"{where} = {value!r} không phải id hợp lệ. Chương/bài MỚI thì gửi `id: null` "
             "(đừng tự đặt, đừng gửi chuỗi rỗng); mục đã có thì gửi đúng id đọc từ `read_course`."
         )
 
@@ -547,6 +547,51 @@ def _tree_ids(chapters: Any) -> tuple[dict[str, str], dict[str, str]]:
     return chapter_titles, lesson_titles
 
 
+def find_removals(
+    current: Any, chapters: Any, remove_ids: list[str] | None = None
+) -> list[dict]:
+    """Mục sẽ biến mất nếu lưu payload này, kèm cờ model có khai ý định xóa hay không.
+
+    Một nguồn sự thật cho hai người đọc: câu lỗi gửi cho model (`check_removals`) và banner đỏ
+    trên hộp xác nhận. Trước đây hộp xác nhận tự tra tên từ `removeIds` do MODEL khai — nên một
+    lượt quên echo id thì nó không hiện gì cả, và người duy nhất có thẩm quyền lại là người không
+    có thông tin.
+
+    Khai một CHƯƠNG là khai luôn mọi bài trong nó. Bắt liệt kê thêm từng id bài là việc thừa mà
+    câu lỗi không hề nói tới: model đã gửi đúng `remove_ids` của chương, vẫn bị chặn vì hai bài
+    con, rồi bỏ cuộc và nói với giảng viên rằng chương đó "không còn nữa" — một câu sai mà nó suy
+    ra từ chính lời từ chối của tool.
+    """
+    payload_chapters, payload_lessons = _tree_ids(chapters)
+    declared = set(remove_ids or [])
+
+    gone: list[dict] = []
+    for chapter in ((current or {}).get("chapters") or []):
+        if not isinstance(chapter, dict):
+            continue
+        chapter_id = chapter.get("id")
+        chapter_gone = bool(chapter_id) and chapter_id not in payload_chapters
+        if chapter_gone:
+            gone.append({
+                "kind": "chapter",
+                "id": chapter_id,
+                "title": str(chapter.get("title") or "chưa đặt tên"),
+                "declared": chapter_id in declared,
+            })
+        for lesson in chapter.get("lessons") or []:
+            lesson_id = lesson.get("id") if isinstance(lesson, dict) else None
+            if not lesson_id or lesson_id in payload_lessons:
+                continue
+            gone.append({
+                "kind": "lesson",
+                "id": lesson_id,
+                "title": str(lesson.get("title") or "chưa đặt tên"),
+                "declared": lesson_id in declared
+                or (chapter_gone and chapter_id in declared),
+            })
+    return gone
+
+
 def check_removals(
     current: Any, chapters: Any, remove_ids: list[str] | None = None
 ) -> list[str]:
@@ -560,22 +605,12 @@ def check_removals(
     — sẽ xóa sạch phần còn lại của khóa học. Đây không phải cảnh báo: đây là lỗi chặn, và muốn xóa
     thật thì phải liệt kê vào `remove_ids`.
     """
-    current_chapters, current_lessons = _tree_ids((current or {}).get("chapters"))
-    payload_chapters, payload_lessons = _tree_ids(chapters)
-    declared = set(remove_ids or [])
-
-    errors: list[str] = []
-    for label, existing, sent in (
-        ("Chương", current_chapters, payload_chapters),
-        ("Bài", current_lessons, payload_lessons),
-    ):
-        vanished = [
-            f"{label} '{title}' ({identifier})"
-            for identifier, title in existing.items()
-            if identifier not in sent and identifier not in declared
-        ]
-        errors.extend(vanished)
-
+    labels = {"chapter": "Chương", "lesson": "Bài"}
+    errors = [
+        f"{labels[item['kind']]} '{item['title']}' ({item['id']})"
+        for item in find_removals(current, chapters, remove_ids)
+        if not item["declared"]
+    ]
     if not errors:
         return []
     return [
