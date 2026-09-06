@@ -107,7 +107,7 @@ def validated_steps(raw, candidates):
 
 
 async def execute(request, claims, generate):
-    rag = request.app.state.rag
+    state = request.app.state
     now = datetime.now(UTC)
     async with httpx.AsyncClient(
         headers={"Authorization": f"Bearer {request.state.access_token}"}, timeout=12
@@ -116,12 +116,12 @@ async def execute(request, claims, generate):
         if not preferences.get("adaptiveRecommendations", False):
             return {"data": {"status": "disabled", "insight": None}}
         pref_hash = hashlib.sha256(json.dumps(preferences, sort_keys=True).encode()).hexdigest()
-        collection = rag.db["dashboard_insights"]
+        collection = state.db["dashboard_insights"]
         cached = await collection.find_one({"_id": claims["sub"]})
         if not generate:
             return response_from(cached, pref_hash, now, settings.configured)
 
-        rag.provider.require_configured()
+        state.provider.require_configured()
         learning, recommendations = await asyncio.gather(
             read(client, settings.learning_service_url, "/activity/me/dashboard"),
             read(client, settings.recommendation_service_url, "/recommendations/exercises?limit=4"),
@@ -164,8 +164,10 @@ async def execute(request, claims, generate):
     if not lock:
         raise HTTPException(409, "AI đang phân tích. Vui lòng đợi kết quả hiện tại.")
     try:
-        await budget.consume(rag.db, claims["sub"], "dashboard", settings.ai_dashboard_daily_limit)
-        raw = await rag.provider.complete_json(
+        await budget.consume(
+            state.db, claims["sub"], "dashboard", settings.ai_dashboard_daily_limit
+        )
+        raw = await state.provider.complete_json(
             INSTRUCTIONS,
             json.dumps(payload, ensure_ascii=False),
             "dashboard_coach",
@@ -208,7 +210,7 @@ async def generate(request: Request, claims: dict = Depends(require_user)):
 @router.post("/insight/apply")
 async def apply_insight(request: Request, claims: dict = Depends(require_user)):
     now = datetime.now(UTC)
-    collection = request.app.state.rag.db["dashboard_insights"]
+    collection = request.app.state.db["dashboard_insights"]
     saved = await collection.find_one_and_update(
         {"_id": claims["sub"], "insight": {"$exists": True}},
         {"$set": {"appliedAt": now}, "$unset": {"hiddenAt": ""}},
@@ -221,7 +223,7 @@ async def apply_insight(request: Request, claims: dict = Depends(require_user)):
 
 @router.patch("/insight/visibility")
 async def visibility(body: Visibility, request: Request, claims: dict = Depends(require_user)):
-    collection = request.app.state.rag.db["dashboard_insights"]
+    collection = request.app.state.db["dashboard_insights"]
     update = (
         {"$set": {"hiddenAt": datetime.now(UTC)}} if body.hidden else {"$unset": {"hiddenAt": ""}}
     )

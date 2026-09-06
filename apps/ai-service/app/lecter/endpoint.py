@@ -35,9 +35,9 @@ RECURSION_LIMIT = 24
 
 @router.post("/run")
 async def run(input_data: RunAgentInput, request: Request, claims: dict = Depends(require_user)):
-    rag = request.app.state.rag
-    rag.provider.require_configured()
-    await budget.consume(rag.db, claims["sub"], "lecter", settings.ai_lecter_daily_limit)
+    state = request.app.state
+    state.provider.require_configured()
+    await budget.consume(state.db, claims["sub"], "lecter", settings.ai_lecter_daily_limit)
 
     agent = LangGraphAgent(
         name="lecter",
@@ -84,7 +84,7 @@ async def run(input_data: RunAgentInput, request: Request, claims: dict = Depend
             )
         finally:
             # Checkpoint đã có mọi thứ đã stream ra, nên phần đã trả lời vẫn lưu nguyên.
-            await sessions.save(rag.db, claims["sub"], thread_id, GRAPH)
+            await sessions.save(state.db, claims["sub"], thread_id, GRAPH)
 
     return StreamingResponse(
         stream(),
@@ -200,12 +200,12 @@ async def check_roadmap_courses(
 
 @router.get("/sessions")
 async def list_sessions(request: Request, claims: dict = Depends(require_user)):
-    return {"data": {"items": await sessions.listing(request.app.state.rag.db, claims["sub"])}}
+    return {"data": {"items": await sessions.listing(request.app.state.db, claims["sub"])}}
 
 
 @router.get("/sessions/{thread_id}")
 async def read_session(thread_id: str, request: Request, claims: dict = Depends(require_user)):
-    found = await sessions.read(request.app.state.rag.db, claims["sub"], thread_id)
+    found = await sessions.read(request.app.state.db, claims["sub"], thread_id)
     if not found:
         raise HTTPException(404, "Không tìm thấy hội thoại.")
     return {"data": found}
@@ -213,5 +213,5 @@ async def read_session(thread_id: str, request: Request, claims: dict = Depends(
 
 @router.delete("/sessions/{thread_id}", status_code=204)
 async def delete_session(thread_id: str, request: Request, claims: dict = Depends(require_user)):
-    if not await sessions.remove(request.app.state.rag.db, claims["sub"], thread_id):
+    if not await sessions.remove(request.app.state.db, claims["sub"], thread_id):
         raise HTTPException(404, "Không tìm thấy hội thoại.")

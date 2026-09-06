@@ -23,6 +23,12 @@ async def lifespan(app: FastAPI):
     client = AsyncMongoClient(settings.mongo_uri, serverSelectionTimeoutMS=3000, tz_aware=True)
     provider = OpenAIProvider(settings)
     database = client[settings.mongo_db]
+    # Hạ tầng dùng chung nằm THẲNG trên `app.state`, không nấp trong một service nghiệp vụ.
+    # Trước đây dashboard, gợi ý testcase và Lecter đều lấy provider qua `app.state.rag.provider`,
+    # nên `RagService` thành sổ tra cứu dịch vụ: đổi hình dạng nó một lần là cả ba trả 500 ngay
+    # dòng đầu, và không router nào trong ba cái đó liên quan gì tới hỏi đáp tài liệu.
+    app.state.db = database
+    app.state.provider = provider
     # MỘT `DocumentIndex` cho cả tiến trình, và đúng MỘT worker. Mỗi bề mặt dựng một bản riêng
     # nghĩa là mỗi bản một vòng lặp poll cùng một collection, tranh nhau lease của cùng một job.
     storage = DocumentStorage(settings)
