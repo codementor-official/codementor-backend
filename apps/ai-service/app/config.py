@@ -54,7 +54,13 @@ class Settings(BaseSettings):
     aws_s3_endpoint: str = ""
     aws_s3_force_path_style: bool = False
     aws_s3_document_prefix: str = "public/workspace-documents"
+    # Tài liệu riêng của người soạn nội dung. KHÔNG dùng chung `aws_s3_document_prefix`: nhánh
+    # đó tên là `public/…` và được đặt quyền đọc công khai cho tài liệu nhóm học, còn đây là
+    # tệp cá nhân — chỉ đọc lại qua URL đã ký.
+    aws_s3_ai_upload_prefix: str = "private/ai-uploads"
     document_max_upload_mb: int = Field(default=20, ge=1)
+    # Trần số tài liệu đính kèm cho MỘT lượt gửi. Frontend chặn trước, đây là hàng rào thật.
+    ai_document_max_files: int = Field(default=4, ge=1, le=10)
 
     @property
     def configured(self) -> bool:

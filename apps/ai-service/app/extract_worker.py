@@ -1,7 +1,7 @@
 import json
 import sys
 
-from app.documents import MAX_FILE_BYTES, chunk_pages, extract_pages
+from app.rag.documents import MAX_FILE_BYTES, chunk_pages, extract_pages
 
 
 def main():

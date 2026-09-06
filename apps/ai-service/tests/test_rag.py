@@ -10,7 +10,7 @@ from app.config import Settings
 from app.main import app, settings
 from app.models import GroundedAnswer, InternalRequest
 from app.provider import OpenAIProvider
-from app.rag import RagService, grounded_turn, validate_sources
+from app.rag.service import RagService, grounded_turn, validate_sources
 
 
 def request(**overrides):

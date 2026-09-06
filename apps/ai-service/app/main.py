@@ -10,11 +10,10 @@ from pymongo.errors import PyMongoError
 
 from app.config import settings
 from app.dashboard import router as dashboard_router
-from app.documents import DocumentStorage
 from app.lecter.endpoint import router as lecter_router
 from app.models import InternalRequest
 from app.provider import OpenAIProvider
-from app.rag import RagService
+from app.rag import DocumentIndex, DocumentStorage, RagService
 from app.suggest import router as suggest_router
 
 
@@ -22,10 +21,12 @@ from app.suggest import router as suggest_router
 async def lifespan(app: FastAPI):
     client = AsyncMongoClient(settings.mongo_uri, serverSelectionTimeoutMS=3000, tz_aware=True)
     provider = OpenAIProvider(settings)
-    app.state.rag = RagService(
-        client[settings.mongo_db], settings, provider, DocumentStorage(settings)
-    )
-    worker = asyncio.create_task(app.state.rag.worker())
+    database = client[settings.mongo_db]
+    # MỘT `DocumentIndex` cho cả tiến trình, và đúng MỘT worker. Mỗi bề mặt dựng một bản riêng
+    # nghĩa là mỗi bản một vòng lặp poll cùng một collection, tranh nhau lease của cùng một job.
+    app.state.index = DocumentIndex(database, settings, provider, DocumentStorage(settings))
+    app.state.rag = RagService(database, settings, app.state.index)
+    worker = asyncio.create_task(app.state.index.worker())
     try:
         yield
     finally:

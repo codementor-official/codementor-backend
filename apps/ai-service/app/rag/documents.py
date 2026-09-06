@@ -19,28 +19,29 @@ MAX_FILE_BYTES = 20 * 1024 * 1024
 
 
 class DocumentStorage:
-    """Read the existing Workspace S3 objects; no second upload or storage flow."""
+    """Đọc đối tượng S3 đã có; không có luồng tải lên thứ hai ở đây."""
 
     def __init__(self, config: Settings):
         self.config = config
 
-    def read(self, workspace_id: str, source: dict) -> bytes:
+    def read(self, allowed_prefix: str, source: dict) -> bytes:
+        """Đọc tệp gốc, chỉ khi khoá của nó nằm dưới `allowed_prefix`.
+
+        Prefix do NƠI GỌI đưa vào chứ không tự dựng ở đây: mỗi chủ thể có một nhánh riêng
+        trong bucket (`…/workspaces/{id}/` cho nhóm học, `…/lecturer/{sub}/` cho tài liệu của
+        giảng viên), và tầng này không biết — cũng không nên biết — chủ thể nào đang gọi.
+
+        Hàng rào vẫn nguyên vẹn: nó là thứ duy nhất chặn một `storageKey` trỏ sang thư mục của
+        người khác. Ai gọi cũng phải dựng prefix từ danh tính ĐÃ XÁC THỰC, đừng lấy từ payload.
+        """
         key = source.get("storageKey")
         if not key:
             if source["docType"] in ("txt", "md") and source.get("previewText"):
                 return source["previewText"].encode("utf-8")
             raise HTTPException(422, "Tài liệu chưa có tệp gốc trên storage. Hãy tải lại tệp.")
-        expected = (
-            "/".join(
-                filter(
-                    None,
-                    [self.config.aws_s3_document_prefix.strip("/"), "workspaces", workspace_id],
-                )
-            )
-            + "/"
-        )
+        expected = allowed_prefix if allowed_prefix.endswith("/") else allowed_prefix + "/"
         if not key.startswith(expected) or ".." in key:
-            raise HTTPException(403, "Tài liệu không thuộc Workspace này.")
+            raise HTTPException(403, "Tài liệu không thuộc phạm vi này.")
         if not self.config.aws_s3_bucket:
             raise HTTPException(503, "Chưa cấu hình kho lưu trữ tài liệu.")
         credentials = {}
