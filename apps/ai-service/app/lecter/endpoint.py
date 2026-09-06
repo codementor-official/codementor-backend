@@ -144,7 +144,9 @@ async def check_exercise_content(
     """
     content = payload.content
     errors = validate.check_shape(content) + validate.check_reference_solutions(content)
-    warnings = validate.check_submission(content)
+    # `check_submission` gọi lại `check_reference_solutions` bên trong, nên thiếu `languages` sẽ
+    # ra cùng một câu ở cả hai danh sách. Hiện hai lần cho người soạn đọc là nhiễu.
+    warnings = [line for line in validate.check_submission(content) if line not in errors]
 
     runs: list[dict] = []
     if not errors:
