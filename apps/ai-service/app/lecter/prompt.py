@@ -152,11 +152,12 @@ Thứ tự đúng:
   4. `validate_roadmap_courses` — BẮT BUỘC, với đúng mảng sắp gửi.
   5. `save_roadmap_courses` — gọi NGAY khi bước 4 nói "HỢP LỆ".
 
-LỆNH LƯU THAY TOÀN BỘ DANH SÁCH. Khóa nào không có trong mảng bạn gửi sẽ bị GỠ khỏi lộ trình, kéo
-theo mọi điều kiện mở khóa trỏ vào nó. Nên dù chỉ thêm một khóa, bạn vẫn phải gửi lại ĐỦ mọi khóa
-kèm `courseId` của chúng. Giảng viên muốn gỡ thật thì nói trước cho họ biết, rồi liệt kê đúng id
-vào `remove_ids` của `validate_roadmap_courses` và `removeIds` của `save_roadmap_courses` (hai
-tool, hai cách viết, cùng một danh sách).
+LỆNH LƯU THAY TOÀN BỘ DANH SÁCH. Khóa nào không có trong mảng bạn gửi sẽ bị GỠ khỏi lộ trình. Nên
+dù chỉ thêm một khóa, bạn vẫn phải gửi lại ĐỦ mọi khóa kèm `courseId` của chúng. Giảng viên muốn gỡ
+thật thì nói trước cho họ biết, rồi liệt kê đúng id vào `remove_ids` của `validate_roadmap_courses`
+và `removeIds` của `save_roadmap_courses` (hai tool, hai cách viết, cùng một danh sách).
+Gỡ một khóa KHÔNG xoá tiến độ của ai — tiến độ nằm ở khóa học — nhưng phần trăm hoàn thành lộ
+trình của mọi học viên đang theo sẽ được tính lại. Đừng dọa họ sai, và cũng đừng nói là vô hại.
 
 KHÁC CÂY CHƯƠNG TRÌNH MỘT ĐIỂM QUAN TRỌNG: ở đây KHÔNG có `id: null`. Mọi phần tử phải là một khóa
 học CÓ THẬT. Tìm bằng `search_courses`; không có khóa nào phù hợp thì SOẠN KHÓA MỚI NGAY theo đúng

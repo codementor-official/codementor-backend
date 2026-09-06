@@ -837,11 +837,13 @@ def check_course_removals(
 
     `PUT /roadmaps/:id/courses` thay TOÀN BỘ danh sách: khóa nào không có `courseId` trong payload
     thì biến mất khỏi lộ trình. Nhẹ hơn cây chương trình một bậc — `course_enrollments` và
-    `lesson_progress` nằm ở khóa học nên tiến độ KHÔNG mất — nhưng học viên đang theo lộ trình thì
-    mất chỗ đứng của khóa đó, và cạnh điều kiện mở khóa trỏ vào nó bị xóa theo.
+    `lesson_progress` nằm ở khóa học nên KHÔNG có dữ liệu nào bị xoá. Cái đổi là thứ phái sinh:
+    `fn_recalc_roadmap_progress` tính lại phần trăm trên số khóa còn lại, nên tiến độ lộ trình của
+    mọi học viên đang theo nhảy giá trị, và một lộ trình có thể lật sang `completed`.
 
     Vẫn là lỗi CHẶN chứ không phải cảnh báo: một lượt model quên echo lại id — chuyện thường gặp
-    khi nó chỉ định "thêm một khóa" — sẽ dọn sạch phần còn lại của lộ trình.
+    khi nó chỉ định "thêm một khóa" — sẽ dọn sạch phần còn lại của lộ trình, và không có gì hoàn
+    tác được việc đó ngoài việc gõ lại bằng tay.
     """
     errors = [
         f"Khóa học '{item['title']}' ({item['id']})"
@@ -854,7 +856,8 @@ def check_course_removals(
         "SẼ GỠ MẤT KHÓA HỌC — payload thay TOÀN BỘ danh sách, nên thiếu id là gỡ: "
         + "; ".join(errors)
         + ". Gọi `read_roadmap` rồi gửi lại ĐỦ mọi khóa kèm `courseId` của chúng. "
-        "Thật sự muốn gỡ thì liệt kê đúng những id đó vào `remove_ids`."
+        "Thật sự muốn gỡ thì liệt kê đúng những id đó vào `remove_ids` — tiến độ lộ trình của "
+        "học viên đang theo sẽ được tính lại theo số khóa còn lại."
     ]
 
 
