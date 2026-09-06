@@ -289,19 +289,15 @@ export class WorkspaceContentService {
           groupExerciseId: id,
         })
       ).items[0] ?? null;
-    const content = await this.mongo
+    const content = (await this.mongo
       .collection('exercise_contents')
       .findOne(
         { exerciseId: exercise.exerciseId },
         { projection: { _id: 0, exerciseId: 0, kind: 0, createdAt: 0, updatedAt: 0 } },
-      );
+      )) as Record<string, unknown> | null;
     return {
       ...exercise,
-      content: content
-        ? canEdit
-          ? content
-          : toLearnerExerciseContent(content as Record<string, unknown>)
-        : null,
+      content: content ? (canEdit ? content : toLearnerExerciseContent(content)) : null,
       isAssignedToMe: Boolean(mine),
       myAssignment: mine
         ? {
@@ -332,12 +328,12 @@ export class WorkspaceContentService {
     if (exercise.publicationStatus === 'hidden' && !canEdit)
       throw new NotFound('Bài tập nhóm', id);
 
-    const content = await this.mongo
+    const content = (await this.mongo
       .collection('exercise_contents')
       .findOne(
         { exerciseId: exercise.exerciseId },
         { projection: { _id: 0, exerciseId: 0, kind: 0, createdAt: 0, updatedAt: 0 } },
-      );
+      )) as Record<string, unknown> | null;
 
     return {
       id: exercise.exerciseId,
@@ -357,7 +353,7 @@ export class WorkspaceContentService {
       timeLimitMs: exercise.timeLimitMs,
       memoryLimitKb: exercise.memoryLimitKb,
       publishedAt: exercise.publishedAt?.toISOString() ?? null,
-      content: content ? toLearnerExerciseContent(content as Record<string, unknown>) : null,
+      content: content ? toLearnerExerciseContent(content) : null,
     };
   }
   async attachExercise(userId: string, slug: string, dto: AttachWorkspaceExerciseDto) {
@@ -589,13 +585,13 @@ export class WorkspaceContentService {
     )
       throw new NotFound('Bài giao', assignmentId);
     const rows = await this.content.submissionHistory(detail.id, assignmentId);
-    const runDetails = await this.mongo
+    const runDetails = (await this.mongo
       .collection('submission_run_details')
       .find(
         { submissionId: { $in: rows.map((row) => row.id) } },
         { projection: { submissionId: 1, compile: 1, cases: 1, consoleOutput: 1, judge: 1 } },
       )
-      .toArray();
+      .toArray()) as Record<string, unknown>[];
     const bySubmission = new Map(runDetails.map((item) => [item.submissionId as string, item]));
     return {
       items: rows.map((row) => ({ ...row, runDetail: bySubmission.get(row.id) ?? null })),
