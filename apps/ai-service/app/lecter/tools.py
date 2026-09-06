@@ -1,15 +1,18 @@
 """Tool chạy phía server: chỉ ĐỌC kho nội dung và CHẠY THỬ mã.
 
-Không có tool nào ở đây ghi vào cơ sở dữ liệu. Ba tool ghi (`create_exercise`,
-`update_exercise_meta`, `save_exercise_content`) do trình duyệt khai báo và tự thi hành sau khi
-người dùng bấm xác nhận — xem `apps/lecturer/src/features/lecter/hitl.tsx`. Đó không phải quy ước
-mềm: kẻ tấn công tự khai thêm một tool `delete_exercise` cũng chỉ gọi được thứ token của họ vốn đã
-gọi được, còn ai-service thì không cầm credential ghi nào cả.
+Không có tool nào ở đây ghi vào cơ sở dữ liệu. Mọi tool ghi — bài code
+(`create_exercise`, `update_exercise_meta`, `save_exercise_content`) và khóa học
+(`create_course`, `update_course_meta`, `save_curriculum`, `save_lesson_contents`) — do trình
+duyệt khai báo và tự thi hành sau khi người dùng bấm xác nhận, xem
+`apps/lecturer/src/features/lecter/hitl.tsx` và `hitl-course.tsx`. Đó không phải quy ước mềm: kẻ
+tấn công tự khai thêm một tool `delete_exercise` cũng chỉ gọi được thứ token của họ vốn đã gọi
+được, còn ai-service thì không cầm credential ghi nào cả.
 
 Không đăng ký: xoá, gửi duyệt, kiểm duyệt, công khai, fork. Không phải vì prompt cấm — vì chúng
 không tồn tại trong danh sách này.
 """
 
+import json
 from typing import Any, Literal
 
 from langchain_core.runnables import RunnableConfig
@@ -267,13 +270,197 @@ async def validate_exercise_content(content: dict) -> str:
     return "HỢP LỆ. Gọi `save_exercise_content` NGAY BÂY GIỜ với đúng object này."
 
 
+
+
+# --- Khóa học -------------------------------------------------------------
+
+# Bảy khoá `SaveCurriculumDto` cho phép, đúng thứ tự dễ đọc. `read_course` dựng lại payload bằng
+# CHÍNH danh sách này, nên thứ nó trả về copy thẳng sang `save_curriculum` được — thừa một khoá là
+# Nest trả 400.
+_PAYLOAD_LESSON_KEYS = (
+    "id", "title", "type", "durationMinutes", "isPreview", "isOptional", "exerciseId",
+)
+
+
+def _payload_tree(chapters: list[dict]) -> list[dict]:
+    return [
+        {
+            "id": chapter.get("id"),
+            "title": chapter.get("title"),
+            "description": chapter.get("description"),
+            "isOptional": bool(chapter.get("isOptional")),
+            "lessons": [
+                {key: lesson.get(key) for key in _PAYLOAD_LESSON_KEYS}
+                for lesson in (chapter.get("lessons") or [])
+            ],
+        }
+        for chapter in chapters
+    ]
+
+
+@tool
+async def search_courses(query: str, config: RunnableConfig, mine: bool = True) -> str:
+    """Tìm khóa học theo từ khoá tiêu đề.
+
+    `mine=True` (mặc định) tìm trong khóa học của chính giảng viên, MỌI trạng thái kể cả nháp —
+    đây gần như luôn là thứ cần khi soạn nội dung. `mine=False` tìm trong kho công khai, dùng khi
+    muốn xem thị trường đã có khóa tương tự chưa.
+    """
+    path = "/api/v1/courses/mine" if mine else "/api/v1/courses"
+    page = await http.learning(
+        "GET", path, config, params={"q": query[:200], "limit": MAX_SEARCH_ITEMS}
+    )
+    items = (page or {}).get("items", [])[:MAX_SEARCH_ITEMS]
+    if not items:
+        return "Không có khóa học nào khớp."
+    return "\n".join(
+        f"- {item['id']} · {item.get('title')} · {item.get('status', '?')}"
+        f" · trình độ {item.get('level', '?')}"
+        f" · {item.get('totalChapters', 0)} chương, {item.get('totalLessons', 0)} bài"
+        for item in items
+    )
+
+
+@tool
+async def read_course(course_id: str, config: RunnableConfig) -> str:
+    """Đọc một khóa học kèm TOÀN BỘ cây chương/bài và id của chúng.
+
+    BẮT BUỘC gọi trước mỗi lần sửa cây, kể cả khi chỉ thêm một chương. Lý do: lệnh lưu thay toàn
+    bộ cây, nên phần bạn không gửi lại sẽ bị xóa cùng tiến độ của học viên đang học.
+
+    Trả về hai khối tách bạch:
+    - `chapters` — ĐÚNG hình dạng của `save_curriculum`. Sao chép nguyên khối này rồi sửa, đừng
+      tự gõ lại.
+    - phần trạng thái chỉ-đọc (nội dung đã soạn chưa, bài code đã công khai chưa) — KHÔNG được
+      đưa vào payload.
+    """
+    data = await http.learning("GET", f"/api/v1/courses/{course_id}", config) or {}
+    chapters = data.get("chapters") or []
+
+    meta = {
+        "id": data.get("id"),
+        "slug": data.get("slug"),
+        "title": data.get("title"),
+        "status": data.get("status"),
+        "level": data.get("level"),
+        # KHÔNG đưa `progressionMode` cho model. Tên enum không còn khớp nghĩa: `graph` chính
+        # là chế độ tuyến tính của hệ thống (xem MODE_LABELS ở packages/types), nên model đọc
+        # được chữ đó là suy ra "khóa đang ở chế độ đồ thị" rồi nói sai với giảng viên — đã xảy
+        # ra. Model cũng không có tool nào đổi trường này, nên nó không cần biết.
+        "tagIds": data.get("tagIds"),
+        "description": clip(data.get("description") or "", 1000),
+    }
+
+    status_lines = []
+    for chapter in chapters:
+        for lesson in chapter.get("lessons") or []:
+            marks = []
+            if lesson.get("type") in validate.EXERCISE_BEARING:
+                marks.append(
+                    f"bài code: {lesson.get('exerciseTitle') or 'CHƯA GẮN'}"
+                    + (f" ({lesson['exerciseStatus']})" if lesson.get("exerciseStatus") else "")
+                )
+            else:
+                marks.append("đã có nội dung" if lesson.get("contentRef") else "CHƯA có nội dung")
+            status_lines.append(f"  - {lesson.get('title')} [{lesson.get('id')}]: {'; '.join(marks)}")
+
+    return clip(
+        "THÔNG TIN CHUNG\n"
+        + json.dumps(meta, ensure_ascii=False)
+        + "\n\nCÂY CHƯƠNG TRÌNH — sao chép nguyên khối này cho `save_curriculum`:\n"
+        + json.dumps(_payload_tree(chapters), ensure_ascii=False)
+        + "\n\nTRẠNG THÁI (chỉ để đọc, KHÔNG đưa vào payload):\n"
+        + ("\n".join(status_lines) or "  (chưa có bài học nào)"),
+        16000,
+    )
+
+
+@tool
+async def read_lesson_content(course_id: str, lesson_id: str, config: RunnableConfig) -> str:
+    """Đọc nội dung đang lưu của một bài học. Gọi trước khi sửa nội dung có sẵn — ghi là MERGE,
+    nên bạn cần biết cái gì đang có để không viết đè nhầm."""
+    data = await http.learning(
+        "GET", f"/api/v1/courses/{course_id}/lessons/{lesson_id}/content", config
+    )
+    if not data:
+        return "Bài này chưa có nội dung nào."
+    return clip(data, 8000)
+
+
+@tool
+async def validate_curriculum(
+    course_id: str,
+    chapters: list[dict],
+    config: RunnableConfig,
+    remove_ids: list[str] | None = None,
+) -> str:
+    """Kiểm cây chương trình TRƯỚC khi đề xuất lưu. BẮT BUỘC gọi trước `save_curriculum`.
+
+    Kiểm ba thứ: hình dạng payload, phần dữ liệu SẼ BỊ XÓA vì thiếu id, và những gì còn thiếu để
+    gửi duyệt.
+
+    `chapters` là đúng mảng sắp gửi cho `save_curriculum`; thứ tự trong mảng chính là thứ tự hiển
+    thị. `remove_ids` chỉ điền khi giảng viên THẬT SỰ muốn xóa chương/bài đó — bỏ trống thì mọi id
+    đang tồn tại đều phải có mặt trong `chapters`.
+    """
+    errors = validate.check_curriculum_shape(chapters)
+
+    try:
+        current = await http.learning("GET", f"/api/v1/courses/{course_id}", config) or {}
+    except ToolCallError as exc:
+        # Không đọc được cây hiện tại thì KHÔNG được kết luận "hợp lệ": đúng lúc đó phần kiểm
+        # xóa nhầm — thứ duy nhất bảo vệ dữ liệu học viên — là phần không chạy được.
+        return f"CHƯA KIỂM ĐƯỢC: không đọc được khóa học ({exc}). Đừng đề xuất lưu khi chưa kiểm."
+
+    errors += validate.check_removals(current, chapters, remove_ids)
+    if errors:
+        return "CHƯA LƯU ĐƯỢC, phải sửa:\n" + "\n".join(f"- {line}" for line in errors)
+
+    if validate.is_unchanged(current, chapters):
+        return (
+            "KHÔNG CÓ GÌ THAY ĐỔI: mảng bạn gửi giống hệt cây đang lưu. ĐỪNG gọi "
+            "`save_curriculum` — nó chỉ mở một hộp xác nhận cho một thay đổi rỗng. Sửa cây theo "
+            "đúng thứ giảng viên yêu cầu rồi kiểm lại, hoặc nói thẳng với họ là chưa có gì để đổi."
+        )
+
+    warnings = validate.check_course_submission(current, chapters)
+    head = "HỢP LỆ. Gọi `save_curriculum` NGAY BÂY GIỜ với đúng mảng này."
+    if remove_ids:
+        head += f"\nLƯU Ý: sẽ xóa {len(remove_ids)} mục theo `remove_ids` bạn khai."
+    if warnings:
+        return (
+            head
+            + "\nRồi nói thêm cho giảng viên biết — những thứ sau chỉ chặn GỬI DUYỆT, không chặn "
+            "lưu:\n"
+            + "\n".join(f"- {line}" for line in warnings)
+        )
+    return head
+
+
 SERVER_TOOLS: tuple[Any, ...] = (
+    # Bài code
     search_exercises,
     validate_exercise_content,
     read_exercise,
     list_topics,
     generate_starter,
     run_solution,
+    # Khóa học
+    search_courses,
+    read_course,
+    read_lesson_content,
+    validate_curriculum,
 )
 
-__all__ = ["SERVER_TOOLS", "ToolCallError"]
+# Tool mà gọi lại với ĐÚNG tham số cũ chắc chắn ra cùng kết quả, nên lặp lại là lãng phí và
+# đáng nhắc. Danh sách này là WHITELIST có chủ đích: tool mới thêm sau sẽ mặc định KHÔNG bị nhắc.
+#
+# Vì sao không nhắc tool đọc: `read_course`, `search_*`, `list_topics` sinh ra để đọc lại — nhất
+# là ngay sau một lệnh ghi, lúc dữ liệu vừa đổi. Trước đây chúng nằm chung và hậu quả là câu nhắc
+# "kết quả cũng y hệt" bắn ra ngay sau `save_curriculum`, tức là SAI SỰ THẬT: cây đã khác. Model
+# đọc câu đó rồi nói với giảng viên là nó "chưa đọc lại được khóa học", trông y như mất trí nhớ.
+NUDGE_ON_REPEAT = frozenset(
+    {"validate_exercise_content", "validate_curriculum", "run_solution", "generate_starter"}
+)
+
+__all__ = ["NUDGE_ON_REPEAT", "SERVER_TOOLS", "ToolCallError"]

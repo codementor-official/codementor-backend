@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # không phải hairpin qua gateway từ bên trong mạng nội bộ.
     core_service_url: str = "http://localhost:3001"
     exercise_service_url: str = "http://localhost:3003"
+    learning_service_url: str = "http://localhost:3002"
     judge_service_url: str = "http://localhost:3007"
     # Cùng tên biến mà Nest và judge-service đang dùng. KHÔNG đặt biến riêng cho
     # ai-service: hai issuer lệch nhau thì đăng nhập vẫn được mà mọi lời gọi trả 401.
