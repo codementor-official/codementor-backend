@@ -14,6 +14,13 @@ Chia theo đường đó vì đúng một thứ ở nửa dưới là tái dùng
 
 from app.rag.documents import SUPPORTED_TYPES, DocumentStorage
 from app.rag.index import DocumentIndex
+from app.rag.library import DocumentLibrary
 from app.rag.service import RagService
 
-__all__ = ["SUPPORTED_TYPES", "DocumentIndex", "DocumentStorage", "RagService"]
+__all__ = [
+    "SUPPORTED_TYPES",
+    "DocumentIndex",
+    "DocumentLibrary",
+    "DocumentStorage",
+    "RagService",
+]

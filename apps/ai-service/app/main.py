@@ -13,7 +13,8 @@ from app.dashboard import router as dashboard_router
 from app.lecter.endpoint import router as lecter_router
 from app.models import InternalRequest
 from app.provider import OpenAIProvider
-from app.rag import DocumentIndex, DocumentStorage, RagService
+from app.rag import DocumentIndex, DocumentLibrary, DocumentStorage, RagService
+from app.rag.endpoint import router as documents_router
 from app.suggest import router as suggest_router
 
 
@@ -24,8 +25,10 @@ async def lifespan(app: FastAPI):
     database = client[settings.mongo_db]
     # MỘT `DocumentIndex` cho cả tiến trình, và đúng MỘT worker. Mỗi bề mặt dựng một bản riêng
     # nghĩa là mỗi bản một vòng lặp poll cùng một collection, tranh nhau lease của cùng một job.
-    app.state.index = DocumentIndex(database, settings, provider, DocumentStorage(settings))
+    storage = DocumentStorage(settings)
+    app.state.index = DocumentIndex(database, settings, provider, storage)
     app.state.rag = RagService(database, settings, app.state.index)
+    app.state.library = DocumentLibrary(database, settings, app.state.index, storage)
     worker = asyncio.create_task(app.state.index.worker())
     try:
         yield
@@ -86,6 +89,7 @@ async def mongo_error(_request: Request, _exc: PyMongoError):
 app.include_router(suggest_router)
 app.include_router(dashboard_router)
 app.include_router(lecter_router)
+app.include_router(documents_router)
 
 
 @app.get("/api/v1/health")
