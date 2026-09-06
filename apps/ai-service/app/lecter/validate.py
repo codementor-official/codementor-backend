@@ -417,7 +417,7 @@ def _uuid(where: str, value: Any, errors: list[str]) -> None:
     """
     if not isinstance(value, str) or not UUID.match(value):
         errors.append(
-            f"{where} = {value!r} không phải id hợp lệ. Chương/bài MỚI thì BỎ HẲN trường `id` "
+            f"{where} = {value!r} không phải id hợp lệ. Chương/bài MỚI thì gửi `id: null` "
             "(đừng tự đặt, đừng gửi chuỗi rỗng); mục đã có thì gửi đúng id đọc từ `read_course`."
         )
 

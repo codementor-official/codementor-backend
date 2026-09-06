@@ -159,12 +159,17 @@ def test_two_new_chapters_are_not_duplicate_ids():
 
 
 def test_bad_id_error_names_the_way_out():
-    """Câu lỗi phải nêu HÀNH ĐỘNG. Bản cũ chỉ nói "phải là UUID có thật lấy từ read_course" —
-    lời khuyên bất khả thi với một mục chưa tồn tại, và model kẹt luôn ở đó."""
+    """Câu lỗi phải nêu HÀNH ĐỘNG, và nêu ĐÚNG cách nói mà prompt lẫn `read_course` dùng.
+
+    Bản đầu chỉ nói "phải là UUID có thật lấy từ read_course" — lời khuyên bất khả thi với một
+    mục chưa tồn tại. Bản thứ hai nói "BỎ HẲN trường `id`", lệch với prompt (`id: null`) và với
+    khối mà `read_course` bảo model copy nguyên, nên "sửa" theo nó là gửi cho `save_curriculum`
+    một mảng khác mảng đã đưa `validate_curriculum`.
+    """
     errors = validate.check_curriculum_shape(
         [{"id": "chapter-1", "title": "X", "lessons": []}]
     )
-    assert any("BỎ HẲN trường `id`" in e for e in errors)
+    assert any("`id: null`" in e for e in errors)
 
 
 def test_empty_exercise_id_is_not_an_attachment():
@@ -268,3 +273,51 @@ def test_find_removals_reports_declared_and_undeclared():
     declared = validate.find_removals(CURRENT, only_first_lesson, [L2])
     assert declared[0]["declared"] is True
     assert validate.check_removals(CURRENT, only_first_lesson, [L2]) == []
+
+
+async def test_read_course_never_returns_a_half_tree(monkeypatch):
+    """F4. `clip()` từng cắt cả chuỗi đã nối ở 16 000 ký tự, mà khối cây nằm GIỮA — nên một khóa
+    lớn trả về JSON đứt ngang. Model không parse được, dựng lại theo trí nhớ, thiếu id, và đó
+    đúng là đường xóa mất `lesson_progress`. Thà hỏng to tiếng."""
+    huge = {
+        "id": "c",
+        "chapters": [
+            {
+                "id": CH1,
+                "title": "C" * 200,
+                "lessons": [
+                    {"id": L1, "title": "B" * 200, "type": "article"} for _ in range(400)
+                ],
+            }
+        ],
+    }
+
+    async def fake(method, path, config, **kwargs):
+        return huge
+
+    monkeypatch.setattr(tools.http, "learning", fake)
+    out = await tools.read_course.ainvoke(
+        {"course_id": "c"}, config={"configurable": {"auth_token": "t"}}
+    )
+    assert out.startswith("KHÓA QUÁ LỚN")
+    assert "studio" in out
+
+
+async def test_read_course_puts_the_tree_last_and_whole(monkeypatch):
+    async def fake(method, path, config, **kwargs):
+        return {
+            "id": "c",
+            "title": "Nhỏ",
+            "chapters": [
+                {"id": CH1, "title": "Ch", "lessons": [{"id": L1, "title": "B", "type": "article"}]}
+            ],
+        }
+
+    monkeypatch.setattr(tools.http, "learning", fake)
+    out = await tools.read_course.ainvoke(
+        {"course_id": "c"}, config={"configurable": {"auth_token": "t"}}
+    )
+    tree = out.split("CÂY CHƯƠNG TRÌNH", 1)[1]
+    # Khối cây đứng cuối và là JSON đóng ngoặc đầy đủ.
+    assert tree.rstrip().endswith("]")
+    assert L1 in tree and "cắt bớt" not in tree

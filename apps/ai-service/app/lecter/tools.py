@@ -24,6 +24,9 @@ from app.lecter.validate import JUDGE_LANGUAGES, normalize_language
 
 # Trần trả về. Model không cần 20 bài để biết "chủ đề này đã có bài rồi".
 MAX_SEARCH_ITEMS = 10
+# Trần cho khối cây của `read_course`. Cây phải về NGUYÊN VẸN hoặc không về: model được bảo
+# là copy nguyên khối này, nên một bản cắt dở là payload thiếu id.
+MAX_TREE_CHARS = 24_000
 MAX_FAILING_CASES = 3
 
 
@@ -393,14 +396,26 @@ async def read_course(course_id: str, config: RunnableConfig) -> str:
                 marks.append("đã có nội dung" if lesson.get("contentRef") else "CHƯA có nội dung")
             status_lines.append(f"  - {lesson.get('title')} [{lesson.get('id')}]: {'; '.join(marks)}")
 
-    return clip(
+    # Cắt TỪNG KHỐI, và để cây ở CUỐI. Trước đây cả chuỗi đã nối bị `clip()` cắt ở 16 000 ký
+    # tự, mà khối cây nằm giữa — nên một khóa lớn trả về JSON đứt ngang. Model không parse được,
+    # dựng lại theo trí nhớ, và thiếu id: đúng đường mất `lesson_progress` của học viên.
+    tree = json.dumps(_payload_tree(chapters), ensure_ascii=False)
+    if len(tree) > MAX_TREE_CHARS:
+        # Trả về một cây thiếu đuôi còn tệ hơn không trả gì: nó trông như thật. Hỏng to tiếng.
+        return (
+            f"KHÓA QUÁ LỚN: cây chương trình dài {len(tree)} ký tự, vượt trần {MAX_TREE_CHARS} "
+            "nên không thể trả nguyên khối. ĐỪNG dựng lại cây theo trí nhớ — gửi thiếu id là xóa "
+            "mất chương/bài cùng tiến độ học viên. Nói với giảng viên rằng khóa này phải sửa cây "
+            "trực tiếp trong studio."
+        )
+
+    return (
         "THÔNG TIN CHUNG\n"
-        + json.dumps(meta, ensure_ascii=False)
-        + "\n\nCÂY CHƯƠNG TRÌNH — sao chép nguyên khối này cho `save_curriculum`:\n"
-        + json.dumps(_payload_tree(chapters), ensure_ascii=False)
+        + clip(json.dumps(meta, ensure_ascii=False), 2000)
         + "\n\nTRẠNG THÁI (chỉ để đọc, KHÔNG đưa vào payload):\n"
-        + ("\n".join(status_lines) or "  (chưa có bài học nào)"),
-        16000,
+        + clip("\n".join(status_lines) or "  (chưa có bài học nào)", 4000)
+        + "\n\nCÂY CHƯƠNG TRÌNH — sao chép nguyên khối này cho `save_curriculum`:\n"
+        + tree
     )
 
 
