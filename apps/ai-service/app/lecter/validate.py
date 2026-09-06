@@ -547,6 +547,33 @@ def _tree_ids(chapters: Any) -> tuple[dict[str, str], dict[str, str]]:
     return chapter_titles, lesson_titles
 
 
+def find_removals(
+    current: Any, chapters: Any, remove_ids: list[str] | None = None
+) -> list[dict]:
+    """Mục sẽ biến mất nếu lưu payload này, kèm cờ model có khai ý định xóa hay không.
+
+    Một nguồn sự thật cho hai người đọc: câu lỗi gửi cho model (`check_removals`) và banner đỏ
+    trên hộp xác nhận. Trước đây hộp xác nhận tự tra tên từ `removeIds` do MODEL khai — nên một
+    lượt quên echo id thì nó không hiện gì cả, và người duy nhất có thẩm quyền lại là người không
+    có thông tin.
+    """
+    current_chapters, current_lessons = _tree_ids((current or {}).get("chapters"))
+    payload_chapters, payload_lessons = _tree_ids(chapters)
+    declared = set(remove_ids or [])
+
+    gone: list[dict] = []
+    for kind, existing, sent in (
+        ("chapter", current_chapters, payload_chapters),
+        ("lesson", current_lessons, payload_lessons),
+    ):
+        gone += [
+            {"kind": kind, "id": identifier, "title": title, "declared": identifier in declared}
+            for identifier, title in existing.items()
+            if identifier not in sent
+        ]
+    return gone
+
+
 def check_removals(
     current: Any, chapters: Any, remove_ids: list[str] | None = None
 ) -> list[str]:
@@ -560,22 +587,12 @@ def check_removals(
     — sẽ xóa sạch phần còn lại của khóa học. Đây không phải cảnh báo: đây là lỗi chặn, và muốn xóa
     thật thì phải liệt kê vào `remove_ids`.
     """
-    current_chapters, current_lessons = _tree_ids((current or {}).get("chapters"))
-    payload_chapters, payload_lessons = _tree_ids(chapters)
-    declared = set(remove_ids or [])
-
-    errors: list[str] = []
-    for label, existing, sent in (
-        ("Chương", current_chapters, payload_chapters),
-        ("Bài", current_lessons, payload_lessons),
-    ):
-        vanished = [
-            f"{label} '{title}' ({identifier})"
-            for identifier, title in existing.items()
-            if identifier not in sent and identifier not in declared
-        ]
-        errors.extend(vanished)
-
+    labels = {"chapter": "Chương", "lesson": "Bài"}
+    errors = [
+        f"{labels[item['kind']]} '{item['title']}' ({item['id']})"
+        for item in find_removals(current, chapters, remove_ids)
+        if not item["declared"]
+    ]
     if not errors:
         return []
     return [

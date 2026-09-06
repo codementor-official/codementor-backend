@@ -250,3 +250,21 @@ def test_payload_tree_coerces_lesson_booleans():
     ])
     lesson = tree[0]["lessons"][0]
     assert lesson["isPreview"] is False and lesson["isOptional"] is False
+
+
+# --- Kiểm nằm trên đường ghi ----------------------------------------------
+
+
+def test_find_removals_reports_declared_and_undeclared():
+    """Một nguồn sự thật cho hai người đọc: câu lỗi gửi model, và banner đỏ trên hộp xác nhận.
+    Hộp xác nhận trước đây tra tên từ `removeIds` do MODEL khai, nên một lượt quên echo id thì
+    nó không hiện gì — người có thẩm quyền duyệt lại là người không có thông tin."""
+    only_first_lesson = [{**VALID[0], "lessons": VALID[0]["lessons"][:1]}]
+
+    gone = validate.find_removals(CURRENT, only_first_lesson)
+    assert gone == [{"kind": "lesson", "id": L2, "title": "Luyện tập", "declared": False}]
+
+    # Khai rồi thì vẫn phải hiện lên thẻ — chỉ khác ở chỗ không còn là lỗi chặn.
+    declared = validate.find_removals(CURRENT, only_first_lesson, [L2])
+    assert declared[0]["declared"] is True
+    assert validate.check_removals(CURRENT, only_first_lesson, [L2]) == []
