@@ -16,6 +16,7 @@ import type {
   DocumentUploadUrlDto,
 } from '../presentation/dto/workspace.dto';
 import { WorkspaceService } from './workspace.service';
+import { isWorkspaceAttachmentMessage } from './workspace-chat-content';
 
 const DEFAULT_LIMIT = 30;
 
@@ -107,6 +108,8 @@ export class WorkspaceChatService {
     if (message.senderId !== userId)
       throw new NotAuthorized('Bạn chỉ có thể sửa tin nhắn của mình');
     if (message.deletedAt) throw new BusinessRuleViolation('Tin nhắn đã bị xóa');
+    if (isWorkspaceAttachmentMessage(message.content))
+      throw new BusinessRuleViolation('Tin nhắn có tệp hoặc hình ảnh không thể chỉnh sửa');
     return toMessage(await this.chat.updateMessage(messageId, normaliseContent(dto.content)));
   }
 
