@@ -218,7 +218,21 @@ async def apply_insight(request: Request, claims: dict = Depends(require_user)):
     )
     if not saved:
         raise HTTPException(404, "Chưa có phân tích để áp dụng.")
-    return {"data": {"applied": True, "appliedAt": saved["appliedAt"].isoformat()}}
+    return response_from(saved, saved.get("preferencesHash"), now, settings.configured)
+
+
+@router.delete("/insight/apply")
+async def remove_applied_insight(request: Request, claims: dict = Depends(require_user)):
+    now = datetime.now(UTC)
+    collection = request.app.state.db["dashboard_insights"]
+    saved = await collection.find_one_and_update(
+        {"_id": claims["sub"], "insight": {"$exists": True}},
+        {"$unset": {"appliedAt": ""}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not saved:
+        raise HTTPException(404, "Chưa có phân tích để bỏ áp dụng.")
+    return response_from(saved, saved.get("preferencesHash"), now, settings.configured)
 
 
 @router.patch("/insight/visibility")

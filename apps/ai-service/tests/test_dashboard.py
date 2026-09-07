@@ -60,6 +60,37 @@ def test_response_keeps_plan_lifecycle_on_matching_preferences():
 
 
 @pytest.mark.asyncio
+async def test_apply_and_remove_return_the_persisted_dashboard_state():
+    now = dashboard.datetime.now(dashboard.UTC)
+    document = {
+        "_id": "user",
+        "preferencesHash": "same",
+        "insight": {"summary": "x", "focus": "y", "steps": []},
+        "generatedAt": now,
+        "expiresAt": now + dashboard.timedelta(hours=1),
+    }
+
+    class Collection:
+        async def find_one_and_update(self, query, update, **_kwargs):
+            assert query["_id"] == "user"
+            document.update(update.get("$set", {}))
+            for key in update.get("$unset", {}):
+                document.pop(key, None)
+            return document.copy()
+
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(db={"dashboard_insights": Collection()}))
+    )
+    applied = await dashboard.apply_insight(request, {"sub": "user"})
+    assert applied["data"]["appliedAt"] is not None
+    assert applied["data"]["insight"]["focus"] == "y"
+
+    removed = await dashboard.remove_applied_insight(request, {"sub": "user"})
+    assert removed["data"]["appliedAt"] is None
+    assert removed["data"]["status"] == "ready"
+
+
+@pytest.mark.asyncio
 async def test_opt_out_never_reads_cache_or_calls_provider(monkeypatch):
     read = AsyncMock(return_value={"adaptiveRecommendations": False})
     monkeypatch.setattr(dashboard, "read", read)
