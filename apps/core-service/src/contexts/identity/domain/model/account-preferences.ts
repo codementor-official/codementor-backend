@@ -12,6 +12,7 @@ export interface UserSettings {
   systemAnnouncements: boolean;
   learningInactivityDays: number;
   workspaceNotifications: boolean;
+  miniChatEnabled: boolean;
   learningReminders: boolean;
   weeklyDigest: boolean;
   publicProfile: boolean;
@@ -60,6 +61,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   systemAnnouncements: true,
   learningInactivityDays: 3,
   workspaceNotifications: true,
+  miniChatEnabled: true,
   learningReminders: true,
   weeklyDigest: true,
   publicProfile: false,

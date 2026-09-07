@@ -96,7 +96,7 @@ export class PrismaAccountPreferencesRepository implements AccountPreferencesRep
       JSON.stringify({ assignmentNotifications: next.assignmentNotifications,
         deadlineReminders: next.deadlineReminders, deadline6hReminders: next.deadline6hReminders,
         workspaceEmailUpdates: next.workspaceEmailUpdates, systemAnnouncements: next.systemAnnouncements,
-        learningInactivityDays: next.learningInactivityDays }),
+        learningInactivityDays: next.learningInactivityDays, miniChatEnabled: next.miniChatEnabled }),
     );
     return next;
   }

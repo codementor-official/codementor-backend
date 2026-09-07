@@ -63,6 +63,7 @@ export class UpdateSettingsDto {
   @IsOptional() @IsBoolean() systemAnnouncements?: boolean;
   @IsOptional() @IsInt() @Min(1) @Max(90) learningInactivityDays?: number;
   @IsOptional() @IsBoolean() workspaceNotifications?: boolean;
+  @IsOptional() @IsBoolean() miniChatEnabled?: boolean;
   @IsOptional() @IsBoolean() learningReminders?: boolean;
   @IsOptional() @IsBoolean() weeklyDigest?: boolean;
   @IsOptional() @IsBoolean() publicProfile?: boolean;
