@@ -123,6 +123,7 @@ export interface WorkspaceContentRepository {
       types?: string[];
       publishedOnly: boolean;
       removedOnly?: boolean;
+      recentlyApproved?: boolean;
     },
   ): Promise<ContentPage<WorkspaceDocumentRecord>>;
   findDocument(groupId: string, id: string): Promise<WorkspaceDocumentRecord | null>;

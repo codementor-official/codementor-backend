@@ -375,7 +375,7 @@ export class WorkspaceService {
     await this.workspaces.updateMember(member.id, { role: dto.role });
     return { updated: true };
   }
-  async removeMember(userId: string, slug: string, memberId: string) {
+  async removeMember(userId: string, slug: string, memberId: string, rawReason?: string) {
     const workspace = await this.requireActive(slug);
     const requester = await this.workspaces.findMembershipWithPermissions(workspace.id, userId);
     const target = await this.workspaces.findMember(workspace.id, memberId);
@@ -390,8 +390,23 @@ export class WorkspaceService {
       throw new NotAuthorized('Bạn không có quyền xoá thành viên');
     if (requester.role !== 'owner' && target.role !== 'member')
       throw new NotAuthorized('Chỉ Chủ nhóm mới có thể xoá Phó nhóm');
+    const reason = rawReason?.trim();
+    if (!reason) throw new BusinessRuleViolation('Vui lòng nhập lý do xóa thành viên khỏi nhóm');
     await this.workspaces.updateMember(target.id, { status: 'removed' });
     await this.workspaces.refreshMemberCount(workspace.id);
+    await this.workspaces.recordActivity(workspace.id, userId, `đã xóa thành viên khỏi nhóm · ${reason}`, 'membership', target.id);
+    try {
+      await this.events.publish(TOPICS.WORKSPACE_ACTIVITY, {
+        groupId: workspace.id,
+        entityId: target.id,
+        action: 'member_removed',
+        actorUserId: userId,
+        memberUserId: target.userId,
+        reason,
+      });
+    } catch (error) {
+      this.logger.error('Không phát được thông báo xóa thành viên', error as Error);
+    }
     return { removed: true };
   }
   async transferOwnership(userId: string, slug: string, dto: TransferOwnershipDto) {

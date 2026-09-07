@@ -109,6 +109,7 @@ export class WorkspaceContentService {
       type: clean(query.type),
       publishedOnly: !canViewUnpublished,
       removedOnly,
+      recentlyApproved: query.status === 'recent',
     });
     return {
       ...page,
@@ -146,9 +147,11 @@ export class WorkspaceContentService {
       storageKey: dto.storageKey,
       url: dto.url,
     });
-    return detail.currentMembership.role === 'owner'
-      ? this.content.updateDocument(detail.id, created.id, { status: 'published', reviewedBy: userId })
+    const result = detail.currentMembership.role === 'owner'
+      ? await this.content.updateDocument(detail.id, created.id, { status: 'published', reviewedBy: userId })
       : created;
+    await this.publishWorkspaceActivity(detail, created.id, detail.currentMembership.role === 'owner' ? 'document_published' : 'document_pending', userId);
+    return result;
   }
   async updateDocument(userId: string, slug: string, id: string, dto: UpdateWorkspaceDocumentDto) {
     const detail = await this.workspaces.detail(userId, slug);
@@ -162,6 +165,8 @@ export class WorkspaceContentService {
       throw new NotAuthorized('Bạn không có quyền sửa tài liệu này');
     if (hasStatusPatch && !this.canAny(detail, ['approve_doc']))
       throw new NotAuthorized('Bạn không có quyền duyệt tài liệu');
+    if (dto.status && ['hidden', 'rejected', 'changes'].includes(dto.status) && !clean(dto.reason))
+      throw new BusinessRuleViolation('Vui lòng nhập lý do xử lý tài liệu');
     if (!hasMetadataPatch && !hasStatusPatch)
       throw new BusinessRuleViolation('Không có thay đổi hợp lệ');
     const updated = await this.content.updateDocument(detail.id, id, {
@@ -171,6 +176,12 @@ export class WorkspaceContentService {
       reviewedBy: hasStatusPatch ? userId : undefined,
     });
     if (!updated) throw new NotFound('Tài liệu', id);
+    if (dto.status && dto.status !== existing.status) {
+      const action = dto.status === 'published' ? 'document_published'
+        : dto.status === 'hidden' ? 'document_hidden'
+          : ['rejected', 'changes'].includes(dto.status) ? 'document_rejected' : null;
+      if (action) await this.publishWorkspaceActivity(detail, id, action, userId, null, clean(dto.reason));
+    }
     return updated;
   }
   async deleteDocument(userId: string, slug: string, id: string, dto?: RemoveWorkspaceContentDto) {
@@ -181,8 +192,11 @@ export class WorkspaceContentService {
       this.canAny(detail, ['delete_doc']) ||
       (existing.uploaderId === userId && this.canAny(detail, ['delete_own_doc']));
     if (!allowed) throw new NotAuthorized('Bạn không có quyền xóa tài liệu này');
-    if (!(await this.content.softDeleteDocument(detail.id, id, userId, clean(dto?.reason))))
+    const reason = clean(dto?.reason);
+    if (!reason) throw new BusinessRuleViolation('Vui lòng nhập lý do xóa tài liệu');
+    if (!(await this.content.softDeleteDocument(detail.id, id, userId, reason)))
       throw new NotFound('Tài liệu', id);
+    await this.publishWorkspaceActivity(detail, id, 'document_deleted', userId, null, reason);
   }
   async restoreDocument(userId: string, slug: string, id: string) {
     const detail = await this.workspaces.detail(userId, slug);
@@ -267,7 +281,7 @@ export class WorkspaceContentService {
       })),
     };
   }
-  async exerciseDetail(userId: string, slug: string, id: string) {
+  async exerciseDetail(userId: string, slug: string, id: string): Promise<Record<string, unknown>> {
     const detail = await this.workspaces.detail(userId, slug);
     const exercise = await this.content.exerciseDetail(detail.id, id);
     if (!exercise) throw new NotFound('Bài tập nhóm', id);
@@ -483,6 +497,8 @@ export class WorkspaceContentService {
       throw new NotAuthorized('Bạn không có quyền phân công bài tập');
     if (dto.publicationStatus && !canDeleteAny)
       throw new NotAuthorized('Bạn không có quyền ẩn hoặc xuất bản bài tập');
+    if (dto.publicationStatus === 'hidden' && !clean(dto.reason))
+      throw new BusinessRuleViolation('Vui lòng nhập lý do ẩn bài tập');
     if (!hasContentPatch && !hasAssignmentPatch && dto.publicationStatus === undefined)
       throw new BusinessRuleViolation('Không có thay đổi hợp lệ');
     const newlyAssigned =
@@ -504,6 +520,8 @@ export class WorkspaceContentService {
       tagIds: dto.tagIds,
     });
     if (!updated) throw new NotFound('Bài tập nhóm', id);
+    if (dto.publicationStatus === 'hidden' && existing.publicationStatus !== 'hidden')
+      await this.publishWorkspaceActivity(detail, id, 'exercise_hidden', userId, null, clean(dto.reason));
     if (newlyAssigned.length > 0) {
       await this.publishAssignmentCreated(detail, {
         groupExerciseId: existing.id,
@@ -523,8 +541,11 @@ export class WorkspaceContentService {
       this.canAny(detail, ['delete_exercise']) ||
       (existing.authorId === userId && this.canAny(detail, ['delete_own_exercise']));
     if (!allowed) throw new NotAuthorized('Bạn không có quyền xóa bài tập này');
-    if (!(await this.content.softDeleteExercise(detail.id, id, userId, clean(dto?.reason))))
+    const reason = clean(dto?.reason);
+    if (!reason) throw new BusinessRuleViolation('Vui lòng nhập lý do gỡ bài tập');
+    if (!(await this.content.softDeleteExercise(detail.id, id, userId, reason)))
       throw new NotFound('Bài tập nhóm', id);
+    await this.publishWorkspaceActivity(detail, id, 'exercise_deleted', userId, null, reason);
   }
   async restoreExercise(userId: string, slug: string, id: string) {
     const detail = await this.workspaces.detail(userId, slug);
@@ -571,7 +592,7 @@ export class WorkspaceContentService {
       })),
     };
   }
-  async submissionHistory(userId: string, slug: string, assignmentId: string) {
+  async submissionHistory(userId: string, slug: string, assignmentId: string): Promise<Record<string, unknown>> {
     const detail = await this.workspaces.detail(userId, slug);
     const canReview =
       detail.currentMembership.role === 'owner' ||
@@ -655,6 +676,28 @@ export class WorkspaceContentService {
       });
     } catch (error) {
       this.logger.error('Không phát được thông báo bài tập mới', error as Error);
+    }
+  }
+
+  private async publishWorkspaceActivity(
+    detail: Detail,
+    entityId: string,
+    action: 'document_pending' | 'document_published' | 'document_rejected' | 'document_hidden' | 'document_deleted' | 'exercise_hidden' | 'exercise_deleted',
+    actorUserId: string,
+    memberUserId: string | null = null,
+    reason?: string,
+  ) {
+    try {
+      await this.events.publish(TOPICS.WORKSPACE_ACTIVITY, {
+        groupId: detail.id,
+        entityId,
+        action,
+        actorUserId,
+        memberUserId,
+        reason: reason ?? null,
+      });
+    } catch (error) {
+      this.logger.error('Không phát được thông báo hoạt động Workspace', error as Error);
     }
   }
 

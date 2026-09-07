@@ -128,7 +128,7 @@ describe('WorkspaceContentService permission boundaries', () => {
   it('allows delete_exercise to remove any exercise without granting content editing', async () => {
     const { service, content } = createService(['delete_exercise']);
 
-    await expect(service.deleteExercise(userId, 'workspace', contentId)).resolves.toBeUndefined();
+    await expect(service.deleteExercise(userId, 'workspace', contentId, { reason: 'Không còn phù hợp' })).resolves.toBeUndefined();
     await expect(
       service.updateExercise(userId, 'workspace', contentId, { title: 'Không được phép' }),
     ).rejects.toBeInstanceOf(NotAuthorized);

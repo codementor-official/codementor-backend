@@ -449,10 +449,11 @@ export interface WorkspaceMessageCreatedV1 {
 export interface WorkspaceActivityV1 {
   groupId: string;
   entityId: string;
-  action: 'document_pending' | 'document_published' | 'document_rejected' | 'member_joined' | 'member_left' | 'member_role_changed' | 'join_requested';
+  action: 'document_pending' | 'document_published' | 'document_rejected' | 'document_hidden' | 'document_deleted' | 'exercise_hidden' | 'exercise_deleted' | 'member_joined' | 'member_left' | 'member_removed' | 'member_role_changed' | 'join_requested';
   actorUserId: string | null;
   memberUserId: string | null;
   role?: string | null;
+  reason?: string | null;
 }
 
 /* ------------------------------------------------------------------ Mapping */

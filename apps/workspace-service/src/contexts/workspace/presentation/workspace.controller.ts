@@ -109,6 +109,22 @@ export class WorkspaceController {
     return this.chat.create(requireHumanId(user), slug, dto);
   }
 
+  @Post(':slug/messages/attachments/upload-url')
+  @ApiOperation({ summary: 'Tạo URL tải file/hình cho chat Workspace' })
+  messageAttachmentUpload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body() dto: DocumentUploadUrlDto,
+  ) {
+    return this.chat.attachmentUpload(requireHumanId(user), slug, dto);
+  }
+
+  @Get(':slug/messages/resources')
+  @ApiOperation({ summary: 'File và liên kết đã chia sẻ trong chat Workspace' })
+  messageResources(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.chat.resources(requireHumanId(user), slug);
+  }
+
   @Get(':slug/messages/unread')
   @ApiOperation({ summary: 'Số tin chat chưa đọc' })
   unreadMessages(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
@@ -580,8 +596,9 @@ export class WorkspaceController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('slug') slug: string,
     @Param('memberId') memberId: string,
+    @Body() dto: RemoveWorkspaceContentDto,
   ) {
-    await this.workspaces.removeMember(requireHumanId(user), slug, memberId);
+    await this.workspaces.removeMember(requireHumanId(user), slug, memberId, dto.reason);
   }
 
   @Post(':slug/transfer-ownership')

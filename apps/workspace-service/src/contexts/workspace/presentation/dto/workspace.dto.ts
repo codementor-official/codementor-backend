@@ -281,10 +281,11 @@ export class UpdateWorkspaceDocumentDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) title?: string;
   @IsOptional() @IsString() @MaxLength(100) topic?: string | null;
   @IsOptional() @IsIn(['published', 'pending', 'changes', 'rejected', 'hidden']) status?: string;
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(500) reason?: string;
 }
 
 export class RemoveWorkspaceContentDto {
-  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+  @IsString() @IsNotEmpty() @MaxLength(500) reason!: string;
 }
 
 export class ReportWorkspaceDocumentDto {
@@ -336,6 +337,7 @@ export class UpdateWorkspaceExerciseDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(60000) timeLimitMs?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1024) @Max(4194304) memoryLimitKb?: number;
   @IsOptional() @IsIn(['published', 'hidden']) publicationStatus?: 'published' | 'hidden';
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(500) reason?: string;
   @IsOptional() @IsObject() content?: Record<string, unknown>;
   @IsOptional() @IsArray() @ArrayMaxSize(8) @IsUUID(undefined, { each: true }) tagIds?: string[];
   @IsOptional() @IsDateString() dueAt?: string | null;

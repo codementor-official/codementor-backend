@@ -53,6 +53,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       types?: string[];
       publishedOnly: boolean;
       removedOnly?: boolean;
+      recentlyApproved?: boolean;
     },
   ) {
     const where: Prisma.group_documentsWhereInput = {
@@ -60,6 +61,10 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       deleted_at: input.removedOnly ? { not: null } : null,
     };
     if (input.publishedOnly) where.status = document_status.published;
+    else if (input.recentlyApproved) {
+      where.status = document_status.published;
+      where.reviewed_at = { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) };
+    }
     else if (input.status && input.status !== 'removed')
       where.status = input.status as document_status;
     if (input.type) where.doc_type = input.type;
@@ -170,8 +175,9 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
   }
 
   async purgeDocument(groupId: string, id: string) {
+    const retentionCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const found = await this.prisma.group_documents.findFirst({
-      where: { id, group_id: groupId, deleted_at: { not: null } },
+      where: { id, group_id: groupId, deleted_at: { lte: retentionCutoff } },
       include: { users_group_documents_uploader_idTousers: { select: { display_name: true } } },
     });
     if (!found) return null;
@@ -750,13 +756,14 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     return result.count > 0;
   }
   async purgeExercise(groupId: string, id: string) {
+    const retentionCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const found = await this.prisma.group_exercises.findFirst({
-      where: { id, group_id: groupId, deleted_at: { not: null } },
+      where: { id, group_id: groupId, deleted_at: { lte: retentionCutoff } },
       select: { exercise_id: true, exercises: { select: { visibility: true } } },
     });
     if (!found) return false;
     const result = await this.prisma.group_exercises.deleteMany({
-      where: { id, group_id: groupId, deleted_at: { not: null } },
+      where: { id, group_id: groupId, deleted_at: { lte: retentionCutoff } },
     });
     if (result.count > 0 && found.exercises.visibility === exercise_visibility.group) {
       const references = await this.prisma.group_exercises.count({

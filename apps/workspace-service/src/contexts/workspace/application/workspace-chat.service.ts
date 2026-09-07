@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
 import { TOPICS } from '@codementor/contracts';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
+import { DOCUMENT_CONTENT_TYPES, ObjectStorageService } from '@codementor/platform';
 import {
   WORKSPACE_CHAT_REPOSITORY,
   type WorkspaceChatRepository,
@@ -12,6 +13,7 @@ import type {
   CreateWorkspaceMessageDto,
   ListWorkspaceMessagesQueryDto,
   UpdateWorkspaceMessageDto,
+  DocumentUploadUrlDto,
 } from '../presentation/dto/workspace.dto';
 import { WorkspaceService } from './workspace.service';
 
@@ -23,7 +25,22 @@ export class WorkspaceChatService {
     private readonly workspaces: WorkspaceService,
     @Inject(WORKSPACE_CHAT_REPOSITORY) private readonly chat: WorkspaceChatRepository,
     @Inject(EVENT_BUS) private readonly events: EventBus,
+    private readonly storage: ObjectStorageService,
   ) {}
+
+  async attachmentUpload(userId: string, slug: string, dto: DocumentUploadUrlDto) {
+    const workspace = await this.workspaces.detail(userId, slug);
+    if (!DOCUMENT_CONTENT_TYPES.includes(dto.contentType as (typeof DOCUMENT_CONTENT_TYPES)[number]))
+      throw new BusinessRuleViolation('Định dạng tệp không được hỗ trợ');
+    const result = await this.storage.presignDocumentUpload({
+      prefix: `workspaces/${workspace.id}/chat`,
+      filename: dto.filename,
+      contentType: dto.contentType,
+      sizeBytes: dto.sizeBytes,
+    });
+    if (result.isFail) throw result.error;
+    return { ...result.value, maxBytes: this.storage.maxDocumentUploadBytes };
+  }
 
   async history(userId: string, slug: string, query: ListWorkspaceMessagesQueryDto) {
     const workspace = await this.workspaces.detail(userId, slug);
@@ -39,6 +56,26 @@ export class WorkspaceChatService {
       items: page.map(toMessage),
       nextCursor: rows.length > limit && oldest ? encodeCursor(oldest.createdAt, oldest.id) : null,
     };
+  }
+
+  async resources(userId: string, slug: string) {
+    const workspace = await this.workspaces.detail(userId, slug);
+    const rows = await this.chat.listMessages(workspace.id, undefined, 500);
+    const seen = new Set<string>();
+    const items = rows.flatMap((row) => {
+      if (row.deletedAt) return [];
+      const urls = row.content.match(/https?:\/\/[^\s<>()]+/g) ?? [];
+      return urls.flatMap((raw) => {
+        const url = raw.replace(/[.,;!?]+$/, '');
+        if (seen.has(url)) return [];
+        seen.add(url);
+        const pathname = (() => { try { return new URL(url).pathname; } catch { return ''; } })();
+        const filename = decodeURIComponent(pathname.split('/').pop() || url);
+        const kind = /\.(pdf|docx?|pptx?|xlsx?|txt|md|csv|zip|png|jpe?g|webp)$/i.test(pathname) ? 'file' : 'link';
+        return [{ url, title: filename || url, kind, senderName: row.sender.displayName, createdAt: row.createdAt }];
+      });
+    });
+    return { items, total: items.length, scannedMessages: rows.length };
   }
 
   async create(userId: string, slug: string, dto: CreateWorkspaceMessageDto) {
