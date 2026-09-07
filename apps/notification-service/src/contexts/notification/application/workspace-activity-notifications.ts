@@ -37,25 +37,42 @@ export class WorkspaceActivityNotifications {
     let actionUrl = `/workspace/${workspace.slug}?tab=members`;
     if (payload.action.startsWith('document_')) {
       const document = await this.repo.document(payload.groupId, payload.entityId);
-      if (!document || document.deleted_at) return;
+      if (!document) return;
       // Re-check current state/permissions when consuming, not just when the event was emitted.
       if (payload.action === 'document_pending') {
-        if (document.status !== 'pending') return;
+        if (document.status !== 'pending' || document.deleted_at) return;
         targets = targets.filter((m) => m.can_view_doc && m.can_approve_doc && m.user_id !== document.uploader_id);
         type = 'WORKSPACE_DOCUMENT_PENDING'; title = 'Có tài liệu đang chờ duyệt';
         message = `Tài liệu “${document.title}” trong nhóm “${workspace.name}” cần được duyệt.`;
       } else if (payload.action === 'document_published') {
-        if (document.status !== 'published') return;
+        if (document.status !== 'published' || document.deleted_at) return;
         targets = targets.filter((m) => m.can_view_doc);
         type = 'WORKSPACE_DOCUMENT_PUBLISHED'; title = 'Nhóm có tài liệu mới';
         message = `Tài liệu “${document.title}” đã được chia sẻ trong nhóm “${workspace.name}”.`;
-      } else {
-        if (document.status !== 'hidden') return;
+      } else if (payload.action === 'document_deleted') {
+        if (!document.deleted_at) return;
         targets = targets.filter((m) => m.user_id === document.uploader_id);
-        type = 'WORKSPACE_DOCUMENT_REJECTED'; title = 'Tài liệu chưa được duyệt';
-        message = `Tài liệu “${document.title}” trong nhóm “${workspace.name}” chưa được chấp nhận.`;
+        type = 'WORKSPACE_DOCUMENT_REJECTED'; title = 'Tài liệu đã được chuyển vào mục đã xóa';
+        message = `Tài liệu “${document.title}” trong nhóm “${workspace.name}” đã bị xóa mềm và có thể khôi phục trong 30 ngày.`;
+      } else {
+        if (!['hidden', 'rejected', 'changes'].includes(document.status) || document.deleted_at) return;
+        targets = targets.filter((m) => m.user_id === document.uploader_id);
+        type = 'WORKSPACE_DOCUMENT_REJECTED'; title = payload.action === 'document_hidden' ? 'Tài liệu đã bị ẩn' : 'Tài liệu cần được xem lại';
+        message = `Tài liệu “${document.title}” trong nhóm “${workspace.name}” chưa được hiển thị.`;
       }
+      if (payload.reason) message += ` Lý do: ${payload.reason}`;
       actionUrl = `/workspace/${workspace.slug}?tab=documents`;
+    } else if (payload.action.startsWith('exercise_')) {
+      const exercise = await this.repo.exercise(payload.groupId, payload.entityId);
+      if (!exercise) return;
+      if (payload.action === 'exercise_deleted' && !exercise.deleted_at) return;
+      if (payload.action === 'exercise_hidden' && exercise.publication_status !== 'hidden') return;
+      targets = targets.filter((m) => m.user_id === exercise.author_id);
+      type = 'WORKSPACE_EXERCISE_UPDATED';
+      title = payload.action === 'exercise_deleted' ? 'Bài tập đã được chuyển vào mục đã xóa' : 'Bài tập đã bị ẩn';
+      message = `Bài “${exercise.title}” trong nhóm “${workspace.name}” đã được cập nhật bởi quản trị nhóm.`;
+      if (payload.reason) message += ` Lý do: ${payload.reason}`;
+      actionUrl = `/workspace/${workspace.slug}?tab=exercises`;
     } else {
       const changed = payload.memberUserId ? await this.recipients.recipient(payload.memberUserId) : undefined;
       const name = changed?.display_name ?? 'Một thành viên';
@@ -69,11 +86,15 @@ export class WorkspaceActivityNotifications {
         targets = targets.filter((m) => m.user_id !== payload.memberUserId);
         type = 'WORKSPACE_MEMBER_JOINED'; title = 'Nhóm có thành viên mới';
         message = `${name} đã tham gia nhóm “${workspace.name}”.`;
-      } else if (payload.action === 'member_left') {
+      } else if (payload.action === 'member_left' || payload.action === 'member_removed') {
         if (members.some((m) => m.user_id === payload.memberUserId && m.status === 'active')) return;
-        targets = targets.filter((m) => m.user_id !== payload.memberUserId);
+        targets = payload.action === 'member_removed'
+          ? (changed?.external_id ? [{ user_id: payload.memberUserId!, external_id: changed.external_id, display_name: changed.display_name, role: 'member', status: 'removed', can_view_doc: false, can_approve_doc: false }] : [])
+          : targets.filter((m) => m.user_id !== payload.memberUserId);
         type = 'WORKSPACE_MEMBER_LEFT'; title = 'Cập nhật thành viên nhóm';
-        message = `${name} không còn là thành viên nhóm “${workspace.name}”.`;
+        message = payload.action === 'member_removed'
+          ? `Bạn đã được xóa khỏi nhóm “${workspace.name}”.${payload.reason ? ` Lý do: ${payload.reason}` : ''}`
+          : `${name} không còn là thành viên nhóm “${workspace.name}”.`;
       } else {
         if (!members.some((m) => m.user_id === payload.memberUserId && m.status === 'active' && m.role === payload.role)) return;
         targets = targets.filter((m) => m.user_id === payload.memberUserId || m.role === 'owner');

@@ -65,11 +65,11 @@ export class ReminderRepository {
         SELECT 1 FROM notification_workspace_document_context d
         JOIN notification_workspace_member_context m ON m.group_id=d.group_id
         WHERE d.id=$1::uuid AND d.group_id=$2::uuid AND m.user_id=$3::uuid
-          AND m.status='active' AND d.deleted_at IS NULL
+          AND m.status='active'
           AND CASE $4::text
-            WHEN 'WORKSPACE_DOCUMENT_PENDING' THEN d.status='pending' AND m.can_view_doc AND m.can_approve_doc AND m.user_id IS DISTINCT FROM d.uploader_id
-            WHEN 'WORKSPACE_DOCUMENT_PUBLISHED' THEN d.status='published' AND m.can_view_doc
-            WHEN 'WORKSPACE_DOCUMENT_REJECTED' THEN d.status='hidden' AND m.user_id=d.uploader_id
+            WHEN 'WORKSPACE_DOCUMENT_PENDING' THEN d.deleted_at IS NULL AND d.status='pending' AND m.can_view_doc AND m.can_approve_doc AND m.user_id IS DISTINCT FROM d.uploader_id
+            WHEN 'WORKSPACE_DOCUMENT_PUBLISHED' THEN d.deleted_at IS NULL AND d.status='published' AND m.can_view_doc
+            WHEN 'WORKSPACE_DOCUMENT_REJECTED' THEN (d.deleted_at IS NOT NULL OR d.status IN ('hidden','rejected','changes')) AND m.user_id=d.uploader_id
             ELSE false END
       ) AS eligible`, r.entity_id, r.payload.referenceId, r.user_id, r.type,
     );
