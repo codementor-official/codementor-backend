@@ -104,3 +104,10 @@ def judge(method: str, path: str, config: RunnableConfig, **kwargs) -> Any:
 
 def learning(method: str, path: str, config: RunnableConfig, **kwargs) -> Any:
     return call(method, settings.learning_service_url, path, config, **kwargs)
+
+
+def workspace(method: str, path: str, config: RunnableConfig, **kwargs) -> Any:
+    """Nhóm học tập. Đây là service DUY NHẤT biết ai là thành viên của nhóm nào và tài liệu
+    nào đã được duyệt — tool của Lecter không tự tra hai thứ đó, nó hỏi ở đây bằng token của
+    chính người dùng rồi nhận đúng câu trả lời mà người dùng đáng được nhận."""
+    return call(method, settings.workspace_service_url, path, config, **kwargs)

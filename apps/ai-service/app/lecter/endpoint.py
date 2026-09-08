@@ -1,8 +1,14 @@
-"""Bề mặt HTTP của Lecter: một route AG-UI dạng SSE, ba route lịch sử.
+"""Bề mặt HTTP của Lecter: hai bề mặt AG-UI dạng SSE, mỗi bề mặt kèm ba route lịch sử.
+
+Hai bề mặt, một vòng lặp: `/run` là Lecter đầy đủ của giảng viên; `/workspace/{slug}/run` là
+Lecter của nhóm học — chỉ bài code, chỉ trong phạm vi nhóm đó. Khác nhau đúng một `Capability`
+(xem `capability.py`), nên mọi bản vá vòng lặp áp cho cả hai.
+
+Phạm vi là quyết định của SERVER: giấy phép gắn vào route, không đọc từ thân yêu cầu.
 
 Không dùng `ag_ui_langgraph.add_langgraph_fastapi_endpoint`: nó gắn route KHÔNG có xác thực. Thân
-hàm dưới đây chính là thân của nó, cộng `Depends(require_user)`, hạn mức ngày, và token của người
-dùng được nhét vào `config` để tool forward đi.
+hàm dưới đây chính là thân của nó, cộng `Depends(require_user)`, kiểm quyền, hạn mức ngày, và
+token của người dùng được nhét vào `config` để tool forward đi.
 
 Token đi qua `config`, KHÔNG qua state: state được phát ngược về trình duyệt bằng
 STATE_SNAPSHOT/STATE_DELTA.
@@ -20,43 +26,93 @@ from pydantic import BaseModel, Field
 
 from app import budget
 from app.auth import require_user
-from app.config import settings
 from app.lecter import http, sessions, validate, verify
-from app.lecter.graph import GRAPH
+from app.lecter.capability import LECTURER, WORKSPACE, Capability
+from app.lecter.graph import GRAPHS
+from app.lecter.http import ToolCallError
 
 logger = logging.getLogger("codementor.ai")
 
 router = APIRouter(prefix="/api/v1/ai/lecter")
 
-# Hàng rào chi phí, không phải hàng rào logic: một agent lặp mãi vì tool trả lỗi là chuyện có
-# thật, và giới hạn bước là cách rẻ nhất chặn nó. 24 = khoảng 8 lượt gọi model có tool.
-RECURSION_LIMIT = 24
+# Realm role của Keycloak đặt tên theo hai cách song song (`lecturer` và `LECTURER`) — xem
+# `libs/platform/src/auth/jwt-payload.ts`. So khớp không phân biệt hoa thường ở đây để không
+# phải chọn một bên rồi ép bên kia đổi theo.
+LECTURER_ROLES = frozenset({"lecturer", "admin"})
 
 
-@router.post("/run")
-async def run(input_data: RunAgentInput, request: Request, claims: dict = Depends(require_user)):
+def require_lecturer(claims: dict) -> None:
+    """Bề mặt Lecter đầy đủ (bài code + khóa học + lộ trình) chỉ dành cho giảng viên.
+
+    Trước đây route này chỉ đòi một JWT hợp lệ, nên một học viên gọi thẳng vào cũng nhận đủ
+    prompt ba domain và tiêu hạn mức chung. Chưa rò dữ liệu — mọi tool đọc đều forward token
+    của chính họ nên Nest tự 403 — nhưng phạm vi thì đã sai.
+    """
+    roles = {role.lower() for role in (claims.get("realm_access") or {}).get("roles", [])}
+    if not roles & LECTURER_ROLES:
+        raise HTTPException(403, "Tài khoản này không dùng được Lecter cho nội dung giảng dạy.")
+
+
+async def _workspace_gate(slug: str, request: Request) -> str:
+    """Kiểm quyền soạn bài trong nhóm, trả về `workspaceId`.
+
+    Chạy TRƯỚC khi trừ hạn mức và trước khi mở SSE: người không có quyền nhận 403 ngay, không
+    mất một lượt AI nào. Quyền đọc từ workspace-service bằng token của chính người dùng — đúng
+    một nguồn sự thật, không viết lại luật phân quyền bằng Python.
+    """
+    config = {"configurable": {"auth_token": request.state.access_token}}
+    try:
+        detail = await http.workspace("GET", f"/api/v1/workspaces/{slug}", config)
+    except ToolCallError as exc:
+        # `ToolCallError` là câu dành cho MODEL đọc giữa một lượt chat. Ở đây chưa có lượt nào —
+        # để nó thoát ra ngoài thì FastAPI trả 500 kèm stack trace, và trình duyệt chỉ thấy
+        # "Internal Server Error" cho một sự cố có câu giải thích sẵn.
+        raise HTTPException(503, str(exc)) from None
+    membership = (detail or {}).get("currentMembership") or {}
+    permissions = membership.get("permissions") or {}
+    if membership.get("role") != "owner" and not permissions.get("create_exercise"):
+        raise HTTPException(403, "Bạn không có quyền tạo bài tập trong nhóm này.")
+    workspace_id = (detail or {}).get("id")
+    if not workspace_id:
+        raise HTTPException(404, "Không tìm thấy nhóm học tập.")
+    return workspace_id
+
+
+async def _stream_run(
+    input_data: RunAgentInput,
+    request: Request,
+    claims: dict,
+    capability: Capability,
+    extra_config: dict,
+    workspace_id: str | None = None,
+) -> StreamingResponse:
+    """Thân chung của mọi bề mặt Lecter. Khác nhau đúng một `Capability` và vài khoá config."""
     state = request.app.state
     state.provider.require_configured()
-    await budget.consume(state.db, claims["sub"], "lecter", settings.ai_lecter_daily_limit)
+    await budget.consume(
+        state.db, claims["sub"], capability.budget_key, capability.daily_limit
+    )
 
+    graph = GRAPHS[capability.agent_id]
     agent = LangGraphAgent(
-        name="lecter",
-        graph=GRAPH,
+        name=capability.agent_id,
+        graph=graph,
         # Tắt RAW: mặc định `LangGraphAgent` mirror MỌI sự kiện LangChain ra SSE, và
         # `on_chat_model_start` mang theo NGUYÊN system prompt cùng khối reasoning đã mã hoá —
         # tức là gửi prompt của mình về trình duyệt, kèm vài KB mỗi token. Client AG-UI không
         # dùng RAW cho việc gì; TEXT_MESSAGE_* và TOOL_CALL_* là đủ.
         emit_raw_events=False,
         config={
-            "recursion_limit": RECURSION_LIMIT,
+            "recursion_limit": capability.recursion_limit,
             "configurable": {
                 "auth_token": request.state.access_token,
                 "user_id": claims["sub"],
-                # Tool tài liệu đọc thẳng Mongo/S3 chứ không qua HTTP, nên nó cần chính hai
-                # đối tượng của tiến trình. Đi qua `config`, KHÔNG qua state: state được phát
+                # Tool tài liệu đọc thẳng Mongo/S3 chứ không qua HTTP, nên nó cần chính đối
+                # tượng của tiến trình. Đi qua `config`, KHÔNG qua state: state được phát
                 # ngược về trình duyệt bằng STATE_SNAPSHOT.
-                "library": request.app.state.library,
                 "index": request.app.state.index,
+                "write_tool": capability.write_tool,
+                **extra_config,
             },
         },
     )
@@ -84,7 +140,14 @@ async def run(input_data: RunAgentInput, request: Request, claims: dict = Depend
             )
         finally:
             # Checkpoint đã có mọi thứ đã stream ra, nên phần đã trả lời vẫn lưu nguyên.
-            await sessions.save(state.db, claims["sub"], thread_id, GRAPH)
+            await sessions.save(
+                state.db,
+                claims["sub"],
+                thread_id,
+                graph,
+                agent_id=capability.agent_id,
+                workspace_id=workspace_id,
+            )
 
     return StreamingResponse(
         stream(),
@@ -92,6 +155,40 @@ async def run(input_data: RunAgentInput, request: Request, claims: dict = Depend
         # Kong không bật buffering, nhưng một reverse proxy nginx nào đó ở tầng trên thì có;
         # hai header này là cách chuẩn nói với nó rằng đừng gom.
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/run")
+async def run(input_data: RunAgentInput, request: Request, claims: dict = Depends(require_user)):
+    require_lecturer(claims)
+    return await _stream_run(
+        input_data,
+        request,
+        claims,
+        LECTURER,
+        # Kho tài liệu CÁ NHÂN của giảng viên. Bề mặt nhóm học không nhận đối tượng này —
+        # nó không có tool nào đọc được kho đó.
+        {"library": request.app.state.library},
+    )
+
+
+@router.post("/workspace/{slug}/run")
+async def run_workspace(
+    slug: str,
+    input_data: RunAgentInput,
+    request: Request,
+    claims: dict = Depends(require_user),
+):
+    workspace_id = await _workspace_gate(slug, request)
+    return await _stream_run(
+        input_data,
+        request,
+        claims,
+        WORKSPACE,
+        # `workspace_id` đến từ cổng quyền phía trên, KHÔNG từ trình duyệt: nó dựng nên chuỗi
+        # scope `workspace:<id>` mà tool tài liệu dùng để đọc index.
+        {"workspace_slug": slug, "workspace_id": workspace_id},
+        workspace_id=workspace_id,
     )
 
 
@@ -200,12 +297,22 @@ async def check_roadmap_courses(
 
 @router.get("/sessions")
 async def list_sessions(request: Request, claims: dict = Depends(require_user)):
-    return {"data": {"items": await sessions.listing(request.app.state.db, claims["sub"])}}
+    require_lecturer(claims)
+    return {
+        "data": {
+            "items": await sessions.listing(
+                request.app.state.db, claims["sub"], agent_id=LECTURER.agent_id
+            )
+        }
+    }
 
 
 @router.get("/sessions/{thread_id}")
 async def read_session(thread_id: str, request: Request, claims: dict = Depends(require_user)):
-    found = await sessions.read(request.app.state.db, claims["sub"], thread_id)
+    require_lecturer(claims)
+    found = await sessions.read(
+        request.app.state.db, claims["sub"], thread_id, agent_id=LECTURER.agent_id
+    )
     if not found:
         raise HTTPException(404, "Không tìm thấy hội thoại.")
     return {"data": found}
@@ -213,5 +320,57 @@ async def read_session(thread_id: str, request: Request, claims: dict = Depends(
 
 @router.delete("/sessions/{thread_id}", status_code=204)
 async def delete_session(thread_id: str, request: Request, claims: dict = Depends(require_user)):
-    if not await sessions.remove(request.app.state.db, claims["sub"], thread_id):
+    require_lecturer(claims)
+    if not await sessions.remove(
+        request.app.state.db, claims["sub"], thread_id, agent_id=LECTURER.agent_id
+    ):
+        raise HTTPException(404, "Không tìm thấy hội thoại.")
+
+
+@router.get("/workspace/{slug}/sessions")
+async def list_workspace_sessions(
+    slug: str, request: Request, claims: dict = Depends(require_user)
+):
+    workspace_id = await _workspace_gate(slug, request)
+    return {
+        "data": {
+            "items": await sessions.listing(
+                request.app.state.db,
+                claims["sub"],
+                agent_id=WORKSPACE.agent_id,
+                workspace_id=workspace_id,
+            )
+        }
+    }
+
+
+@router.get("/workspace/{slug}/sessions/{thread_id}")
+async def read_workspace_session(
+    slug: str, thread_id: str, request: Request, claims: dict = Depends(require_user)
+):
+    workspace_id = await _workspace_gate(slug, request)
+    found = await sessions.read(
+        request.app.state.db,
+        claims["sub"],
+        thread_id,
+        agent_id=WORKSPACE.agent_id,
+        workspace_id=workspace_id,
+    )
+    if not found:
+        raise HTTPException(404, "Không tìm thấy hội thoại.")
+    return {"data": found}
+
+
+@router.delete("/workspace/{slug}/sessions/{thread_id}", status_code=204)
+async def delete_workspace_session(
+    slug: str, thread_id: str, request: Request, claims: dict = Depends(require_user)
+):
+    workspace_id = await _workspace_gate(slug, request)
+    if not await sessions.remove(
+        request.app.state.db,
+        claims["sub"],
+        thread_id,
+        agent_id=WORKSPACE.agent_id,
+        workspace_id=workspace_id,
+    ):
         raise HTTPException(404, "Không tìm thấy hội thoại.")

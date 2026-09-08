@@ -10,6 +10,7 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from app.lecter import http, tools
+from app.lecter.capability import WORKSPACE
 from app.lecter.graph import (
     _frontend_names,
     drop_dangling_tool_calls,
@@ -18,16 +19,39 @@ from app.lecter.graph import (
     unrun_tool_results,
 )
 
+# Bộ tên tool server của bề mặt giảng viên — thứ `frontend_tools` dùng để loại tool trùng tên.
+SERVER_NAMES = frozenset(tool.name for tool in tools.LECTURER_TOOLS)
+
 
 def test_frontend_names_excludes_server_tools():
     """Trang bị chèn mã khai một tool tên `run_solution` thì tool server vẫn thắng — nếu không,
     model sẽ nhận kết quả 'chạy thử' do trình duyệt bịa ra."""
     state = {"tools": [{"name": "run_solution"}, {"name": "create_exercise"}]}
-    assert _frontend_names(state) == {"create_exercise"}
+    assert _frontend_names(state, SERVER_NAMES) == {"create_exercise"}
 
 
 def test_frontend_names_empty_state():
-    assert _frontend_names({}) == set()
+    assert _frontend_names({}, SERVER_NAMES) == set()
+
+
+def test_workspace_capability_has_no_course_or_roadmap_tools():
+    """Phạm vi của Lecter trong nhóm học là một quyết định bảo mật, không phải một câu prompt:
+    tool khóa học/lộ trình và tool tra kho bài công khai KHÔNG được bind."""
+    names = {tool.name for tool in WORKSPACE.tools}
+    assert not names & {
+        "search_courses",
+        "read_course",
+        "read_lesson_content",
+        "validate_curriculum",
+        "search_roadmaps",
+        "read_roadmap",
+        "validate_roadmap_courses",
+        "search_exercises",
+        "read_exercise",
+        "read_document",
+        "search_document",
+    }
+    assert {"run_solution", "validate_exercise_content", "read_workspace_document"} <= names
 
 
 def test_clip_truncates_and_says_so():
@@ -274,6 +298,21 @@ def test_write_resets_the_repeat_memory():
     assert repeated_calls(written, again, {"save_curriculum"}) == []
 
 
+def test_reading_the_studio_draft_does_not_reset_the_repeat_memory():
+    """`read_exercise_draft` cũng là tool của trình duyệt nhưng CHỈ ĐỌC. Coi nó là lệnh ghi thì
+    model chỉ cần đọc lại biểu mẫu giữa hai lần gọi hỏng là thoát được hàng rào chống lặp."""
+    args = {"content": {"statement": "x"}}
+    frontend = {"apply_exercise_draft", "read_exercise_draft"}
+    history = [
+        _ai("a", "validate_exercise_content", args),
+        ToolMessage(tool_call_id="a", content="CHƯA LƯU ĐƯỢC"),
+        _ai("r", "read_exercise_draft", {}),
+        ToolMessage(tool_call_id="r", content="## Tiêu đề (title)\nHai số"),
+    ]
+    again = [{"id": "b", "name": "validate_exercise_content", "args": args, "type": "tool_call"}]
+    assert len(repeated_calls(history, again, frontend)) == 1
+
+
 def test_server_call_beside_a_browser_call_gets_answered():
     """F1. Model gọi kèm `read_course` cùng `save_curriculum` trong một message. Lượt dừng ở tool
     trình duyệt nên `read_course` không chạy — không trả lời nó thì lượt sau
@@ -298,4 +337,4 @@ def test_duplicate_tool_name_is_dropped_before_bind():
     """F8. Định tuyến đã ưu tiên tool server, nhưng `bind_tools` vẫn gửi hai mục cùng tên lên
     OpenAI và bị từ chối cả yêu cầu — trang khai nhầm không chiếm được quyền nhưng giết cả run."""
     state = {"tools": [{"name": "run_solution"}, {"name": "save_curriculum"}]}
-    assert [tool["name"] for tool in frontend_tools(state)] == ["save_curriculum"]
+    assert [tool["name"] for tool in frontend_tools(state, SERVER_NAMES)] == ["save_curriculum"]

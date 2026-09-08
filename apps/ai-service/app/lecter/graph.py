@@ -25,9 +25,9 @@ from langgraph.types import Command
 from typing_extensions import TypedDict
 
 from app.config import settings
+from app.lecter.capability import CAPABILITIES, Capability
 from app.lecter.http import ToolCallError
-from app.lecter.prompt import INSTRUCTIONS
-from app.lecter.tools import NUDGE_ON_REPEAT, SERVER_TOOLS
+from app.lecter.tools import NUDGE_ON_REPEAT, READ_ONLY_FRONTEND
 
 
 class LecterState(TypedDict, total=False):
@@ -42,15 +42,18 @@ class LecterState(TypedDict, total=False):
 
 logger = logging.getLogger("codementor.ai")
 
-_SERVER_TOOL_NAMES = frozenset(tool.name for tool in SERVER_TOOLS)
-
 
 def _tool_name(tool: Any) -> str | None:
     return tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", None)
 
 
-def frontend_tools(state: LecterState) -> list[Any]:
+def frontend_tools(state: LecterState, server_names: frozenset[str]) -> list[Any]:
     """Tool do trình duyệt khai, đã loại những cái trùng tên với tool server.
+
+    `server_names` đến từ capability đang chạy, KHÔNG phải một hằng số module: hai bề mặt bind
+    hai bộ tool khác nhau, nên "tên nào là của server" cũng khác nhau. Lọc bằng danh sách của
+    bề mặt kia thì hoặc tool hợp lệ bị bỏ oan, hoặc hai mục trùng tên cùng đi lên OpenAI và cả
+    yêu cầu bị từ chối.
 
     Lọc ở MỘT chỗ rồi dùng cho cả định tuyến lẫn `bind_tools`. Trước đây chỉ định tuyến mới lọc,
     nên tính chất bảo mật thì giữ được — tool server luôn thắng — nhưng danh sách gửi lên OpenAI
@@ -60,14 +63,14 @@ def frontend_tools(state: LecterState) -> list[Any]:
     return [
         tool
         for tool in (state.get("tools") or [])
-        if (name := _tool_name(tool)) and name not in _SERVER_TOOL_NAMES
+        if (name := _tool_name(tool)) and name not in server_names
     ]
 
 
-def _frontend_names(state: LecterState) -> set[str]:
+def _frontend_names(state: LecterState, server_names: frozenset[str]) -> set[str]:
     """Tên tool do trình duyệt khai. Tên trùng với tool server thì tool server thắng —
     nếu không, một trang bị chèn mã có thể chiếm chỗ `run_solution` và bịa kết quả chạy thử."""
-    return {name for tool in frontend_tools(state) if (name := _tool_name(tool))}
+    return {name for tool in frontend_tools(state, server_names) if (name := _tool_name(tool))}
 
 
 def drop_dangling_tool_calls(messages: list[BaseMessage]) -> list[BaseMessage]:
@@ -145,7 +148,8 @@ def _call_key(call: dict) -> str:
 def _since_last_write(history: list[BaseMessage], frontend: set[str]) -> list[BaseMessage]:
     """Phần lịch sử tính từ sau lệnh ghi gần nhất.
 
-    Mọi tool của trình duyệt đều là lệnh ghi, nên sau nó dữ liệu đã khác: một lời gọi giống hệt
+    Tool ghi của trình duyệt cắt lịch sử ở đây; tool đọc (`READ_ONLY_FRONTEND`) thì không,
+    vì sau nó chẳng có gì đổi. Sau một lệnh ghi thì dữ liệu đã khác: một lời gọi giống hệt
     trước đó KHÔNG còn là lặp thừa. Không cắt ở đây thì `validate_curriculum` sau `save_curriculum`
     bị coi là lặp, đúng lúc nó cần chạy nhất.
     """
@@ -180,7 +184,7 @@ def repeated_calls(
     if any(call["name"] not in NUDGE_ON_REPEAT for call in calls):
         return []
 
-    recent = _since_last_write(history, frontend or set())
+    recent = _since_last_write(history, (frontend or set()) - READ_ONLY_FRONTEND)
     answered = {
         message.tool_call_id
         for message in recent
@@ -206,77 +210,95 @@ def repeated_calls(
     return nudges
 
 
-async def chat(
-    state: LecterState, config: RunnableConfig
-) -> Command[Literal["chat", "tools", "__end__"]]:
-    frontend = _frontend_names(state)
-    model = ChatOpenAI(
-        model=settings.smart_model,
-        api_key=settings.openai_api_key.get_secret_value(),
-        timeout=settings.ai_request_timeout_ms / 1000,
-        # Một mã 429 hay 500 lẻ của OpenAI là lỗi tạm thời. Để 0 thì nó giết cả run, trong
-        # khi suất hạn mức ngày đã bị trừ trước lúc stream mở — giảng viên mất lượt vì lỗi
-        # của nhà cung cấp, và câu họ nhận được là "đã dùng hết lượt AI hôm nay".
-        max_retries=2,
-        output_version="responses/v1",
-    ).bind_tools([*SERVER_TOOLS, *frontend_tools(state)])
+def make_chat(capability: Capability):
+    """Node hội thoại của MỘT capability.
 
-    history = drop_dangling_tool_calls(list(state["messages"]))
-    response = await model.ainvoke([SystemMessage(INSTRUCTIONS), *history], config)
-    calls = getattr(response, "tool_calls", None) or []
+    Đóng gói bằng closure thay vì đọc capability từ `config`: config bị sao chép qua nhiều tầng
+    của LangGraph/ag-ui, còn giấy phép thì phải cố định từ lúc dựng graph — không có đường nào
+    để một run tự đổi bộ tool của chính nó.
+    """
 
-    # Tool của trình duyệt: kết thúc lượt. Trình duyệt hiện hộp xác nhận, thi hành bằng token
-    # của chính người dùng, rồi gửi kết quả vào lượt kế tiếp.
-    if calls and any(call["name"] in frontend for call in calls):
-        # Model có thể gọi kèm tool server trong cùng một message. Chúng sẽ KHÔNG chạy vì lượt
-        # dừng ở đây, nên phải tự trả lời cho chúng: một `tool_call` không có `ToolMessage` sẽ
-        # bị `drop_dangling_tool_calls` coi là treo ở lượt sau, và nó bỏ CẢ MESSAGE — kéo theo
-        # lời gọi tool trình duyệt cùng kết quả `{"outcome": "applied", "lessons": [...]}`.
-        # Mất bằng chứng giảng viên đã bấm đồng ý, mất luôn danh sách `lessonId` vừa sinh ra.
-        return Command(
-            goto="__end__",
-            update={
-                "messages": [response, *unrun_tool_results(calls, frontend)],
-                "step": "awaiting_user",
-            },
+    server_names = frozenset(tool.name for tool in capability.tools)
+
+    async def chat(
+        state: LecterState, config: RunnableConfig
+    ) -> Command[Literal["chat", "tools", "__end__"]]:
+        frontend = _frontend_names(state, server_names)
+        model = ChatOpenAI(
+            model=settings.smart_model,
+            api_key=settings.openai_api_key.get_secret_value(),
+            timeout=settings.ai_request_timeout_ms / 1000,
+            # Một mã 429 hay 500 lẻ của OpenAI là lỗi tạm thời. Để 0 thì nó giết cả run, trong
+            # khi suất hạn mức ngày đã bị trừ trước lúc stream mở — người soạn mất lượt vì lỗi
+            # của nhà cung cấp, và câu họ nhận được là "đã dùng hết lượt AI hôm nay".
+            max_retries=2,
+            output_version="responses/v1",
+        ).bind_tools([*capability.tools, *frontend_tools(state, server_names)])
+
+        history = drop_dangling_tool_calls(list(state["messages"]))
+        response = await model.ainvoke(
+            [SystemMessage(capability.instructions), *history], config
         )
+        calls = getattr(response, "tool_calls", None) or []
 
-    if calls:
-        # Chỉ soi tool server. Tool của trình duyệt đề xuất lại y hệt sau khi người soạn bấm
-        # "Bỏ qua" là chuyện hợp lệ — họ có thể vừa bảo "thử lại đi".
-        nudges = repeated_calls(history, calls, frontend)
-        if nudges:
-            logger.info("Lecter gọi lặp `%s`, nhắc thay vì chạy lại", calls[0]["name"])
+        # Tool của trình duyệt: kết thúc lượt. Trình duyệt hiện hộp xác nhận, thi hành bằng
+        # token của chính người dùng, rồi gửi kết quả vào lượt kế tiếp.
+        if calls and any(call["name"] in frontend for call in calls):
+            # Model có thể gọi kèm tool server trong cùng một message. Chúng sẽ KHÔNG chạy vì
+            # lượt dừng ở đây, nên phải tự trả lời cho chúng: một `tool_call` không có
+            # `ToolMessage` sẽ bị `drop_dangling_tool_calls` coi là treo ở lượt sau, và nó bỏ
+            # CẢ MESSAGE — kéo theo lời gọi tool trình duyệt cùng kết quả của nó. Mất bằng
+            # chứng người dùng đã bấm đồng ý, mất luôn thứ chỉ lời gọi đó mới biết.
             return Command(
-                goto="chat",
-                update={"messages": [response, *nudges], "step": calls[0]["name"]},
+                goto="__end__",
+                update={
+                    "messages": [response, *unrun_tool_results(calls, frontend)],
+                    "step": "awaiting_user",
+                },
             )
-        return Command(goto="tools", update={"messages": response, "step": calls[0]["name"]})
-    return Command(goto="__end__", update={"messages": response, "step": "done"})
+
+        if calls:
+            # Chỉ soi tool server. Tool của trình duyệt đề xuất lại y hệt sau khi người soạn
+            # bấm "Bỏ qua" là chuyện hợp lệ — họ có thể vừa bảo "thử lại đi".
+            nudges = repeated_calls(history, calls, frontend)
+            if nudges:
+                logger.info("Lecter gọi lặp `%s`, nhắc thay vì chạy lại", calls[0]["name"])
+                return Command(
+                    goto="chat",
+                    update={"messages": [response, *nudges], "step": calls[0]["name"]},
+                )
+            return Command(
+                goto="tools", update={"messages": response, "step": calls[0]["name"]}
+            )
+        return Command(goto="__end__", update={"messages": response, "step": "done"})
+
+    return chat
 
 
 def tool_error(exc: Exception) -> str:
     """Biến lỗi tool thành một câu model đọc được, thay vì để nó giết cả lượt.
 
-    `ToolNode` của LangGraph mặc định NÉM LẠI mọi lỗi (`_default_handle_tool_errors`), nên một bài
-    không tồn tại hay judge tạm hỏng sẽ làm sập cả run: trình duyệt treo ở dòng tool đang chạy,
-    không có câu trả lời, không có lỗi. Trả về chuỗi thì model đọc được, nói lại cho giảng viên,
-    và đi tiếp.
+    `ToolNode` của LangGraph mặc định NÉM LẠI mọi lỗi (`_default_handle_tool_errors`), nên một
+    bài không tồn tại hay judge tạm hỏng sẽ làm sập cả run: trình duyệt treo ở dòng tool đang
+    chạy, không có câu trả lời, không có lỗi. Trả về chuỗi thì model đọc được, nói lại cho người
+    soạn, và đi tiếp.
     """
     if isinstance(exc, ToolCallError):
         return f"Tool thất bại: {exc}"
     # Lỗi ngoài dự tính: không đưa chi tiết vào lịch sử hội thoại (nó có thể kèm URL, payload).
     logger.exception("Lecter tool lỗi ngoài dự tính")
-    return "Tool gặp lỗi hệ thống. Hãy nói với giảng viên và thử hướng khác."
+    return "Tool gặp lỗi hệ thống. Hãy nói với người soạn và thử hướng khác."
 
 
-def build() -> Any:
+def build(capability: Capability) -> Any:
     workflow = StateGraph(LecterState)
-    workflow.add_node("chat", chat)
-    workflow.add_node("tools", ToolNode(SERVER_TOOLS, handle_tool_errors=tool_error))
+    workflow.add_node("chat", make_chat(capability))
+    workflow.add_node("tools", ToolNode(capability.tools, handle_tool_errors=tool_error))
     workflow.add_edge("tools", "chat")
     workflow.set_entry_point("chat")
     return workflow.compile(checkpointer=MemorySaver())
 
 
-GRAPH = build()
+# Một graph đã compile cho mỗi bề mặt, dựng một lần lúc import. Checkpointer của chúng tách
+# nhau, và `thread_id` vẫn là thứ tách từng hội thoại bên trong một graph.
+GRAPHS: dict[str, Any] = {cap.agent_id: build(cap) for cap in CAPABILITIES.values()}

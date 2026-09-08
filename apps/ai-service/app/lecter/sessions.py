@@ -16,7 +16,6 @@ from ag_ui_langgraph.utils import langchain_messages_to_agui
 
 logger = logging.getLogger("codementor.ai")
 
-AGENT_ID = "lecter"
 TITLE_CHARS = 80
 # Dài hơn `ai_document_indexes` (30 ngày) vì đây là việc người dùng quay lại đọc, không phải cache;
 # vẫn có hạn để hội thoại bỏ quên không nằm lại vô thời hạn.
@@ -25,6 +24,16 @@ TTL_DAYS = 90
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _doc_id(agent_id: str, workspace_id: str | None, thread_id: str) -> str:
+    """Khoá của một hội thoại.
+
+    Có `workspace_id` thì nó nằm TRONG khoá, không chỉ trong một trường: một người ở hai nhóm
+    phải thấy hai danh sách rời nhau, và một `threadId` trùng nhau giữa hai nhóm không được
+    trỏ về cùng một bản ghi.
+    """
+    return ":".join(part for part in (agent_id, workspace_id, thread_id) if part)
 
 
 def _title(messages: list) -> str:
@@ -36,7 +45,15 @@ def _title(messages: list) -> str:
     return "Hội thoại mới"
 
 
-async def save(db, user_id: str, thread_id: str, graph) -> None:
+async def save(
+    db,
+    user_id: str,
+    thread_id: str,
+    graph,
+    *,
+    agent_id: str,
+    workspace_id: str | None = None,
+) -> None:
     """Lưu toàn bộ hội thoại của thread. Hỏng thì log rồi thôi — mất lịch sử là phiền, mất câu
     trả lời vừa stream xong vì một lỗi ghi mới là hỏng thật.
 
@@ -59,35 +76,49 @@ async def save(db, user_id: str, thread_id: str, graph) -> None:
         if not messages:
             return
         now = _now()
+        fields = {
+            "userId": user_id,
+            "agentId": agent_id,
+            "threadId": thread_id,
+            "title": _title(messages),
+            "messages": messages,
+            "updatedAt": now,
+            "expiresAt": now + timedelta(days=TTL_DAYS),
+        }
+        if workspace_id:
+            fields["workspaceId"] = workspace_id
         await db["ai_agent_sessions"].update_one(
-            {"_id": f"{AGENT_ID}:{thread_id}"},
-            {
-                "$set": {
-                    "userId": user_id,
-                    "agentId": AGENT_ID,
-                    "title": _title(messages),
-                    "messages": messages,
-                    "updatedAt": now,
-                    "expiresAt": now + timedelta(days=TTL_DAYS),
-                },
-                "$setOnInsert": {"createdAt": now},
-            },
+            {"_id": _doc_id(agent_id, workspace_id, thread_id)},
+            {"$set": fields, "$setOnInsert": {"createdAt": now}},
             upsert=True,
         )
     except Exception:  # noqa: BLE001 - xem docstring
         logger.warning("Không lưu được hội thoại Lecter cho thread %s", thread_id, exc_info=True)
 
 
-async def listing(db, user_id: str, limit: int = 30) -> list[dict]:
+def _scope(user_id: str, agent_id: str, workspace_id: str | None) -> dict:
+    """Bộ lọc của mọi truy vấn lịch sử. `userId` và `workspaceId` luôn đi cùng nhau — bỏ một
+    trong hai là hội thoại của nhóm khác (hoặc của người khác) lọt vào danh sách."""
+    scope = {"userId": user_id, "agentId": agent_id}
+    if workspace_id:
+        scope["workspaceId"] = workspace_id
+    return scope
+
+
+async def listing(
+    db, user_id: str, *, agent_id: str, workspace_id: str | None = None, limit: int = 30
+) -> list[dict]:
     cursor = (
         db["ai_agent_sessions"]
-        .find({"userId": user_id, "agentId": AGENT_ID}, {"messages": 0})
+        .find(_scope(user_id, agent_id, workspace_id), {"messages": 0})
         .sort("updatedAt", -1)
         .limit(limit)
     )
     return [
         {
-            "id": doc["_id"].split(":", 1)[1],
+            # Hàng cũ (trước khi có `threadId`) vẫn đọc được: khoá của chúng là
+            # `"lecter:<threadId>"`, và phần sau dấu hai chấm đầu tiên chính là thread.
+            "id": doc.get("threadId") or doc["_id"].split(":", 1)[1],
             "title": doc.get("title") or "Hội thoại mới",
             "updatedAt": doc["updatedAt"].isoformat(),
         }
@@ -95,9 +126,14 @@ async def listing(db, user_id: str, limit: int = 30) -> list[dict]:
     ]
 
 
-async def read(db, user_id: str, thread_id: str) -> dict | None:
+async def read(
+    db, user_id: str, thread_id: str, *, agent_id: str, workspace_id: str | None = None
+) -> dict | None:
     doc = await db["ai_agent_sessions"].find_one(
-        {"_id": f"{AGENT_ID}:{thread_id}", "userId": user_id}
+        {
+            "_id": _doc_id(agent_id, workspace_id, thread_id),
+            **_scope(user_id, agent_id, workspace_id),
+        }
     )
     if not doc:
         return None
@@ -109,8 +145,13 @@ async def read(db, user_id: str, thread_id: str) -> dict | None:
     }
 
 
-async def remove(db, user_id: str, thread_id: str) -> bool:
+async def remove(
+    db, user_id: str, thread_id: str, *, agent_id: str, workspace_id: str | None = None
+) -> bool:
     result = await db["ai_agent_sessions"].delete_one(
-        {"_id": f"{AGENT_ID}:{thread_id}", "userId": user_id}
+        {
+            "_id": _doc_id(agent_id, workspace_id, thread_id),
+            **_scope(user_id, agent_id, workspace_id),
+        }
     )
     return result.deleted_count > 0
