@@ -16,17 +16,18 @@ import type {
   ResolvedUserBookmark,
   UserBookmark,
 } from '../domain/port/account-preferences.repository';
+import { resolveUserSettings } from '../domain/model/resolve-user-settings';
 
 interface SettingsRow {
-  emailPreferences: Partial<UserSettings>;
-  emailNotifications: boolean;
-  workspaceNotifications: boolean;
-  learningReminders: boolean;
-  weeklyDigest: boolean;
-  publicProfile: boolean;
-  showLearningProgress: boolean;
-  allowWorkspaceInvites: boolean;
-  theme: UserSettings['theme'];
+  emailPreferences: Partial<UserSettings> | null;
+  emailNotifications: boolean | null;
+  workspaceNotifications: boolean | null;
+  learningReminders: boolean | null;
+  weeklyDigest: boolean | null;
+  publicProfile: boolean | null;
+  showLearningProgress: boolean | null;
+  allowWorkspaceInvites: boolean | null;
+  theme: UserSettings['theme'] | null;
 }
 
 interface PreferencesRow {
@@ -62,12 +63,14 @@ export class PrismaAccountPreferencesRepository implements AccountPreferencesRep
       userId,
     );
     if (!row) return { ...DEFAULT_USER_SETTINGS };
-    const { emailPreferences, ...settings } = row;
-    return { ...DEFAULT_USER_SETTINGS, ...settings, ...emailPreferences };
+    const { emailPreferences, ...columns } = row;
+    return resolveUserSettings(columns, emailPreferences);
   }
 
   async saveSettings(userId: string, patch: Partial<UserSettings>): Promise<UserSettings> {
-    const next = { ...(await this.getSettings(userId)), ...patch };
+    // ValidationPipe can materialize every optional DTO field with `undefined`.
+    // A partial PATCH must not let those enumerable fields erase persisted/default values.
+    const next = resolveUserSettings(await this.getSettings(userId), patch);
     await this.prisma.$executeRawUnsafe(
       `INSERT INTO user_settings
          (user_id, email_notifications, workspace_notifications, learning_reminders,
