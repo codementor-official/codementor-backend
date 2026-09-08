@@ -24,6 +24,9 @@ class Capability:
     agent_id: str
     tools: tuple[Any, ...]
     instructions: str
+    # Tên tool GHI mà bề mặt này có. Tool `validate_exercise_content` nhắc đúng tên này khi nội
+    # dung hợp lệ — nhắc sai tên là bảo model gọi một thứ không tồn tại trong giấy phép của nó.
+    write_tool: str
     budget_key: str
     daily_limit: int
     # Hàng rào chi phí, không phải hàng rào logic: một agent lặp mãi vì tool trả lỗi là chuyện
@@ -35,6 +38,7 @@ LECTURER = Capability(
     agent_id="lecter",
     tools=LECTURER_TOOLS,
     instructions=INSTRUCTIONS,
+    write_tool="save_exercise_content",
     budget_key="lecter",
     daily_limit=settings.ai_lecter_daily_limit,
     # ~8 lượt gọi model có tool. Nhánh khóa học/lộ trình cần nhiều bước hơn hẳn.
@@ -45,6 +49,8 @@ WORKSPACE = Capability(
     agent_id="lecter_workspace",
     tools=WORKSPACE_TOOLS,
     instructions=WORKSPACE_INSTRUCTIONS,
+    # Tool của trình duyệt, không ghi vào hệ thống: nó đổ nội dung vào biểu mẫu studio.
+    write_tool="apply_exercise_draft",
     # Namespace hạn mức riêng: học viên đông hơn giảng viên một bậc, và không nên tiêu chung
     # một quota với người đang soạn cả một khóa học.
     budget_key="lecter_workspace",

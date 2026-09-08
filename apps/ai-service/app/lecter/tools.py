@@ -280,21 +280,33 @@ async def run_solution(
         # rồi kẹt ở bước validate.
         lines.append(
             f'Mang chính `sourceCode` vừa chạy sang content.languages: {{"id": "{language_id}", '
-            f'"label": "…", "referenceSolution": <sourceCode>}}. Thiếu là không lưu được.'
+            f'"label": "…", "referenceSolution": <sourceCode>}}. Thiếu là bài ra chỉ có tiêu đề.'
         )
     return "\n".join(lines)
 
 
+def _write_tool(config: RunnableConfig) -> str:
+    """Tên tool ghi của bề mặt đang chạy.
+
+    Không phải chi tiết vặt: câu "HỢP LỆ, gọi X NGAY BÂY GIỜ" dưới đây là mệnh lệnh model nghe
+    theo. Hardcode `save_exercise_content` nghĩa là ở nhóm học nó được bảo gọi một tool KHÔNG
+    TỒN TẠI trong giấy phép — và khi không gọi được, nó tuyên bố đã xong bằng văn xuôi rồi kết
+    thúc lượt. Người soạn nhìn thấy "đã đổ vào biểu mẫu" trong khi biểu mẫu vẫn trống.
+    """
+    return (config.get("configurable") or {}).get("write_tool") or "save_exercise_content"
+
+
 @tool
-async def validate_exercise_content(content: dict) -> str:
-    """Kiểm nội dung bài code TRƯỚC khi đề xuất lưu. Bắt buộc gọi trước `save_exercise_content`.
+async def validate_exercise_content(content: dict, config: RunnableConfig) -> str:
+    """Kiểm nội dung bài code TRƯỚC khi đưa nó ra ngoài. Bắt buộc gọi trước tool ghi.
 
     Trả về hoặc "HỢP LỆ" kèm cảnh báo, hoặc danh sách lỗi phải sửa. Đề xuất một nội dung còn lỗi
     nghĩa là người soạn bấm xác nhận rồi mới thấy lỗi, và họ không sửa được payload — chỉ còn cách
     bỏ qua.
 
-    `content` là đúng object sẽ gửi cho `save_exercise_content`, không phải bản rút gọn.
+    `content` là đúng object sẽ gửi đi, không phải bản rút gọn.
     """
+    write_tool = _write_tool(config)
     # `check_reference_solutions` là luật của riêng Lecter, không phải của backend — xem
     # docstring của nó. Gộp vào danh sách CHẶN chứ không xếp cùng cảnh báo gửi duyệt.
     errors = validate.check_shape(content) + validate.check_reference_solutions(content)
@@ -306,11 +318,11 @@ async def validate_exercise_content(content: dict) -> str:
     warnings = validate.check_submission(content)
     if warnings:
         return (
-            "HỢP LỆ. Gọi `save_exercise_content` NGAY BÂY GIỜ với đúng object này.\n"
-            "Rồi nói thêm cho người soạn biết — những thứ sau chỉ chặn GỬI DUYỆT, không chặn lưu:\n"
+            f"HỢP LỆ. Gọi `{write_tool}` NGAY BÂY GIỜ với đúng object này.\n"
+            "Rồi nói thêm cho người soạn biết — những thứ sau chỉ là thiếu sót, không chặn:\n"
             + "\n".join(f"- {line}" for line in warnings)
         )
-    return "HỢP LỆ. Gọi `save_exercise_content` NGAY BÂY GIỜ với đúng object này."
+    return f"HỢP LỆ. Gọi `{write_tool}` NGAY BÂY GIỜ với đúng object này."
 
 
 

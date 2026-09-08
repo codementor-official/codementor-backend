@@ -111,6 +111,7 @@ async def _stream_run(
                 # tượng của tiến trình. Đi qua `config`, KHÔNG qua state: state được phát
                 # ngược về trình duyệt bằng STATE_SNAPSHOT.
                 "index": request.app.state.index,
+                "write_tool": capability.write_tool,
                 **extra_config,
             },
         },

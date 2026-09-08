@@ -97,3 +97,31 @@ async def test_exercise_search_stays_inside_the_group(monkeypatch):
     out = await tools.search_workspace_exercises.ainvoke({"query": "two sum"}, config=config())
     assert seen["path"] == f"/api/v1/workspaces/{SLUG}/exercises"
     assert "ge-1" in out and "Two Sum" in out
+
+
+async def test_validate_names_the_write_tool_of_this_surface():
+    """Câu "HỢP LỆ, gọi X NGAY BÂY GIỜ" là mệnh lệnh model nghe theo. Ở nhóm học mà nhắc
+    `save_exercise_content` thì nó được bảo gọi một tool KHÔNG có trong giấy phép — và khi không
+    gọi được, nó tuyên bố đã xong bằng văn xuôi trong lúc biểu mẫu vẫn trống. Đã xảy ra thật."""
+    content = {
+        "statement": "Đề bài",
+        "ioMode": "stdin_stdout",
+        "testCases": [
+            {"order": 1, "input": "1", "expected": "1", "visibility": "public"},
+            {"order": 2, "input": "2", "expected": "2", "visibility": "hidden"},
+            {"order": 3, "input": "3", "expected": "3", "visibility": "hidden"},
+        ],
+        "languages": [{"id": "python", "label": "Python", "referenceSolution": "print(1)"}],
+    }
+    out = await tools.validate_exercise_content.ainvoke(
+        {"content": content},
+        config={"configurable": {"write_tool": "apply_exercise_draft"}},
+    )
+    assert "HỢP LỆ" in out and "apply_exercise_draft" in out
+    assert "save_exercise_content" not in out
+
+    # Không khai gì thì vẫn là bề mặt giảng viên — mặc định không được đổi lặng lẽ.
+    out = await tools.validate_exercise_content.ainvoke(
+        {"content": content}, config={"configurable": {}}
+    )
+    assert "save_exercise_content" in out
