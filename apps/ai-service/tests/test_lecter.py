@@ -298,6 +298,21 @@ def test_write_resets_the_repeat_memory():
     assert repeated_calls(written, again, {"save_curriculum"}) == []
 
 
+def test_reading_the_studio_draft_does_not_reset_the_repeat_memory():
+    """`read_exercise_draft` cũng là tool của trình duyệt nhưng CHỈ ĐỌC. Coi nó là lệnh ghi thì
+    model chỉ cần đọc lại biểu mẫu giữa hai lần gọi hỏng là thoát được hàng rào chống lặp."""
+    args = {"content": {"statement": "x"}}
+    frontend = {"apply_exercise_draft", "read_exercise_draft"}
+    history = [
+        _ai("a", "validate_exercise_content", args),
+        ToolMessage(tool_call_id="a", content="CHƯA LƯU ĐƯỢC"),
+        _ai("r", "read_exercise_draft", {}),
+        ToolMessage(tool_call_id="r", content="## Tiêu đề (title)\nHai số"),
+    ]
+    again = [{"id": "b", "name": "validate_exercise_content", "args": args, "type": "tool_call"}]
+    assert len(repeated_calls(history, again, frontend)) == 1
+
+
 def test_server_call_beside_a_browser_call_gets_answered():
     """F1. Model gọi kèm `read_course` cùng `save_curriculum` trong một message. Lượt dừng ở tool
     trình duyệt nên `read_course` không chạy — không trả lời nó thì lượt sau

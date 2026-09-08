@@ -27,7 +27,7 @@ from typing_extensions import TypedDict
 from app.config import settings
 from app.lecter.capability import CAPABILITIES, Capability
 from app.lecter.http import ToolCallError
-from app.lecter.tools import NUDGE_ON_REPEAT
+from app.lecter.tools import NUDGE_ON_REPEAT, READ_ONLY_FRONTEND
 
 
 class LecterState(TypedDict, total=False):
@@ -148,7 +148,8 @@ def _call_key(call: dict) -> str:
 def _since_last_write(history: list[BaseMessage], frontend: set[str]) -> list[BaseMessage]:
     """Phần lịch sử tính từ sau lệnh ghi gần nhất.
 
-    Mọi tool của trình duyệt đều là lệnh ghi, nên sau nó dữ liệu đã khác: một lời gọi giống hệt
+    Tool ghi của trình duyệt cắt lịch sử ở đây; tool đọc (`READ_ONLY_FRONTEND`) thì không,
+    vì sau nó chẳng có gì đổi. Sau một lệnh ghi thì dữ liệu đã khác: một lời gọi giống hệt
     trước đó KHÔNG còn là lặp thừa. Không cắt ở đây thì `validate_curriculum` sau `save_curriculum`
     bị coi là lặp, đúng lúc nó cần chạy nhất.
     """
@@ -183,7 +184,7 @@ def repeated_calls(
     if any(call["name"] not in NUDGE_ON_REPEAT for call in calls):
         return []
 
-    recent = _since_last_write(history, frontend or set())
+    recent = _since_last_write(history, (frontend or set()) - READ_ONLY_FRONTEND)
     answered = {
         message.tool_call_id
         for message in recent

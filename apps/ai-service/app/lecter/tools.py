@@ -980,4 +980,15 @@ NUDGE_ON_REPEAT = frozenset(
     }
 )
 
-__all__ = ["LECTURER_TOOLS", "NUDGE_ON_REPEAT", "ToolCallError", "WORKSPACE_TOOLS"]
+# Tool của trình duyệt CHỈ ĐỌC. Chúng không đổi dữ liệu, nên không được coi là mốc "sau đây
+# mọi thứ đã khác" khi soi lời gọi lặp — nếu không, model chỉ cần đọc lại biểu mẫu là xoá sạch
+# hàng rào chống lặp và có thể quay vòng một tool hỏng cho tới khi cụt recursion_limit.
+READ_ONLY_FRONTEND = frozenset({"read_exercise_draft"})
+
+__all__ = [
+    "LECTURER_TOOLS",
+    "NUDGE_ON_REPEAT",
+    "READ_ONLY_FRONTEND",
+    "ToolCallError",
+    "WORKSPACE_TOOLS",
+]
