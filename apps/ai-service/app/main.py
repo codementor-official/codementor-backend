@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from pymongo import AsyncMongoClient
 from pymongo.errors import PyMongoError
 
+from app.codey.endpoint import router as codey_router
 from app.config import settings
 from app.dashboard import router as dashboard_router
 from app.lecter.endpoint import router as lecter_router
@@ -95,6 +96,7 @@ async def mongo_error(_request: Request, _exc: PyMongoError):
 app.include_router(suggest_router)
 app.include_router(dashboard_router)
 app.include_router(lecter_router)
+app.include_router(codey_router)
 app.include_router(documents_router)
 
 

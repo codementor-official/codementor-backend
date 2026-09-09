@@ -9,15 +9,15 @@ import json
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
-from app.lecter import http, tools
-from app.lecter.capability import WORKSPACE
-from app.lecter.graph import (
+from app.graph import (
     _frontend_names,
     drop_dangling_tool_calls,
     frontend_tools,
     repeated_calls,
     unrun_tool_results,
 )
+from app.lecter import http, tools
+from app.lecter.capability import WORKSPACE
 
 # Bộ tên tool server của bề mặt giảng viên — thứ `frontend_tools` dùng để loại tool trùng tên.
 SERVER_NAMES = frozenset(tool.name for tool in tools.LECTURER_TOOLS)
@@ -106,7 +106,7 @@ def test_auth_token_missing_is_an_explained_error():
 async def test_tool_error_becomes_a_message_not_a_crash():
     """`ToolNode` của LangGraph ném lại lỗi theo mặc định, và một lỗi 404 sẽ giết cả run: trình
     duyệt treo ở dòng tool đang chạy, không câu trả lời, không thông báo."""
-    from app.lecter.graph import tool_error
+    from app.graph import tool_error
 
     assert tool_error(http.ToolCallError("Không tìm thấy")) == "Tool thất bại: Không tìm thấy"
     # Lỗi ngoài dự tính không được đưa chi tiết vào lịch sử hội thoại.
@@ -119,7 +119,7 @@ def test_dangling_tool_call_is_dropped_so_the_thread_survives():
     nên hội thoại đó sẽ chết vĩnh viễn nếu không dọn."""
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-    from app.lecter.graph import drop_dangling_tool_calls
+    from app.graph import drop_dangling_tool_calls
 
     call = {"name": "read_exercise", "args": {}, "id": "c1", "type": "tool_call"}
     dangling = [HumanMessage("hỏi"), AIMessage("", tool_calls=[call]), HumanMessage("hỏi lại")]
@@ -204,7 +204,7 @@ def test_dropping_a_message_takes_its_answered_siblings_too():
     giữ `ToolMessage` còn lại thì nó thành message mồ côi — OpenAI từ chối y hệt."""
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-    from app.lecter.graph import drop_dangling_tool_calls
+    from app.graph import drop_dangling_tool_calls
 
     calls = [
         {"name": "list_topics", "args": {}, "id": "a", "type": "tool_call"},
