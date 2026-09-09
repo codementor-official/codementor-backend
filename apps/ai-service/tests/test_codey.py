@@ -140,3 +140,24 @@ async def test_budget_uses_the_message_of_the_surface_that_ran_out():
     with pytest.raises(Exception) as fallback:
         await budget.consume(db, "u1", "codey", limit=1)
     assert fallback.value.detail == budget.DEFAULT_MESSAGE
+
+
+def test_codey_asks_for_a_low_reasoning_effort():
+    """Mặc định của dòng gpt-5 là `medium`, và đo được ~10 giây im lặng trước chữ đầu tiên.
+
+    `minimal` thì nhanh hơn nữa nhưng đo 0/3 lần chịu gọi tool đọc code — Codey không đọc được
+    code của học viên thì nó chỉ còn là một con chatbot chung chung. `low` cho 5/5 với prompt
+    hiện tại, nên đây là điểm cân bằng, không phải một con số tuỳ tiện.
+    """
+    assert CODEY.reasoning_effort == "low"
+
+
+def test_lecter_keeps_the_provider_default():
+    """Lecter đi một chuỗi gọi tool 5 bước; 10 giây suy luận ở đó đổi lấy một chuỗi đi đúng.
+
+    `None` nghĩa là KHÔNG truyền khoá đó lên nhà cung cấp — khác hẳn truyền một giá trị rỗng.
+    """
+    from app.lecter.capability import LECTURER, WORKSPACE
+
+    assert LECTURER.reasoning_effort is None
+    assert WORKSPACE.reasoning_effort is None

@@ -247,6 +247,13 @@ def make_chat(capability: Capability):
             # của nhà cung cấp, và câu họ nhận được là "đã dùng hết lượt AI hôm nay".
             max_retries=2,
             output_version="responses/v1",
+            # Không truyền khoá này khi capability không khai: để `None` đi qua sẽ ghi đè mặc
+            # định của nhà cung cấp bằng một giá trị rỗng thay vì bỏ qua nó.
+            **(
+                {"reasoning_effort": capability.reasoning_effort}
+                if capability.reasoning_effort
+                else {}
+            ),
         ).bind_tools([*capability.tools, *frontend_tools(state, server_names)])
 
         history = drop_dangling_tool_calls(list(state["messages"]))

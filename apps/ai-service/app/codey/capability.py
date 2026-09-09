@@ -18,6 +18,10 @@ CODEY = Capability(
     # Hội thoại ngắn, không có chuỗi gọi tool nhiều bước để mà bám. Ở đây độ trễ là TÍNH NĂNG:
     # một trợ giảng trả lời sau 8 giây thì học viên đã tự mở tab khác rồi.
     model=settings.openai_chat_model,
+    # Đo được: mặc định (`medium`) tốn ~10 giây im lặng trước chữ đầu tiên, trong khi phần
+    # streaming thật chỉ 2-3 giây. Codey trả lời 2-5 câu dựa trên code đã có sẵn trong ngữ cảnh
+    # — không có gì để suy luận sâu, và một trợ giảng im 10 giây thì học viên đã mở tab khác.
+    reasoning_effort=settings.ai_codey_reasoning_effort,
     # Không có tool ghi. Codey không tạo, không sửa, không lưu gì cả.
     write_tool="",
     budget_key="codey",

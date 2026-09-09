@@ -37,3 +37,12 @@ class Capability:
     # Câu nói khi hết hạn mức ngày. Mỗi bề mặt một câu vì người dùng không biết "hạn mức AI" của
     # họ chia làm mấy ngăn — họ chỉ biết vừa bấm cái gì.
     budget_message: str
+    # Mức suy luận trước khi model bắt đầu nói. `None` = để mặc định của nhà cung cấp.
+    #
+    # Đây là thứ quyết định ĐỘ TRỄ TỚI CHỮ ĐẦU TIÊN, và với dòng gpt-5 thì mặc định là `medium`
+    # — đo được ~10 giây im lặng rồi mới tới 2-3 giây chữ chảy ra. Với Lecter, 10 giây đó đổi lấy
+    # một chuỗi gọi tool đi đúng và đáng giá. Với Codey thì không: học viên đang chờ hai câu gợi ý.
+    #
+    # Cuối danh sách vì nó là trường DUY NHẤT có mặc định, và dataclass không cho trường không
+    # mặc định đứng sau trường có mặc định.
+    reasoning_effort: str | None = None
