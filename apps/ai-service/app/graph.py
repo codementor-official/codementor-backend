@@ -1,4 +1,8 @@
-"""Graph của Lecter: một node hội thoại, một node chạy tool phía server.
+"""Vòng lặp agent dùng chung: một node hội thoại, một node chạy tool phía server.
+
+Một vòng lặp cho MỌI bề mặt (Lecter giảng viên, Lecter nhóm học, Codey), khác nhau đúng một
+`Capability`. Đây là lớp vá lỗi đã trả giá thật — lời gọi tool treo, tool server bị bỏ giữa lượt
+HITL, model gọi lặp. Chép nó ra bản thứ hai là hẹn ngày hai bản lệch nhau.
 
 Vòng lặp verify (soạn -> chạy thử -> sửa -> chạy lại) KHÔNG cần cạnh điều kiện riêng: `run_solution`
 là một server tool, model đọc kết quả fail rồi tự gọi lại. Hàng rào chi phí là `recursion_limit`
@@ -24,13 +28,18 @@ from langgraph.prebuilt import ToolNode
 from langgraph.types import Command
 from typing_extensions import TypedDict
 
+from app.capability import Capability
 from app.config import settings
-from app.lecter.capability import CAPABILITIES, Capability
 from app.lecter.http import ToolCallError
+
+# ponytail: hai frozenset này là tên tool của Lecter, và đó là thứ duy nhất còn buộc vòng lặp
+# chung vào một feature. Không sửa bây giờ vì Codey không chạm tới `repeated_calls` — nó không có
+# tool server nào, nên `chat` đã thoát ở nhánh tool-trình-duyệt trước đó. Bề mặt thứ tư CÓ tool
+# server mà cần bộ nhắc khác thì chuyển hai cái này thành trường của `Capability`.
 from app.lecter.tools import NUDGE_ON_REPEAT, READ_ONLY_FRONTEND
 
 
-class LecterState(TypedDict, total=False):
+class AgentState(TypedDict, total=False):
     messages: Annotated[list, add_messages]
     # ag-ui-langgraph nhét tool do trình duyệt khai báo vào đây (dạng JSON schema dict),
     # tool của input thắng khi trùng tên với tool còn sót trong state.
@@ -47,7 +56,7 @@ def _tool_name(tool: Any) -> str | None:
     return tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", None)
 
 
-def frontend_tools(state: LecterState, server_names: frozenset[str]) -> list[Any]:
+def frontend_tools(state: AgentState, server_names: frozenset[str]) -> list[Any]:
     """Tool do trình duyệt khai, đã loại những cái trùng tên với tool server.
 
     `server_names` đến từ capability đang chạy, KHÔNG phải một hằng số module: hai bề mặt bind
@@ -67,7 +76,7 @@ def frontend_tools(state: LecterState, server_names: frozenset[str]) -> list[Any
     ]
 
 
-def _frontend_names(state: LecterState, server_names: frozenset[str]) -> set[str]:
+def _frontend_names(state: AgentState, server_names: frozenset[str]) -> set[str]:
     """Tên tool do trình duyệt khai. Tên trùng với tool server thì tool server thắng —
     nếu không, một trang bị chèn mã có thể chiếm chỗ `run_solution` và bịa kết quả chạy thử."""
     return {name for tool in frontend_tools(state, server_names) if (name := _tool_name(tool))}
@@ -107,6 +116,11 @@ def drop_dangling_tool_calls(messages: list[BaseMessage]) -> list[BaseMessage]:
         kept.append(message)
     return kept
 
+
+NO_SUCH_TOOL = (
+    "Tool `{name}` không tồn tại. Bạn không có tool nào ngoài những tool đã liệt kê; trả lời "
+    "bằng lời hoặc hỏi lại người dùng."
+)
 
 SKIPPED_CALL = (
     "Chưa chạy: lượt dừng ở đây để giảng viên xác nhận đề xuất. Cần kết quả này thì gọi lại ở "
@@ -221,11 +235,11 @@ def make_chat(capability: Capability):
     server_names = frozenset(tool.name for tool in capability.tools)
 
     async def chat(
-        state: LecterState, config: RunnableConfig
+        state: AgentState, config: RunnableConfig
     ) -> Command[Literal["chat", "tools", "__end__"]]:
         frontend = _frontend_names(state, server_names)
         model = ChatOpenAI(
-            model=settings.smart_model,
+            model=capability.model,
             api_key=settings.openai_api_key.get_secret_value(),
             timeout=settings.ai_request_timeout_ms / 1000,
             # Một mã 429 hay 500 lẻ của OpenAI là lỗi tạm thời. Để 0 thì nó giết cả run, trong
@@ -233,6 +247,13 @@ def make_chat(capability: Capability):
             # của nhà cung cấp, và câu họ nhận được là "đã dùng hết lượt AI hôm nay".
             max_retries=2,
             output_version="responses/v1",
+            # Không truyền khoá này khi capability không khai: để `None` đi qua sẽ ghi đè mặc
+            # định của nhà cung cấp bằng một giá trị rỗng thay vì bỏ qua nó.
+            **(
+                {"reasoning_effort": capability.reasoning_effort}
+                if capability.reasoning_effort
+                else {}
+            ),
         ).bind_tools([*capability.tools, *frontend_tools(state, server_names)])
 
         history = drop_dangling_tool_calls(list(state["messages"]))
@@ -254,6 +275,28 @@ def make_chat(capability: Capability):
                 update={
                     "messages": [response, *unrun_tool_results(calls, frontend)],
                     "step": "awaiting_user",
+                },
+            )
+
+        if calls and not capability.tools:
+            # Bề mặt không có tool server: mọi tên không phải tool trình duyệt đều là model bịa.
+            # Không có node `tools` để chạy chúng, nên trả lời thẳng rồi quay lại `chat`.
+            # `recursion_limit` là thứ chặn nếu nó cứ bịa mãi.
+            logger.info("%s gọi tool không tồn tại: %s", capability.agent_id, calls[0]["name"])
+            return Command(
+                goto="chat",
+                update={
+                    "messages": [
+                        response,
+                        *(
+                            ToolMessage(
+                                tool_call_id=call["id"],
+                                content=NO_SUCH_TOOL.format(name=call["name"]),
+                            )
+                            for call in calls
+                        ),
+                    ],
+                    "step": "retry",
                 },
             )
 
@@ -291,14 +334,38 @@ def tool_error(exc: Exception) -> str:
 
 
 def build(capability: Capability) -> Any:
-    workflow = StateGraph(LecterState)
-    workflow.add_node("chat", make_chat(capability))
-    workflow.add_node("tools", ToolNode(capability.tools, handle_tool_errors=tool_error))
-    workflow.add_edge("tools", "chat")
+    workflow = StateGraph(AgentState)
+    # `destinations` tường minh thay vì để LangGraph suy ra từ annotation `Command[Literal[...]]`
+    # của `chat`: annotation là hằng số của HÀM, còn đích đi được thì phụ thuộc capability. Không
+    # khai ở đây thì bề mặt không có tool server vẫn sinh một cạnh tới node `tools` không tồn tại,
+    # và `compile()` ném "Found edge ending at unknown node `tools`".
+    destinations = ("chat", "tools", "__end__") if capability.tools else ("chat", "__end__")
+    workflow.add_node("chat", make_chat(capability), destinations=destinations)
+    # Bề mặt không có tool server (Codey) thì không có node `tools`: `ToolNode([])` không có việc
+    # gì để làm. `chat` cũng không định tuyến sang đó — tool của Codey đều là tool trình duyệt và
+    # kết thúc lượt, còn tên bịa thì quay về chính `chat`.
+    if capability.tools:
+        workflow.add_node("tools", ToolNode(capability.tools, handle_tool_errors=tool_error))
+        workflow.add_edge("tools", "chat")
     workflow.set_entry_point("chat")
     return workflow.compile(checkpointer=MemorySaver())
 
 
-# Một graph đã compile cho mỗi bề mặt, dựng một lần lúc import. Checkpointer của chúng tách
-# nhau, và `thread_id` vẫn là thứ tách từng hội thoại bên trong một graph.
-GRAPHS: dict[str, Any] = {cap.agent_id: build(cap) for cap in CAPABILITIES.values()}
+_graphs: dict[str, Any] = {}
+
+
+def graph_for(capability: Capability) -> Any:
+    """Graph đã compile của một bề mặt, dựng ở lần gọi đầu rồi giữ lại.
+
+    Dựng LƯỜI chứ không phải một dict dựng sẵn lúc import: dict đó cần một sổ đăng ký liệt kê
+    mọi `Capability` tồn tại, và sổ đó phải nằm ở đâu đó mà cả `lecter` lẫn `codey` cùng nhập —
+    tức là hoặc một vòng import, hoặc một tệp chỉ tồn tại để né vòng import. Ở đây bề mặt nào
+    cần graph thì tự mang `Capability` của nó tới.
+
+    Checkpointer của mỗi graph tách nhau, và `thread_id` vẫn là thứ tách từng hội thoại bên
+    trong một graph.
+    """
+    graph = _graphs.get(capability.agent_id)
+    if graph is None:
+        graph = _graphs[capability.agent_id] = build(capability)
+    return graph

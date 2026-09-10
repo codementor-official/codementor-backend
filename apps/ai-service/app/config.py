@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     # Lecter trong nhóm học: người dùng đông hơn giảng viên một bậc (mỗi nhóm có chủ nhóm và
     # vài phó nhóm), còn chuỗi việc thì ngắn hơn hẳn vì không có nhánh khóa học/lộ trình.
     ai_lecter_workspace_daily_limit: int = Field(default=10, ge=1, le=200)
+    # Codey cao hơn hẳn hai bề mặt kia vì nó là NHIỀU lượt NGẮN: một phiên giải bài bình thường
+    # là 5-15 câu hỏi, mỗi câu một lời gọi model, không có chuỗi tool nào. Dùng chung hạn mức
+    # của Lecter (10/ngày) thì học viên hết lượt trước khi giải xong bài thứ hai.
+    ai_codey_daily_limit: int = Field(default=40, ge=1, le=500)
+    # `minimal` | `low` | `medium` | `high`. Để biến môi trường đổi được vì đây là đánh đổi
+    # giữa độ trễ và chất lượng, và nó phụ thuộc model đang dùng — không phải hằng số của code.
+    ai_codey_reasoning_effort: str = "low"
     # Việc suy luận (soạn đề, viết lời giải) cần model khác việc mẫu (gợi ý testcase).
     # Mặc định KHÔNG để trống nữa: rơi về `gpt-5-nano` nghĩa là Lecter chạy bằng model không
     # bám nổi một quy trình gọi tool 5 bước — nó gửi lại cùng một payload ba lần rồi bỏ cuộc,

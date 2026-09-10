@@ -16,19 +16,15 @@ STATE_SNAPSHOT/STATE_DELTA.
 
 import logging
 
-from ag_ui.core.events import EventType, RunErrorEvent
 from ag_ui.core.types import RunAgentInput
-from ag_ui.encoder import EventEncoder
-from ag_ui_langgraph import LangGraphAgent
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app import budget
+from app import sessions
+from app.agent_stream import stream_run
 from app.auth import require_user
-from app.lecter import http, sessions, validate, verify
-from app.lecter.capability import LECTURER, WORKSPACE, Capability
-from app.lecter.graph import GRAPHS
+from app.lecter import http, validate, verify
+from app.lecter.capability import LECTURER, WORKSPACE
 from app.lecter.http import ToolCallError
 
 logger = logging.getLogger("codementor.ai")
@@ -78,90 +74,10 @@ async def _workspace_gate(slug: str, request: Request) -> str:
     return workspace_id
 
 
-async def _stream_run(
-    input_data: RunAgentInput,
-    request: Request,
-    claims: dict,
-    capability: Capability,
-    extra_config: dict,
-    workspace_id: str | None = None,
-) -> StreamingResponse:
-    """Thân chung của mọi bề mặt Lecter. Khác nhau đúng một `Capability` và vài khoá config."""
-    state = request.app.state
-    state.provider.require_configured()
-    await budget.consume(
-        state.db, claims["sub"], capability.budget_key, capability.daily_limit
-    )
-
-    graph = GRAPHS[capability.agent_id]
-    agent = LangGraphAgent(
-        name=capability.agent_id,
-        graph=graph,
-        # Tắt RAW: mặc định `LangGraphAgent` mirror MỌI sự kiện LangChain ra SSE, và
-        # `on_chat_model_start` mang theo NGUYÊN system prompt cùng khối reasoning đã mã hoá —
-        # tức là gửi prompt của mình về trình duyệt, kèm vài KB mỗi token. Client AG-UI không
-        # dùng RAW cho việc gì; TEXT_MESSAGE_* và TOOL_CALL_* là đủ.
-        emit_raw_events=False,
-        config={
-            "recursion_limit": capability.recursion_limit,
-            "configurable": {
-                "auth_token": request.state.access_token,
-                "user_id": claims["sub"],
-                # Tool tài liệu đọc thẳng Mongo/S3 chứ không qua HTTP, nên nó cần chính đối
-                # tượng của tiến trình. Đi qua `config`, KHÔNG qua state: state được phát
-                # ngược về trình duyệt bằng STATE_SNAPSHOT.
-                "index": request.app.state.index,
-                "write_tool": capability.write_tool,
-                **extra_config,
-            },
-        },
-    )
-    encoder = EventEncoder(accept=request.headers.get("accept"))
-    thread_id = input_data.thread_id
-
-    async def stream():
-        # `finally`, không phải dòng sau vòng lặp: đóng tab giữa lúc Lecter đang trả lời làm
-        # Starlette đóng generator bằng `GeneratorExit` ngay tại `yield`, mà `GeneratorExit` là
-        # `BaseException` nên `except Exception` không bắt. Lượt đó mất trắng — đúng lúc cần lưu
-        # nhất, vì người dùng bỏ đi giữa chừng rồi sẽ quay lại tìm hội thoại.
-        try:
-            async for event in agent.run(input_data):
-                yield encoder.encode(event)
-        except Exception:
-            # Không có RUN_ERROR thì trình duyệt treo mãi ở dòng tool đang chạy: SSE đã mở, nên
-            # một ngoại lệ ở đây chỉ đóng kết nối, không thành mã lỗi HTTP nào cả.
-            logger.exception("Lecter run hỏng giữa chừng (thread %s)", thread_id)
-            yield encoder.encode(
-                RunErrorEvent(
-                    type=EventType.RUN_ERROR,
-                    message="Lượt này hỏng giữa chừng. Thử lại giúp mình.",
-                    code="internal_error",
-                )
-            )
-        finally:
-            # Checkpoint đã có mọi thứ đã stream ra, nên phần đã trả lời vẫn lưu nguyên.
-            await sessions.save(
-                state.db,
-                claims["sub"],
-                thread_id,
-                graph,
-                agent_id=capability.agent_id,
-                workspace_id=workspace_id,
-            )
-
-    return StreamingResponse(
-        stream(),
-        media_type=encoder.get_content_type(),
-        # Kong không bật buffering, nhưng một reverse proxy nginx nào đó ở tầng trên thì có;
-        # hai header này là cách chuẩn nói với nó rằng đừng gom.
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
 @router.post("/run")
 async def run(input_data: RunAgentInput, request: Request, claims: dict = Depends(require_user)):
     require_lecturer(claims)
-    return await _stream_run(
+    return await stream_run(
         input_data,
         request,
         claims,
@@ -180,7 +96,7 @@ async def run_workspace(
     claims: dict = Depends(require_user),
 ):
     workspace_id = await _workspace_gate(slug, request)
-    return await _stream_run(
+    return await stream_run(
         input_data,
         request,
         claims,

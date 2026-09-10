@@ -44,6 +44,8 @@ Mỗi case gồm hai trường:
 - value: chuỗi.
   * Chế độ "function": một mảng JSON các tham số theo ĐÚNG thứ tự và ĐÚNG số lượng của
     signature.parameters. Ví dụ signature có (nums: list[int], k: int) thì value là "[[1,2,3], 5]".
+    Hàm CHỈ MỘT tham số vẫn phải có mảng bọc ngoài: (s: string) thì value là "[\"()[]{}\"]",
+    không phải "()[]{}"; (nums: list[int]) thì value là "[[1,2,3]]", không phải "[1,2,3]".
   * Chế độ "stdin_stdout": nội dung nạp vào stdin, nguyên văn, kể cả xuống dòng.
 - rationale: một câu ngắn tiếng Việt nói case này bắt lỗi gì. Ví dụ "n = 1, biên dưới".
 
@@ -85,6 +87,10 @@ class SuggestParameter(StrictModel):
     # TypeIR là cây tự do (`{"kind": "list", "of": {...}}`); giữ nguyên dạng dict và chỉ chặn
     # kích thước ở tầng serialize bên dưới.
     type: dict[str, Any]
+    # exercise-service cho phép mô tả tham số tuỳ chọn (FunctionParameter.description); studio
+    # gửi lại nguyên `signature` đã lưu. Không dùng tới, nhưng StrictModel cấm trường lạ nên
+    # phải khai để không vỡ 400 với mọi bài có mô tả tham số.
+    description: str | None = None
 
 
 class SuggestSignature(StrictModel):
@@ -152,14 +158,38 @@ def _fingerprint(case: dict) -> str:
     return " ".join((case.get("input") or "").split())
 
 
+def _read_args(value: str, parameters: list[SuggestParameter]) -> list | None:
+    """`value` của model → mảng tham số, hoặc None nếu không đọc được.
+
+    Hàm một tham số là chỗ model hay bỏ mảng bọc ngoài: bài "chuỗi dấu ngoặc" nhận lại `()`
+    thay vì `["()"]`, và mọi case đều bị bỏ nên người soạn thấy "chưa nghĩ ra case nào". Bọc
+    lại được vì với đúng một tham số thì không có cách hiểu thứ hai; từ hai tham số trở lên
+    thiếu mảng là mơ hồ thật, vẫn bỏ.
+    """
+    arity = len(parameters)
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        # Không phải JSON. Chỉ tham số chuỗi mới nhận nguyên văn — `()` là chuỗi hợp lệ.
+        if arity == 1 and parameters[0].type.get("kind") == "string":
+            return [value]
+        return None
+    if isinstance(parsed, list) and len(parsed) == arity:
+        return parsed
+    if arity == 1 and not isinstance(parsed, list):
+        return [parsed]
+    return None
+
+
 def parse_cases(raw: list[dict], body: SuggestTestCasesRequest) -> list[SuggestedCase]:
     """Đọc kết quả model thành case dùng được. Case hỏng thì BỎ, không làm hỏng cả lượt.
 
     Model trả `value` dạng chuỗi vì JSON schema strict không diễn tả được "mảng giá trị bất
-    kỳ". Ở chế độ hàm, chuỗi đó phải parse ra mảng đúng số tham số — không thì case ấy vô
-    dụng và im lặng bỏ đi tốt hơn là trả về một dòng người soạn phải tự phát hiện là rác.
+    kỳ". Ở chế độ hàm, chuỗi đó phải đọc ra mảng đúng số tham số (xem `_read_args`) — không
+    thì case ấy vô dụng và im lặng bỏ đi tốt hơn là trả về một dòng người soạn phải tự phát
+    hiện là rác.
     """
-    expected_arity = len(body.signature.parameters) if body.signature else 0
+    parameters = body.signature.parameters if body.signature else []
     seen = {_fingerprint(case.model_dump()) for case in body.existing}
     result: list[SuggestedCase] = []
 
@@ -170,11 +200,8 @@ def parse_cases(raw: list[dict], body: SuggestTestCasesRequest) -> list[Suggeste
             continue
 
         if body.ioMode == "function":
-            try:
-                args = json.loads(value)
-            except ValueError:
-                continue
-            if not isinstance(args, list) or len(args) != expected_arity:
+            args = _read_args(value, parameters)
+            if args is None:
                 continue
             case = SuggestedCase(args=args, rationale=rationale)
         else:

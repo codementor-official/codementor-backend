@@ -1,4 +1,4 @@
-"""Lịch sử hội thoại của Lecter, trong `ai_agent_sessions`.
+"""Lịch sử hội thoại của mọi bề mặt agent, trong `ai_agent_sessions`.
 
 KHÔNG tái dùng `ai_conversations`: validator của nó bắt mọi turn phải có `citations` và
 `insufficientEvidence` (bằng chứng trích dẫn của RAG) và chặn ở 50 turn. Hội thoại agent không có
@@ -53,6 +53,7 @@ async def save(
     *,
     agent_id: str,
     workspace_id: str | None = None,
+    extra: dict | None = None,
 ) -> None:
     """Lưu toàn bộ hội thoại của thread. Hỏng thì log rồi thôi — mất lịch sử là phiền, mất câu
     trả lời vừa stream xong vì một lỗi ghi mới là hỏng thật.
@@ -87,6 +88,10 @@ async def save(
         }
         if workspace_id:
             fields["workspaceId"] = workspace_id
+        # Trường HIỂN THỊ do bề mặt gọi tự quyết (Codey gửi `exerciseId`/`exerciseTitle`), tách
+        # hẳn khỏi `workspace_id` vốn là khoá PHẠM VI. Trộn hai vai đó lại thì thêm một nhãn để
+        # hiện trong danh sách hoá ra lại thu hẹp cả bộ lọc quyền đọc.
+        fields.update(extra or {})
         await db["ai_agent_sessions"].update_one(
             {"_id": _doc_id(agent_id, workspace_id, thread_id)},
             {"$set": fields, "$setOnInsert": {"createdAt": now}},
@@ -106,8 +111,19 @@ def _scope(user_id: str, agent_id: str, workspace_id: str | None) -> dict:
 
 
 async def listing(
-    db, user_id: str, *, agent_id: str, workspace_id: str | None = None, limit: int = 30
+    db,
+    user_id: str,
+    *,
+    agent_id: str,
+    workspace_id: str | None = None,
+    limit: int = 30,
+    include: tuple[str, ...] = (),
 ) -> list[dict]:
+    """`include`: tên các trường phụ đi kèm mỗi dòng — thứ `save(extra=…)` đã ghi xuống.
+
+    Danh sách trắng chứ không trả nguyên bản ghi: `messages` phải ở ngoài (nặng), và một dòng
+    lịch sử không nên mang theo mọi thứ bề mặt khác lỡ ghi vào cùng collection.
+    """
     cursor = (
         db["ai_agent_sessions"]
         .find(_scope(user_id, agent_id, workspace_id), {"messages": 0})
@@ -121,6 +137,7 @@ async def listing(
             "id": doc.get("threadId") or doc["_id"].split(":", 1)[1],
             "title": doc.get("title") or "Hội thoại mới",
             "updatedAt": doc["updatedAt"].isoformat(),
+            **{key: doc[key] for key in include if key in doc},
         }
         async for doc in cursor
     ]
