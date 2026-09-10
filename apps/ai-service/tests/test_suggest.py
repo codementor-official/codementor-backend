@@ -83,6 +83,36 @@ def test_parse_drops_cases_with_the_wrong_arity_or_broken_json():
     assert [case.args for case in cases] == [[[1, 2, 3], 5]]
 
 
+ONE_STRING_PARAM = {
+    "functionName": "stk_isBalanced",
+    "parameters": [{"name": "s", "type": {"kind": "string"}}],
+    "returnType": {"kind": "bool"},
+}
+
+
+def test_parse_wraps_a_lone_argument_the_model_forgot_to_put_in_an_array():
+    """Hàm một tham số: model hay trả thẳng giá trị (`()`) thay vì mảng (`["()"]`).
+
+    Bỏ hết thì người soạn thấy "chưa nghĩ ra case nào" trong khi model đã nghĩ ra đủ case.
+    """
+    body = build(ioMode="function", signature=ONE_STRING_PARAM, count=5)
+    cases = parse_cases(
+        [
+            {"value": "()", "rationale": "chuỗi thô, không phải JSON"},
+            {"value": '["([)]"]', "rationale": "đúng dạng, giữ nguyên"},
+            {"value": '"{}"', "rationale": "chuỗi JSON trần"},
+        ],
+        body,
+    )
+    assert [case.args for case in cases] == [["()"], ["([)]"], ["{}"]]
+
+
+def test_parse_still_drops_a_lone_argument_when_the_function_takes_several():
+    """Hai tham số mà thiếu mảng bọc thì mơ hồ thật — không đoán."""
+    body = build(ioMode="function", signature=SIGNATURE, count=5)
+    assert parse_cases([{"value": "5", "rationale": "thiếu tham số"}], body) == []
+
+
 def test_parse_skips_duplicates_of_existing_and_of_each_other():
     body = build(
         ioMode="function",
@@ -108,6 +138,19 @@ def test_parse_never_returns_more_than_requested():
     )
     assert len(cases) == 2
     assert all(case.args is None and case.input for case in cases)
+
+
+def test_signature_accepts_the_optional_parameter_description():
+    """exercise-service cho phép `FunctionParameter.description`; studio gửi lại nguyên
+    `signature` đã lưu nên StrictModel không được vỡ 400 chỉ vì trường này có mặt."""
+    signature = {
+        **SIGNATURE,
+        "parameters": [
+            {**SIGNATURE["parameters"][0], "description": "Mảng đầu vào"},
+            SIGNATURE["parameters"][1],
+        ],
+    }
+    build(ioMode="function", signature=signature)
 
 
 def test_parse_never_invents_expected_values():
