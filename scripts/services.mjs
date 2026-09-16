@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // Chạy/dừng các service ở môi trường dev — bản Node, chạy được trên Windows lẫn Linux/Mac.
-// Cổng vào duy nhất `npm run services` gọi tới; xem scripts/services.sh cho bản bash gốc
-// (dùng khi có bash thật — WSL không cài distro thì không có bash, đây là lối đi khác).
+// Cổng vào duy nhất `npm run services` gọi tới.
 //
 //   node scripts/services.mjs start|stop|restart|status [tên-service...]
 //

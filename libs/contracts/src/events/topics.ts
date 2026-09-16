@@ -155,10 +155,3 @@ export const PARTITION_KEY: Record<TopicName, string> = {
   [TOPICS.WORKSPACE_JOIN_REVIEWED]: 'groupId',
   [TOPICS.WORKSPACE_ACTIVITY]: 'groupId',
 };
-
-/** Topic dạng command — chỉ được có đúng một consumer group. Dùng để kiểm tra lúc đăng ký. */
-export const COMMAND_TOPICS: readonly TopicName[] = [
-  TOPICS.DOCUMENT_ANALYZE,
-  TOPICS.EXERCISE_GENERATE,
-  TOPICS.JUDGE_RUN,
-];

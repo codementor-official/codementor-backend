@@ -3,12 +3,11 @@
 #
 #   bash scripts/smoke.sh
 #
-# Khác `npm test` (chạy thuần domain, không cần gì) và `npm run test:e2e` (chưa có
-# test nào): file này gọi HTTP qua gateway đúng như frontend gọi, nên nó bắt được đúng
+# Khác `npm test` (chạy thuần domain, không cần gì): file này gọi HTTP qua gateway đúng như frontend gọi, nên nó bắt được đúng
 # loại lỗi mà unit test không thấy — validator MongoDB từ chối, SQLSTATE dịch sai, guard
 # lắp thiếu, hoặc đơn giản là đang chạy nhầm bản build cũ.
 #
-# Cần: các service đang chạy (scripts/services.sh start), Kong ở :8000, và hai tài khoản
+# Cần: các service đang chạy (`npm run services start`), Kong ở :8000, và hai tài khoản
 # test trên Keycloak. Xem note.md ở thư mục cha.
 set -uo pipefail
 

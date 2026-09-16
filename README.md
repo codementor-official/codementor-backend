@@ -360,6 +360,6 @@ Cập nhật 2026-09-16. Mọi dòng dưới đây đều đã chạy thật, kh
 - `kong/kong.yml` thiếu route cho `realtime-service` (3009); mọi
   upstream còn trỏ `host.docker.internal` nên chỉ dùng được ở máy dev, chưa dùng được trên EC2
 - `GRANT` theo service chưa viết — càng để lâu càng nhiều chỗ lỡ đọc bảng người khác
-- Chưa có HTTP client thật cho `libs/contracts/clients` (mới có interface)
+- `libs/contracts/clients` mới có `workspace-ai.ts`; các service còn lại gọi nhau qua HTTP không có client dùng chung
 - Chưa có e2e test; chưa chạy luồng nộp-bài end-to-end trên hạ tầng triển khai thật
 - Chưa có CI — không có `.github/workflows/` trong repo này

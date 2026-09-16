@@ -94,10 +94,13 @@ libs/contracts/src/
 │   ├── judge.events.ts
 │   └── learning.events.ts
 ├── topics.ts                    # hằng số tên topic — cấm hard-code chuỗi
-└── clients/                     # interface HTTP client (không phải implementation)
-    ├── core-client.port.ts      # CoreClient.getUserSummary(id)
-    └── exercise-client.port.ts
+└── clients/                     # hợp đồng HTTP giữa service (không phải implementation)
+    └── workspace-ai.ts          # workspace-service ↔ ai-service
 ```
+
+> Bản thiết kế ban đầu còn `core-client.port.ts` và `exercise-client.port.ts`. Không service nào
+> dùng tới nên cả hai đã bị bỏ (2026-09-16); phân giải người dùng đi qua `RemoteIdentityModule`
+> trong `libs/platform`.
 
 ---
 

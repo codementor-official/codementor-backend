@@ -19,8 +19,3 @@ export interface IdentityQuery {
 }
 
 export const IDENTITY_QUERY = Symbol('IDENTITY_QUERY');
-
-/** Tên sự kiện Identity phát ra — context khác lắng nghe bằng hằng số này, không hard-code chuỗi. */
-export const IDENTITY_EVENTS = {
-  USER_REGISTERED: 'identity.user.registered',
-} as const;
