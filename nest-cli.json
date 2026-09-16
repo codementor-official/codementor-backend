@@ -46,15 +46,6 @@
         "tsConfigPath": "apps/workspace-service/tsconfig.app.json"
       }
     },
-    "document-service": {
-      "type": "application",
-      "root": "apps/document-service",
-      "entryFile": "main",
-      "sourceRoot": "apps/document-service/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/document-service/tsconfig.app.json"
-      }
-    },
     "submission-service": {
       "type": "application",
       "root": "apps/submission-service",

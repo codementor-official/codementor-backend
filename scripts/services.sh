@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Chạy/dừng 9 service ở môi trường dev.
+# Chạy/dừng các service ở môi trường dev.
 #
 #   bash scripts/services.sh start|stop|restart|status [tên-service...]
 #
@@ -12,7 +12,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-SERVICES=(core:3001 learning:3002 exercise:3003 workspace:3004 document:3005
+SERVICES=(core:3001 learning:3002 exercise:3003 workspace:3004
           submission:3006 judge:3007 ai:3008 realtime:3009 notification:3012)
 LOG_DIR="${CODEMENTOR_LOG_DIR:-/tmp/codementor-logs}"
 

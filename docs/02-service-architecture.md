@@ -4,10 +4,10 @@ Thay thế foundation modular-monolith trước đó. Mục tiêu: nhiều deplo
 PostgreSQL có logical ownership, Kafka cho async, HTTP/gRPC cho sync, WebSocket/SSE cho realtime.
 
 > **Trạng thái tài liệu — 2026-09-16.** Bản thiết kế này viết khi hệ thống còn 9 service. Code
-> hiện có **11 app**: 9 NestJS + `ai-service` + `judge-service` (Python). Hai service ra đời sau
+> hiện có **10 app**: 8 NestJS + `ai-service` + `judge-service` (Python). Hai service ra đời sau
 > bản thiết kế — `notification-service` (3012) và `recommendation-service` (3013) — đã bổ sung
-> vào §2. Hai chỗ code lệch khỏi thiết kế, ghi rõ tại chỗ: `document-service` vẫn là skeleton, và
-> Kafka là phụ thuộc cứng lúc khởi động. Số bảng trong tài liệu là **44**; Prisma introspect thực
+> vào §2. **`document-service` đã bị xoá (2026-09-16)** — thiết kế gộp `Document → Workspace`
+> nêu ở §0 thực ra đã xảy ra trong code từ trước. Kafka là phụ thuộc cứng lúc khởi động. Số bảng trong tài liệu là **44**; Prisma introspect thực
 > tế **53 model** trên **29 migration** — chênh lệch là các bảng thêm sau (notification, audit
 > log, kiểm duyệt nội dung, nhắc lịch học, tag category). Chưa đếm lại từng dòng, nên đọc cột
 > "Sở hữu" như ranh giới, đừng đọc như con số chốt.
@@ -44,7 +44,6 @@ codementor-backend/
 │   ├── learning-service/                   #  :3002
 │   ├── exercise-service/                   #  :3003
 │   ├── workspace-service/                  #  :3004
-│   ├── document-service/                   #  :3005
 │   ├── submission-service/                 #  :3006
 │   ├── judge-service/                      #  :3007  (không expose public)
 │   ├── ai-service/                         #  :3008  (không expose public)
@@ -109,8 +108,7 @@ libs/contracts/src/
 | **core-service** | Identity, Catalog | `users`, `user_stats`, `learning_preferences`, `study_schedule_slots`, `technologies`, `tags`, `companies` — **7** | — | ✅ |
 | **learning-service** | Learning, Articles | `roadmaps*`(4), `courses*`(4), `roadmap_courses`, `chapters`, `lessons`, 4 bảng `*_prerequisites`, `roadmap_enrollments`, `course_enrollments`, `lesson_progress`, `articles` — **19** | `lesson_contents`, `article_contents` | ✅ |
 | **exercise-service** | Exercise | `exercises`, `exercise_tags/technologies/companies`, `exercise_sets`, `exercise_set_items`, `exercise_set_enrollments`, `exercise_prerequisites`, `exercise_progress` — **9** | `exercise_contents` | ✅ |
-| **workspace-service** | Group | `study_groups`, `group_members`, `group_role_permissions`, `group_member_permissions`, `group_exercises`, `assignments`, `group_activities` — **7** | — | ✅ |
-| **document-service** | Document | `group_documents` — **1** ⚠️ *xem ghi chú* | — | ✅ |
+| **workspace-service** | Group, Document | `study_groups`, `group_members`, `group_role_permissions`, `group_member_permissions`, `group_exercises`, `assignments`, `group_activities`, `group_documents` — **8** | — | ✅ |
 | **submission-service** | Submission | `submissions` — **1** | — | ✅ |
 | **judge-service** | — | **0** bảng quan hệ | `submission_run_details` | ❌ nội bộ¹ |
 | **ai-service** | — | **0** | `ai_conversations`, `ai_documents`, `ai_rag`, `ai_agent_sessions` | ❌ nội bộ² |
@@ -126,13 +124,10 @@ số test case. Verdict trong postgres vẫn **chỉ** submission-service ghi. J
 
 **Thiết kế: 44 bảng, không bảng nào có hai chủ, không bảng nào vô chủ.**
 
-> ⚠️ **`document-service` chưa hiện thực — ranh giới này hiện đang bị vi phạm.**
-> `apps/document-service/src/` chỉ có `main.ts` + `app.module.ts`; không có `contexts/`, không có
-> repository. Bảng `group_documents` thực tế do **`workspace-service`** đọc và ghi
-> (`prisma-workspace-content.repository.ts`, `prisma-workspace-overview.repository.ts`).
-> Chốt một trong hai rồi sửa cả tài liệu lẫn comment cho khớp:
-> **(a)** bỏ `document-service`, chuyển `group_documents` về `workspace-service` — rẻ hơn, bớt
-> một deployment unit; **(b)** chuyển repository tài liệu sang `document-service` đúng thiết kế.
+> **`document-service` đã xoá.** Nó chưa bao giờ vượt khỏi skeleton (health + wiring), còn
+> `group_documents` từ đầu đã do `workspace-service` đọc ghi. Thiết kế giờ khớp code: bảng thuộc
+> `workspace-service`. Các topic `evt.document.*` / `cmd.document.analyze.v1` ở §3 vẫn còn trong
+> `libs/contracts` nhưng chưa service nào phát hay nghe.
 >
 > ⚠️ **`recommendation-service` không import `MessagingModule`** — cố ý: nó chỉ đọc PostgreSQL,
 > không phát và không nghe event nào. Đây cũng là service NestJS duy nhất sống được khi Kafka chết.
@@ -412,7 +407,7 @@ Kafka ──▶ realtime-service ──WS/SSE──▶ frontend
 | 3 | Kafka + `libs/messaging` + `evt.user.provisioned` | 1 event chạy hết vòng |
 | 4 | `exercise-service`, `workspace-service` | |
 | 5 | `submission` + `judge` + outbox | luồng chấm bài đầy đủ |
-| 6 | `ai-service`, `document-service` | |
+| 6 | `ai-service` (tài liệu nhóm nằm luôn trong `workspace-service`; `document-service` đã bỏ) | |
 | 7 | `realtime-service` | UI cập nhật trực tiếp |
 | 8 | GRANT theo service (§5.1) | service khác `permission denied` |
 

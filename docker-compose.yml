@@ -1,11 +1,11 @@
-# Hạ tầng local + 9 service.
+# Hạ tầng local + các service.
 #
 # PostgreSQL, MongoDB và Keycloak KHÔNG nằm ở đây — chúng chạy trên EC2
 # (13.214.122.227), xem ../codementor-connect.txt. File này chỉ dựng phần hạ tầng
 # không có state: Kafka và Kong.
 #
 #   docker compose up -d kafka kafka-ui kong     # hạ tầng local
-#   docker compose up -d                         # thêm cả 9 service
+#   docker compose up -d                         # thêm các service
 
 x-service-base: &service-base
   build:
@@ -65,7 +65,7 @@ services:
 
   kong:
     # DB-less: cấu hình nằm ở kong/kong.yml, không cần Postgres riêng cho Kong.
-    # Một origin duy nhất cho frontend (:8000) thay vì phải biết 9 cổng service.
+    # Một origin duy nhất cho frontend (:8000) thay vì phải biết cổng từng service.
     image: kong:3.9
     container_name: codementor-kong
     environment:
@@ -80,11 +80,11 @@ services:
     # `network_mode: host` only works on native Linux Docker — Docker Desktop
     # (Windows/Mac) runs the daemon inside a VM, so there is no real host network to
     # join and container creation fails outright. `host.docker.internal` is the
-    # portable way to reach the 9 services running on the dev machine; the
+    # portable way to reach the services running on the dev machine; the
     # `host-gateway` extra_hosts entry makes that name resolve on Linux too, where
     # it isn't provided automatically the way it is on Desktop.
     #
-    # Lên EC2 thì 9 service sẽ là container cùng compose network, lúc đó dùng bridge
+    # Lên EC2 thì các service sẽ là container cùng compose network, lúc đó dùng bridge
     # và upstream trỏ theo tên service — kong.yml của môi trường đó sẽ khác file này.
     extra_hosts:
       - 'host.docker.internal:host-gateway'
@@ -179,12 +179,6 @@ services:
     container_name: codementor-workspace
     command: ['node', 'dist/apps/workspace-service/apps/workspace-service/src/main.js']
     ports: ['3004:3004']
-
-  document-service:
-    <<: *service-base
-    container_name: codementor-document
-    command: ['node', 'dist/apps/document-service/apps/document-service/src/main.js']
-    ports: ['3005:3005']
 
   submission-service:
     <<: *service-base

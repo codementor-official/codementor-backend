@@ -18,10 +18,10 @@ export interface BootstrapOptions {
 }
 
 /**
- * Bootstrap dùng chung cho cả 9 service.
+ * Bootstrap dùng chung cho mọi service NestJS.
  *
  * Gom vào đây để mọi service có cùng hành vi validation, versioning, xử lý lỗi và
- * shutdown — thay vì 9 bản main.ts copy-paste rồi trôi dạt khỏi nhau.
+ * shutdown — thay vì mỗi service một bản main.ts copy-paste rồi trôi dạt khỏi nhau.
  */
 export async function bootstrapService(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

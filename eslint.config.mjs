@@ -3,7 +3,18 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import importPlugin from 'eslint-plugin-import';
 
-const APPS = ['core-service','learning-service','exercise-service','workspace-service','document-service','submission-service','ai-service','realtime-service'];
+// Chỉ service NestJS. ai-service và judge-service là Python, đứng ngoài eslint (xem ignores).
+// Thêm service NestJS mới thì thêm tên vào đây — thiếu là import chéo lọt qua im lặng.
+const APPS = [
+  'core-service',
+  'learning-service',
+  'exercise-service',
+  'workspace-service',
+  'submission-service',
+  'realtime-service',
+  'notification-service',
+  'recommendation-service',
+];
 
 // Service KHÔNG được import code của service khác. Muốn dùng thì qua libs/contracts.
 const crossServiceZones = APPS.flatMap((from) =>
@@ -22,9 +33,9 @@ const kernelZones = [
 ];
 
 export default tseslint.config(
-  // judge-service là Python và đứng ngoài eslint (xem apps/judge-service/README.md);
-  // `.venv` của nó có JS đi kèm thư viện, quét vào là lỗi parse.
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'generated/**', 'apps/judge-service/**'] },
+  // ai-service và judge-service là Python, đứng ngoài eslint (ruff lo phần đó);
+  // `.venv` của chúng có JS đi kèm thư viện, quét vào là lỗi parse.
+  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'generated/**', 'apps/judge-service/**', 'apps/ai-service/**'] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -65,6 +76,12 @@ export default tseslint.config(
   },
   {
     files: ['**/*.spec.ts', 'test/**/*.ts'],
-    rules: { '@typescript-eslint/no-explicit-any': 'off' },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      // Test không vào image, nên import chéo ở đây không phá ranh giới triển khai. Các spec của
+      // recommendation-service cố ý dựng repository/DTO thật của learning và workspace để khoá
+      // hợp đồng mà recommendation dựa vào. Ranh giới kernel vẫn giữ nguyên.
+      'import/no-restricted-paths': ['error', { zones: kernelZones }],
+    },
   },
 );

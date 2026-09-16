@@ -23,7 +23,7 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/package.json ./
 # Không EXPOSE/CMD cố định: docker-compose chọn app bằng `command`.
-# Một image dùng chung cho cả 9 service NestJS — build 1 lần thay vì 9 lần.
+# Một image dùng chung cho cả 8 service NestJS — build 1 lần thay vì 8 lần.
 #
 # Đường dẫn LỒNG HAI LẦN, không phải dist/apps/<svc>/main.js. `nest build` biên dịch cả
 # apps/ lẫn libs/, nên rootDir chung là repo root và cây nguồn được giữ nguyên bên trong

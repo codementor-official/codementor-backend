@@ -44,7 +44,7 @@ the processed marker is written after the idempotent planner succeeds. Existing 
 
 Migrations `0027_personal_study_reminders.sql` and `0028_workspace_notification_events.sql` extend the existing queue/read views/outbox;
 `npm run migrate:email-reminders` applies all three in order. Re-run the Mongo schema migration for the added notification types.
-Workspace document events are separate from the global document-service upload/AI pipeline. No AI processing is needed to notify a group.
+Workspace document events are separate from the AI document pipeline (`ai-service`). No AI processing is needed to notify a group.
 Consumers recheck active membership, document status and effective role/member overrides before creating notifications.
 Re-publishing the same document does not announce it again. Existing historical documents are not broadcast on installation.
 Document email requires both `emailNotifications` and `workspaceEmailUpdates`; `workspaceNotifications` controls the bell only.

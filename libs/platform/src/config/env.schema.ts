@@ -11,7 +11,6 @@ export const envSchema = z.object({
   PORT_LEARNING: z.coerce.number().int().positive().default(3002),
   PORT_EXERCISE: z.coerce.number().int().positive().default(3003),
   PORT_WORKSPACE: z.coerce.number().int().positive().default(3004),
-  PORT_DOCUMENT: z.coerce.number().int().positive().default(3005),
   PORT_SUBMISSION: z.coerce.number().int().positive().default(3006),
   PORT_JUDGE: z.coerce.number().int().positive().default(3007),
   PORT_AI: z.coerce.number().int().positive().default(3008),

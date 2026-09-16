@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Chạy/dừng 9 service ở môi trường dev — bản Node, chạy được trên Windows lẫn Linux/Mac.
+// Chạy/dừng các service ở môi trường dev — bản Node, chạy được trên Windows lẫn Linux/Mac.
 // Cổng vào duy nhất `npm run services` gọi tới; xem scripts/services.sh cho bản bash gốc
 // (dùng khi có bash thật — WSL không cài distro thì không có bash, đây là lối đi khác).
 //
@@ -22,7 +22,6 @@ const SERVICES = [
   ["learning", 3002],
   ["exercise", 3003],
   ["workspace", 3004],
-  ["document", 3005],
   ["submission", 3006],
   ["judge", 3007], // Python/FastAPI — startOne() spawn riêng qua `uv run uvicorn`, xem nhánh JUDGE bên dưới.
   ["ai", 3008],
