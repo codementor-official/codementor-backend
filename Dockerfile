@@ -23,5 +23,9 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/package.json ./
 # Không EXPOSE/CMD cố định: docker-compose chọn app bằng `command`.
-# Một image dùng chung cho cả 9 service — build 1 lần thay vì 9 lần.
-CMD ["node", "dist/apps/core-service/main.js"]
+# Một image dùng chung cho cả 9 service NestJS — build 1 lần thay vì 9 lần.
+#
+# Đường dẫn LỒNG HAI LẦN, không phải dist/apps/<svc>/main.js. `nest build` biên dịch cả
+# apps/ lẫn libs/, nên rootDir chung là repo root và cây nguồn được giữ nguyên bên trong
+# outDir của từng app. scripts/services.mjs đã dùng đúng đường này từ đầu; chỉ Docker sai.
+CMD ["node", "dist/apps/core-service/apps/core-service/src/main.js"]

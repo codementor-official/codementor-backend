@@ -159,43 +159,43 @@ services:
   core-service:
     <<: *service-base
     container_name: codementor-core
-    command: ['node', 'dist/apps/core-service/main.js']
+    command: ['node', 'dist/apps/core-service/apps/core-service/src/main.js']
     ports: ['3001:3001']
 
   learning-service:
     <<: *service-base
     container_name: codementor-learning
-    command: ['node', 'dist/apps/learning-service/main.js']
+    command: ['node', 'dist/apps/learning-service/apps/learning-service/src/main.js']
     ports: ['3002:3002']
 
   exercise-service:
     <<: *service-base
     container_name: codementor-exercise
-    command: ['node', 'dist/apps/exercise-service/main.js']
+    command: ['node', 'dist/apps/exercise-service/apps/exercise-service/src/main.js']
     ports: ['3003:3003']
 
   workspace-service:
     <<: *service-base
     container_name: codementor-workspace
-    command: ['node', 'dist/apps/workspace-service/main.js']
+    command: ['node', 'dist/apps/workspace-service/apps/workspace-service/src/main.js']
     ports: ['3004:3004']
 
   document-service:
     <<: *service-base
     container_name: codementor-document
-    command: ['node', 'dist/apps/document-service/main.js']
+    command: ['node', 'dist/apps/document-service/apps/document-service/src/main.js']
     ports: ['3005:3005']
 
   submission-service:
     <<: *service-base
     container_name: codementor-submission
-    command: ['node', 'dist/apps/submission-service/main.js']
+    command: ['node', 'dist/apps/submission-service/apps/submission-service/src/main.js']
     ports: ['3006:3006']
 
   realtime-service:
     <<: *service-base
     container_name: codementor-realtime
-    command: ['node', 'dist/apps/realtime-service/main.js']
+    command: ['node', 'dist/apps/realtime-service/apps/realtime-service/src/main.js']
     ports: ['3009:3009']
 
   # Chỉ đọc PostgreSQL, không nghe Kafka — nhưng vẫn dùng `service-base` chung để khỏi có
@@ -203,7 +203,7 @@ services:
   recommendation-service:
     <<: *service-base
     container_name: codementor-recommendation
-    command: ['node', 'dist/apps/recommendation-service/main.js']
+    command: ['node', 'dist/apps/recommendation-service/apps/recommendation-service/src/main.js']
     ports: ['3013:3013']
 
   # -------------------------------------------------------------- service nội bộ

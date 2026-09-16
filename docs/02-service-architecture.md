@@ -3,6 +3,15 @@
 Thay thế foundation modular-monolith trước đó. Mục tiêu: nhiều deployment unit, shared
 PostgreSQL có logical ownership, Kafka cho async, HTTP/gRPC cho sync, WebSocket/SSE cho realtime.
 
+> **Trạng thái tài liệu — 2026-09-16.** Bản thiết kế này viết khi hệ thống còn 9 service. Code
+> hiện có **11 app**: 9 NestJS + `ai-service` + `judge-service` (Python). Hai service ra đời sau
+> bản thiết kế — `notification-service` (3012) và `recommendation-service` (3013) — đã bổ sung
+> vào §2. Hai chỗ code lệch khỏi thiết kế, ghi rõ tại chỗ: `document-service` vẫn là skeleton, và
+> Kafka là phụ thuộc cứng lúc khởi động. Số bảng trong tài liệu là **44**; Prisma introspect thực
+> tế **53 model** trên **29 migration** — chênh lệch là các bảng thêm sau (notification, audit
+> log, kiểm duyệt nội dung, nhắc lịch học, tag category). Chưa đếm lại từng dòng, nên đọc cột
+> "Sở hữu" như ranh giới, đừng đọc như con số chốt.
+
 ---
 
 ## 0. Điều chỉnh so với danh sách của bạn
@@ -101,11 +110,13 @@ libs/contracts/src/
 | **learning-service** | Learning, Articles | `roadmaps*`(4), `courses*`(4), `roadmap_courses`, `chapters`, `lessons`, 4 bảng `*_prerequisites`, `roadmap_enrollments`, `course_enrollments`, `lesson_progress`, `articles` — **19** | `lesson_contents`, `article_contents` | ✅ |
 | **exercise-service** | Exercise | `exercises`, `exercise_tags/technologies/companies`, `exercise_sets`, `exercise_set_items`, `exercise_set_enrollments`, `exercise_prerequisites`, `exercise_progress` — **9** | `exercise_contents` | ✅ |
 | **workspace-service** | Group | `study_groups`, `group_members`, `group_role_permissions`, `group_member_permissions`, `group_exercises`, `assignments`, `group_activities` — **7** | — | ✅ |
-| **document-service** | Document | `group_documents` — **1** | — | ✅ |
+| **document-service** | Document | `group_documents` — **1** ⚠️ *xem ghi chú* | — | ✅ |
 | **submission-service** | Submission | `submissions` — **1** | — | ✅ |
 | **judge-service** | — | **0** bảng quan hệ | `submission_run_details` | ❌ nội bộ¹ |
-| **ai-service** | — | **0** | `ai_conversations`, `ai_analyses` | ❌ nội bộ |
+| **ai-service** | — | **0** | `ai_conversations`, `ai_documents`, `ai_rag`, `ai_agent_sessions` | ❌ nội bộ² |
 | **realtime-service** | — | **0** | — | ✅ WS/SSE |
+| **notification-service** `:3012` | Notification | bảng `notifications*` | `notifications`, `notification_reads` | ✅ |
+| **recommendation-service** `:3013` | Recommendation | **0** — chỉ đọc bảng của service khác | — | ✅ |
 
 ¹ judge-service là **Python/FastAPI**, không phải NestJS — xem `apps/judge-service/README.md`.
 Nó ghi `submission_run_details` (stdout/stderr từng test case) và trả `_id` qua
@@ -113,7 +124,21 @@ Nó ghi `submission_run_details` (stdout/stderr từng test case) và trả `_id
 số test case. Verdict trong postgres vẫn **chỉ** submission-service ghi. Judge cũng expose
 `POST /api/v1/judge/run` để chạy thử đồng bộ, có kiểm JWT — dùng cho nút "Chạy thử" ở studio.
 
-**Tổng: 44 bảng, không bảng nào có hai chủ, không bảng nào vô chủ.**
+**Thiết kế: 44 bảng, không bảng nào có hai chủ, không bảng nào vô chủ.**
+
+> ⚠️ **`document-service` chưa hiện thực — ranh giới này hiện đang bị vi phạm.**
+> `apps/document-service/src/` chỉ có `main.ts` + `app.module.ts`; không có `contexts/`, không có
+> repository. Bảng `group_documents` thực tế do **`workspace-service`** đọc và ghi
+> (`prisma-workspace-content.repository.ts`, `prisma-workspace-overview.repository.ts`).
+> Chốt một trong hai rồi sửa cả tài liệu lẫn comment cho khớp:
+> **(a)** bỏ `document-service`, chuyển `group_documents` về `workspace-service` — rẻ hơn, bớt
+> một deployment unit; **(b)** chuyển repository tài liệu sang `document-service` đúng thiết kế.
+>
+> ⚠️ **`recommendation-service` không import `MessagingModule`** — cố ý: nó chỉ đọc PostgreSQL,
+> không phát và không nghe event nào. Đây cũng là service NestJS duy nhất sống được khi Kafka chết.
+
+² `ai-service` còn expose `/api/v1/ai/*` công khai có kiểm JWT Keycloak cho agent Lecter, không
+thuần nội bộ như bản thiết kế ban đầu.
 
 ### 2.1 Vì sao Judge và AI không sở hữu bảng nào
 
