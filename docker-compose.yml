@@ -18,6 +18,9 @@ x-service-base: &service-base
     MONGO_URI: mongodb://codementor:codementor@host.docker.internal:57017/codementor?authSource=admin
     KAFKA_BROKERS: kafka:29092
     KEYCLOAK_ISSUER: http://keycloak:8080/realms/codementor
+    CORE_SERVICE_URL: http://core-service:3001
+    LEARNING_SERVICE_URL: http://learning-service:3002
+    RECOMMENDATION_SERVICE_URL: http://recommendation-service:3013
     EXERCISE_SERVICE_URL: http://exercise-service:3003
     JUDGE_SERVICE_URL: http://judge-service:3007
     WORKSPACE_SERVICE_URL: http://workspace-service:3004
@@ -53,6 +56,12 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_NUM_PARTITIONS: 3
       CLUSTER_ID: codementor-kraft-cluster-1
+      # Mặc định của image là -Xms1G -Xmx1G: chiếm ~1.2 GB dù topic gần như rỗng, quá nửa
+      # RAM của EC2 4 GiB. 512m dư cho 1 broker lượng message cỡ lớp học.
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    # Heap 512m + metaspace/direct buffer. Chạm trần thì container bị OOM kill thay vì kéo
+    # cả máy vào swap.
+    mem_limit: 768m
     ports:
       - '9092:9092'
     volumes:
@@ -77,6 +86,10 @@ services:
       KONG_LOG_LEVEL: notice
       KONG_PROXY_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
+      # Mặc định `auto` = số nhân CPU; máy dev 12 nhân thành 12 worker, ~755 MB. 2 worker
+      # (~165 MB) khớp EC2 2 vCPU và vẫn dư cho lưu lượng hiện tại.
+      KONG_NGINX_WORKER_PROCESSES: 2
+    mem_limit: 384m
     # `network_mode: host` only works on native Linux Docker — Docker Desktop
     # (Windows/Mac) runs the daemon inside a VM, so there is no real host network to
     # join and container creation fails outright. `host.docker.internal` is the
@@ -192,6 +205,12 @@ services:
     command: ['node', 'dist/apps/realtime-service/apps/realtime-service/src/main.js']
     ports: ['3009:3009']
 
+  notification-service:
+    <<: *service-base
+    container_name: codementor-notification
+    command: ['node', 'dist/apps/notification-service/apps/notification-service/src/main.js']
+    ports: ['3012:3012']
+
   # Chỉ đọc PostgreSQL, không nghe Kafka — nhưng vẫn dùng `service-base` chung để khỏi có
   # một biến thể cấu hình riêng phải bảo trì.
   recommendation-service:
@@ -212,8 +231,13 @@ services:
     env_file: .env
     environment:
       KAFKA_BROKERS: kafka:29092
+      # Daemon bind-mount workdir của sandbox theo path của HOST, nên path đó phải giống hệt
+      # ở hai phía. Dưới /tmp để file bài nộp ghi ra nằm trên tmpfs (tính vào trần bộ nhớ
+      # của sandbox) thay vì ghi thẳng xuống EBS.
+      TMPDIR: /tmp/codementor-judge
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/codementor-judge:/tmp/codementor-judge
     ports: ['3007:3007']
     depends_on:
       kafka:

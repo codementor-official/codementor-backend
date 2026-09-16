@@ -68,6 +68,10 @@ _COMMON_RUN_KWARGS = {
     # tmpfs is sparse (only real bytes written cost RAM), so this costs
     # nothing for languages that don't need it.
     "tmpfs": {"/tmp": "rw,size=256m,mode=1777"},
+    # Mặc định json-file không có trần: `while True: print(...)` ghi 1.1 GB trong 5s ở
+    # 0.5 CPU, và `container.logs()` đọc hết chỗ đó vào RAM trước khi `_truncate` cắt còn
+    # MAX_OUTPUT_BYTES. 1m vẫn dư so với 64 KB được giữ lại.
+    "log_config": {"type": "json-file", "config": {"max-size": "1m", "max-file": "1"}},
     "detach": True,
 }
 
@@ -222,6 +226,24 @@ def _safe_kill(container: Container | None) -> None:
         container.kill()
     except Exception:
         pass
+
+
+def _make_workdir() -> str:
+    """Thư mục dùng một lần, bind-mount vào sandbox ở /home/runner.
+
+    Sandbox chạy uid 1000, còn thư mục do tiến trình judge tạo với quyền 0700 — trong
+    compose judge chạy bằng root, nên không nới quyền thì sandbox không đọc nổi bài nộp.
+    Nó còn phải ghi: sản phẩm biên dịch, `results.ndjson`, xoá `tests.json`.
+
+    Chạy trong container (Docker-out-of-Docker), path này phải tồn tại Y HỆT trên host,
+    vì daemon bind-mount theo path của host: compose mount cùng một path vào hai phía và
+    trỏ TMPDIR vào đó.
+    """
+    # ponytail: nới quyền cả thư mục vì nó dùng một lần rồi xoá; nếu sau này workdir
+    # được tái sử dụng giữa các bài nộp thì phải chuyển sang chown.
+    workdir = tempfile.mkdtemp(prefix="codementor_judge_")
+    Path(workdir).chmod(0o777)
+    return workdir
 
 
 def compile_step(language: str, workdir: str) -> str | None:
@@ -407,15 +429,8 @@ def run_function_mode(
     image = LANGUAGE_CONFIG[language]["image"]
 
     with execution_semaphore:
-        workdir = tempfile.mkdtemp(prefix="codementor_judge_")
+        workdir = _make_workdir()
         try:
-            # Container chạy dưới uid 1000, còn thư mục này do tiến trình judge tạo. Ở chế độ
-            # stdin container chỉ đọc nên không sao; ở đây nó phải ghi `results.ndjson`, ghi
-            # sản phẩm biên dịch, và xoá `tests.json` — tức là cần quyền ghi trên chính thư mục.
-            # ponytail: nới quyền cả thư mục vì nó dùng một lần rồi xoá; nếu sau này workdir
-            # được tái sử dụng giữa các bài nộp thì phải chuyển sang chown.
-            Path(workdir).chmod(0o777)
-
             (Path(workdir) / runner.solution_file).write_text(source_code, encoding="utf-8")
             for name, content in runner.files(spec).items():
                 (Path(workdir) / name).write_text(content, encoding="utf-8")
@@ -499,7 +514,7 @@ def run_against_testcases(
     config = LANGUAGE_CONFIG[language]
 
     with execution_semaphore:
-        workdir = tempfile.mkdtemp(prefix="codementor_judge_")
+        workdir = _make_workdir()
         try:
             source_path = Path(workdir) / config["filename"]
             source_path.write_text(source_code, encoding="utf-8")

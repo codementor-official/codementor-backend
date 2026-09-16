@@ -12,3 +12,4 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+kong/kong.ec2.yml

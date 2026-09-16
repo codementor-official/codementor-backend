@@ -10,6 +10,8 @@ Mỗi verdict một bài. `memory_exceeded` là ca đáng giá nhất ở đây:
 `timeout` chỉ nhờ cờ OOMKilled của daemon, mà cờ đó thì không giả lập được.
 """
 
+import time
+
 import pytest
 
 from app.grading import JudgeSpec, grade
@@ -65,6 +67,19 @@ async def test_runtime_error():
 async def test_timeout():
     result = await _grade("while True: pass", time_limit_ms=1000)
     assert result.verdict == "timeout"
+
+
+async def test_output_flood_does_not_stall_grading():
+    # Không có trần log của daemon, 2s in liên tục là vài trăm MB json log mà judge phải đọc
+    # hết mới cắt: đo được 13.8s, so với 3.3s khi có trần. 8s tách được hai trường hợp.
+    started = time.monotonic()
+    result = await _grade(
+        "import sys\nwhile True: sys.stdout.write('x' * 4096 + '\\n')",
+        time_limit_ms=2000,
+        cases=[JudgeCase(order=1, input="", expected="", weight=1)],
+    )
+    assert result.verdict == "timeout"
+    assert time.monotonic() - started < 8
 
 
 # Phải CHẠM vào từng trang, không chỉ cấp phát. `bytearray(n)` đi qua calloc → mmap, mà trang

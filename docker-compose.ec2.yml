@@ -1,0 +1,39 @@
+# Lớp phủ cho EC2, dùng qua scripts/deploy-ec2.sh:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ec2.yml up -d ...
+#
+# docker-compose.yml trỏ DB về tunnel dev (host.docker.internal) và Keycloak về container
+# dự phòng. Trên EC2 các giá trị thật nằm trong .env, nên đưa chúng trở lại ở đây —
+# `environment:` luôn thắng `env_file:`.
+
+x-env: &env
+  DATABASE_URL: ${DATABASE_URL}
+  MONGO_URI: ${MONGO_URI}
+  KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER}
+
+services:
+  # Chỉ Kong (:8000) và realtime (:3009, frontend nối WebSocket thẳng) mở ra ngoài.
+  # Kafka và các service khác chỉ nói chuyện trong compose network.
+  kafka:
+    ports: !reset []
+
+  kong:
+    # kong.ec2.yml sinh từ kong.yml lúc deploy: cùng route, upstream theo tên service.
+    volumes: !override
+      - ./kong/kong.ec2.yml:/etc/kong/kong.yml:ro
+
+  core-service: { environment: *env, ports: !reset [] }
+  learning-service: { environment: *env, ports: !reset [] }
+  exercise-service: { environment: *env, ports: !reset [] }
+  workspace-service: { environment: *env, ports: !reset [] }
+  submission-service: { environment: *env, ports: !reset [] }
+  notification-service: { environment: *env, ports: !reset [] }
+  recommendation-service: { environment: *env, ports: !reset [] }
+  realtime-service: { environment: *env }
+  ai-service: { environment: *env }
+
+  judge-service:
+    # 2 vCPU, mỗi sandbox 0.5 CPU và tới 256m: 4 cái cùng lúc là quá tay với máy 4 GiB.
+    environment:
+      DOCKER_EXECUTION_CONCURRENCY: 2
+    ports: !reset []
