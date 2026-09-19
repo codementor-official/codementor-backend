@@ -1,0 +1,28 @@
+# TLS cho stack trên EC2. Caddy tự xin và gia hạn cert Let's Encrypt, tự chuyển HTTP sang
+# HTTPS, và lưu cert vào volume `caddy-data` — restart không mất cert.
+#
+# Vì sao không dùng plugin ACME của Kong: Kong chạy DB-less nên không lưu được cert vào
+# database, còn `storage=shm` nằm trong RAM — mỗi lần restart là xin cert mới, và Let's
+# Encrypt chỉ cho 5 cert trùng domain mỗi tuần.
+
+{
+	# Chỉ để Let's Encrypt gửi cảnh báo khi cert sắp hết hạn mà chưa gia hạn được.
+	email winwin918.play@gmail.com
+}
+
+api.nguyennguyen0.id.vn {
+	encode zstd gzip
+
+	# Realtime đi thẳng tới realtime-service, không qua Kong: kong.yml không có route cho
+	# WebSocket, và Caddy tự xử lý Upgrade nên không cần cấu hình thêm. Nhờ vậy frontend
+	# dùng đúng MỘT origin cho cả API lẫn WebSocket, và cổng 3009 không cần mở ra Internet.
+	@realtime path /socket.io*
+	reverse_proxy @realtime realtime-service:3009
+
+	reverse_proxy kong:8000
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -12,12 +12,13 @@ x-env: &env
   KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER}
 
 services:
-  # Chỉ Kong (:8000) và realtime (:3009, frontend nối WebSocket thẳng) mở ra ngoài.
-  # Kafka và các service khác chỉ nói chuyện trong compose network.
+  # Chỉ Caddy mở cổng ra ngoài (80/443). Kong, realtime và mọi service khác chỉ nói
+  # chuyện trong compose network.
   kafka:
     ports: !reset []
 
   kong:
+    ports: !reset []
     # kong.ec2.yml sinh từ kong.yml lúc deploy: cùng route, upstream theo tên service.
     volumes: !override
       - ./kong/kong.ec2.yml:/etc/kong/kong.yml:ro
@@ -29,11 +30,32 @@ services:
   submission-service: { environment: *env, ports: !reset [] }
   notification-service: { environment: *env, ports: !reset [] }
   recommendation-service: { environment: *env, ports: !reset [] }
-  realtime-service: { environment: *env }
+  realtime-service: { environment: *env, ports: !reset [] }
   ai-service: { environment: *env }
+
+  # TLS ở rìa. Kong và realtime không mở cổng ra ngoài nữa; mọi thứ vào qua 443.
+  caddy:
+    image: caddy:2.11.4-alpine
+    container_name: codementor-caddy
+    depends_on: [kong, realtime-service]
+    ports:
+      - '80:80'
+      - '443:443'
+      # HTTP/3. Không mở cũng chạy, trình duyệt tự rơi về HTTP/2.
+      - '443:443/udp'
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Cert nằm ở đây. Xoá volume này là mất cert và phải xin lại từ đầu.
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
 
   judge-service:
     # 2 vCPU, mỗi sandbox 0.5 CPU và tới 256m: 4 cái cùng lúc là quá tay với máy 4 GiB.
     environment:
       DOCKER_EXECUTION_CONCURRENCY: 2
     ports: !reset []
+
+volumes:
+  caddy-data:
+  caddy-config:

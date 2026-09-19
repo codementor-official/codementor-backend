@@ -125,9 +125,15 @@ plugins:
   - name: cors
     config:
       origins:
+        # Dev chạy local, và ba app trên Vercel. Danh sách này và CORS_ORIGINS trong .env
+        # phải khớp nhau: Kong trả header CORS cho preflight, còn service trả cho request
+        # thật, thiếu một bên thì trình duyệt chặn mà log không thấy lỗi gì.
         - http://localhost:3000
         - http://localhost:3010
         - http://localhost:3011
+        - https://codementor.cloud
+        - https://lec.codementor.cloud
+        - https://admin.codementor.cloud
       methods: [GET, HEAD, POST, PATCH, PUT, DELETE, OPTIONS]
       headers: [Accept, Authorization, Content-Type, Origin]
       credentials: true
