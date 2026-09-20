@@ -134,6 +134,11 @@ plugins:
         - https://codementor.cloud
         - https://lec.codementor.cloud
         - https://admin.codementor.cloud
+        # Domain Vercel cấp sẵn. Bản preview mỗi lần deploy lại có domain khác, không
+        # nằm trong danh sách này — chỉ ba domain production dưới đây gọi được API.
+        - https://codementor-frontend-client.vercel.app
+        - https://codementor-frontend-lecturer.vercel.app
+        - https://codementor-frontend-admin.vercel.app
       methods: [GET, HEAD, POST, PATCH, PUT, DELETE, OPTIONS]
       headers: [Accept, Authorization, Content-Type, Origin]
       credentials: true
