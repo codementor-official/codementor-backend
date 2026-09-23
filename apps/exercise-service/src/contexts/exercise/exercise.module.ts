@@ -20,9 +20,10 @@ import {
 import { MongoExerciseContentRepository } from './infrastructure/mongo-exercise-content.repository';
 import { PrismaExerciseRepository } from './infrastructure/prisma-exercise.repository';
 import { ExerciseController } from './presentation/exercise.controller';
+import { ExerciseSolutionsController } from './presentation/exercise-solutions.controller';
 
 @Module({
-  controllers: [ExerciseController],
+  controllers: [ExerciseController, ExerciseSolutionsController],
   providers: [
     ListExercisesUseCase,
     ListExerciseTopicsUseCase,
