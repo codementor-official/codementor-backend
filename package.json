@@ -16,6 +16,7 @@
     "seed:client-demo": "node --env-file=.env scripts/seed-client-demo.mjs",
     "seed:practice-topics": "node --env-file=.env scripts/seed-practice-topics.mjs",
     "migrate:client-support": "node --env-file=.env scripts/migrate-client-support.mjs",
+    "migrate:exercise-solutions": "node --env-file=.env scripts/migrate-exercise-solutions.mjs",
     "migrate:notification-schema": "node --env-file=.env scripts/migrate-notification-schema.mjs",
     "verify:client-support": "node --env-file=.env scripts/verify-client-support.mjs",
     "migrate:workspace-content": "node --env-file=.env scripts/migrate-workspace-content.mjs",
