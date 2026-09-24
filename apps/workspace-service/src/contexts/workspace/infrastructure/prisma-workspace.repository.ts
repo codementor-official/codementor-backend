@@ -19,6 +19,7 @@ import {
   type WorkspaceRole,
 } from '../domain/model/workspace-policy';
 import type {
+  AdminWorkspaceListFilter,
   MemberListFilter,
   MembershipRecord,
   WorkspaceDetailRecord,
@@ -180,6 +181,64 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
     };
   }
 
+  async listAll(filter: AdminWorkspaceListFilter) {
+    const where: Prisma.study_groupsWhereInput = {};
+    if (filter.status) where.status = filter.status as group_status;
+    if (filter.privacy) where.privacy = filter.privacy as workspace_privacy;
+    if (filter.q)
+      where.OR = [
+        { name: { contains: filter.q, mode: 'insensitive' } },
+        { slug: { contains: filter.q, mode: 'insensitive' } },
+        { topic: { contains: filter.q, mode: 'insensitive' } },
+        { users: { is: { email: { contains: filter.q, mode: 'insensitive' } } } },
+        { users: { is: { display_name: { contains: filter.q, mode: 'insensitive' } } } },
+      ];
+    const [total, rows] = await Promise.all([
+      this.prisma.study_groups.count({ where }),
+      this.prisma.study_groups.findMany({
+        where,
+        orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+        skip: (filter.page - 1) * filter.limit,
+        take: filter.limit,
+        include: {
+          users: { select: { id: true, display_name: true, avatar_url: true, email: true } },
+        },
+      }),
+    ]);
+    return {
+      total,
+      items: rows.map((row) => ({ ...this.toWorkspace(row), owner: this.toUser(row.users) })),
+    };
+  }
+
+  async adminSummary() {
+    const [byStatus, byPrivacy] = await Promise.all([
+      this.prisma.study_groups.groupBy({ by: ['status'], _count: { _all: true } }),
+      this.prisma.study_groups.groupBy({ by: ['privacy'], _count: { _all: true } }),
+    ]);
+    const count = <T>(rows: Array<{ _count: { _all: number } } & T>, match: (row: T) => boolean) =>
+      rows.find(match)?._count._all ?? 0;
+    const active = count(byStatus, (row) => row.status === group_status.active);
+    const archived = count(byStatus, (row) => row.status === group_status.archived);
+    return {
+      total: active + archived,
+      active,
+      archived,
+      public: count(byPrivacy, (row) => row.privacy === workspace_privacy.public),
+      private: count(byPrivacy, (row) => row.privacy === workspace_privacy.private),
+    };
+  }
+
+  async findByIdWithOwner(id: string) {
+    const row = await this.prisma.study_groups.findUnique({
+      where: { id },
+      include: {
+        users: { select: { id: true, display_name: true, avatar_url: true, email: true } },
+      },
+    });
+    return row ? { ...this.toWorkspace(row), owner: this.toUser(row.users) } : null;
+  }
+
   async summaryForUser(userId: string) {
     // Danh sách chỉ trả group active; summary phải dùng chính predicate này để StatStrip
     // không đếm một membership còn tồn tại trong group đã archive.
@@ -294,7 +353,7 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
       name?: string;
       description?: string | null;
       topic?: string | null;
-      status?: 'archived';
+      status?: 'active' | 'archived';
       inviteCode?: string;
       avatarUrl?: string | null;
       avatarKey?: string | null;

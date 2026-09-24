@@ -89,6 +89,39 @@ export class ListWorkspacesQueryDto {
   limit?: number;
 }
 
+export class AdminListWorkspacesQueryDto {
+  @ApiPropertyOptional({ description: 'Tìm theo tên, slug, chủ đề hoặc chủ nhóm' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
+
+  @ApiPropertyOptional({ enum: ['active', 'archived'] })
+  @IsOptional()
+  @IsIn(['active', 'archived'])
+  status?: 'active' | 'archived';
+
+  @ApiPropertyOptional({ enum: ['public', 'private'] })
+  @IsOptional()
+  @IsIn(['public', 'private'])
+  privacy?: 'public' | 'private';
+
+  @ApiPropertyOptional({ default: 1, minimum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}
+
 export class ListJoinRequestsQueryDto {
   @ApiPropertyOptional({ enum: ['pending', 'rejected', 'all'], default: 'pending' })
   @IsOptional()
