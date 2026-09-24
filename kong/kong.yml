@@ -132,7 +132,8 @@ plugins:
         - http://localhost:3010
         - http://localhost:3011
         - https://codementor.cloud
-        - https://lec.codementor.cloud
+        - https://www.codementor.cloud
+        - https://lecturer.codementor.cloud
         - https://admin.codementor.cloud
         # Domain Vercel cấp sẵn. Bản preview mỗi lần deploy lại có domain khác, không
         # nằm trong danh sách này — chỉ ba domain production dưới đây gọi được API.

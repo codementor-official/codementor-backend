@@ -46,6 +46,9 @@ services=(kafka kong core-service learning-service exercise-service workspace-se
 sudo bash apps/judge-service/scripts/build-images.sh
 "${compose[@]}" build
 "${compose[@]}" up -d --remove-orphans "${services[@]}"
+# kong.ec2.yml vừa được ghi lại thành file mới (inode mới), nhưng compose không thấy
+# config đổi nên không tạo lại Kong — container vẫn đọc bản cũ qua bind mount.
+"${compose[@]}" restart kong
 # Build trên máy 30 GB: cache của npm ci + 6 image runner dễ vượt chục GB.
 sudo docker builder prune -f >/dev/null
 
