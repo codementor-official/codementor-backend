@@ -99,6 +99,21 @@ export interface WorkspaceListFilter {
   page: number;
   limit: number;
 }
+/** Bộ lọc của admin: mọi nhóm, mọi trạng thái, không gắn với người xem. */
+export interface AdminWorkspaceListFilter {
+  q?: string;
+  status?: 'active' | 'archived';
+  privacy?: 'public' | 'private';
+  page: number;
+  limit: number;
+}
+export interface AdminWorkspaceSummary {
+  total: number;
+  active: number;
+  archived: number;
+  public: number;
+  private: number;
+}
 export interface MemberListFilter {
   q?: string;
   role?: WorkspaceRole;
@@ -120,6 +135,12 @@ export interface WorkspaceRepository {
   summaryForUser(
     userId: string,
   ): Promise<{ total: number; owned: number; joined: number; unreadCount: number }>;
+  listAll(
+    filter: AdminWorkspaceListFilter,
+  ): Promise<{ items: (WorkspaceRecord & { owner: WorkspaceUser })[]; total: number }>;
+  adminSummary(): Promise<AdminWorkspaceSummary>;
+  /** Mọi trạng thái — admin cần mở cả nhóm đã lưu trữ để khôi phục. */
+  findByIdWithOwner(id: string): Promise<(WorkspaceRecord & { owner: WorkspaceUser }) | null>;
   findDetail(slug: string, userId: string): Promise<WorkspaceDetailRecord | null>;
   findActiveBySlug(slug: string): Promise<WorkspaceRecord | null>;
   findActiveByInviteCode(inviteCode: string): Promise<WorkspaceRecord | null>;
@@ -137,7 +158,7 @@ export interface WorkspaceRepository {
       name?: string;
       description?: string | null;
       topic?: string | null;
-      status?: 'archived';
+      status?: 'active' | 'archived';
       inviteCode?: string;
       avatarUrl?: string | null;
       avatarKey?: string | null;

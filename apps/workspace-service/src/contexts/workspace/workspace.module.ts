@@ -6,6 +6,8 @@ import { WorkspaceService } from './application/workspace.service';
 import { WORKSPACE_REPOSITORY } from './domain/port/workspace.repository';
 import { PrismaWorkspaceRepository } from './infrastructure/prisma-workspace.repository';
 import { WorkspaceController } from './presentation/workspace.controller';
+import { AdminWorkspaceController } from './presentation/admin-workspace.controller';
+import { AdminWorkspaceService } from './application/admin-workspace.service';
 import { WorkspaceOverviewService } from './application/workspace-overview.service';
 import { WORKSPACE_OVERVIEW_REPOSITORY } from './domain/port/workspace-overview.repository';
 import { PrismaWorkspaceOverviewRepository } from './infrastructure/prisma-workspace-overview.repository';
@@ -17,8 +19,10 @@ import { WORKSPACE_CHAT_REPOSITORY } from './domain/port/workspace-chat.reposito
 import { PrismaWorkspaceChatRepository } from './infrastructure/prisma-workspace-chat.repository';
 
 @Module({
-  controllers: [WorkspaceController, WorkspaceAiController],
+  // AdminWorkspaceController trước: `workspaces/manage` phải thắng `workspaces/:slug`.
+  controllers: [AdminWorkspaceController, WorkspaceController, WorkspaceAiController],
   providers: [
+    AdminWorkspaceService,
     WorkspaceAiService,
     WorkspaceAiClient,
     WorkspaceService,
