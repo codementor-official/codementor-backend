@@ -10,6 +10,7 @@ import type {
 } from '../domain/model/exercise';
 import { Slug } from '../domain/model/slug';
 import type {
+  ExerciseAdminSummary,
   ExerciseListFilter,
   ExerciseListItem,
   ExerciseRepository,
@@ -169,6 +170,24 @@ export class PrismaExerciseRepository implements ExerciseRepository {
       ${order}
       LIMIT ${filter.limit + 1}`;
     return rows.map((row) => ({ ...row, topics: row.topics ?? [] }));
+  }
+
+  async adminSummary(): Promise<ExerciseAdminSummary> {
+    const rows = await this.prisma.$queryRaw<
+      { status: string; difficulty: string; count: number; removal: number }[]
+    >`
+      SELECT status::text AS status, difficulty::text AS difficulty, count(*)::int AS count,
+             count(*) FILTER (WHERE rejection_reason IS NOT NULL)::int AS removal
+      FROM exercises GROUP BY status, difficulty`;
+    const summary: ExerciseAdminSummary = { byStatus: {}, byDifficulty: {}, removalRequested: 0 };
+    for (const row of rows) {
+      summary.byStatus[row.status] = (summary.byStatus[row.status] ?? 0) + row.count;
+      if (row.status !== 'published') continue;
+      summary.byDifficulty[row.difficulty] = (summary.byDifficulty[row.difficulty] ?? 0) + row.count;
+      // Cùng định nghĩa với cột `removalRequested` của danh sách admin bên trên.
+      summary.removalRequested += row.removal;
+    }
+    return summary;
   }
 
   async listTopics(userId: string): Promise<ExerciseTopicSummary[]> {

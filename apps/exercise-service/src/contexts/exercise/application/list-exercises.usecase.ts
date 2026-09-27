@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DEFAULT_PAGE_LIMIT, decodeCursor, toPage, type Page } from '@codementor/platform';
 import {
   EXERCISE_REPOSITORY,
+  type ExerciseAdminSummary,
   type ExerciseListItem,
   type ExerciseRepository,
 } from '../domain/port/exercise.repository';
@@ -29,6 +30,10 @@ export class ListExercisesUseCase {
    * thay vì một cờ `scope` để chỗ gọi không thể vô tình xin "mọi bài của mọi người ở
    * mọi trạng thái" — tổ hợp đó không diễn đạt được.
    */
+  adminSummary(): Promise<ExerciseAdminSummary> {
+    return this.exercises.adminSummary();
+  }
+
   async execute(
     scope:
       | { authorId: string }

@@ -131,6 +131,13 @@ export class ExerciseController {
     return this.listExercises.execute({ adminAll: true }, query);
   }
 
+  @Get('admin/summary')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Số liệu tổng quan cho trang quản lý bài code' })
+  adminSummary() {
+    return this.listExercises.adminSummary();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Chi tiết, gồm cả thân bài' })
   @ApiResponse({ status: 404, description: 'Không tồn tại hoặc không có quyền xem' })

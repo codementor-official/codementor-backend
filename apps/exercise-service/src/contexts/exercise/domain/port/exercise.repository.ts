@@ -74,7 +74,17 @@ export interface ExerciseProgressSummary {
   unsolved: number;
 }
 
+/** Dải KPI trang quản lý bài code. Lượt nộp/tỉ lệ AC thuộc trang Chấm bài, không ở đây. */
+export interface ExerciseAdminSummary {
+  /** Mọi trạng thái, kể cả `draft`. */
+  byStatus: Record<string, number>;
+  /** Chỉ bài đang công khai — độ khó của kho mà người học thực sự thấy. */
+  byDifficulty: Record<string, number>;
+  removalRequested: number;
+}
+
 export interface ExerciseRepository {
+  adminSummary(): Promise<ExerciseAdminSummary>;
   findById(id: string): Promise<Exercise | null>;
   existsBySlug(slug: Slug): Promise<boolean>;
   /** Đọc dạng phẳng cho màn danh sách: aggregate không phục vụ truy vấn. */
