@@ -14,6 +14,7 @@ import { IdentityModule } from './contexts/identity/identity.module';
 import { AnnouncementModule } from './contexts/announcement/announcement.module';
 import { AuditModule } from './contexts/audit/audit.module';
 import { CatalogModule } from './contexts/catalog/catalog.module';
+import { SystemModule } from './contexts/system/system.module';
 
 /**
  * core-service — Identity + Catalog.
@@ -41,6 +42,7 @@ import { CatalogModule } from './contexts/catalog/catalog.module';
     IdentityModule,
     AnnouncementModule,
     CatalogModule,
+    SystemModule,
     AuthModule,
   ],
 })

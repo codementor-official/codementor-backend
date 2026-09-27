@@ -25,6 +25,9 @@ x-service-base: &service-base
     JUDGE_SERVICE_URL: http://judge-service:3007
     WORKSPACE_SERVICE_URL: http://workspace-service:3004
     AI_SERVICE_URL: http://ai-service:3008
+    SUBMISSION_SERVICE_URL: http://submission-service:3006
+    REALTIME_SERVICE_URL: http://realtime-service:3009
+    NOTIFICATION_SERVICE_URL: http://notification-service:3012
     INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-codementor-local-internal-token}
   extra_hosts:
     - 'host.docker.internal:host-gateway'

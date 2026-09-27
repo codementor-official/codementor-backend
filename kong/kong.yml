@@ -24,6 +24,7 @@ services:
           - /api/v1/announcements
           - /api/v1/audit-logs
           - /api/v1/reports
+          - /api/v1/system
         strip_path: false
 
   - name: learning-service

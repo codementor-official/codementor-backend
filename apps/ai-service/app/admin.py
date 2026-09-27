@@ -97,6 +97,12 @@ def runtime_config() -> dict:
     }
 
 
+@router.get("/config")
+async def config(_claims: dict = Depends(require_admin)):
+    """Chỉ cấu hình, cho trang Cài đặt — không phải chạy các phép gộp của `/stats`."""
+    return {"data": runtime_config()}
+
+
 @router.get("/stats")
 async def stats(
     request: Request,
