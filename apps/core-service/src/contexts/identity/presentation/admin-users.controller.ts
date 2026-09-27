@@ -50,7 +50,7 @@ export class AdminUsersController {
 
   @Get('summary')
   @Roles('admin')
-  @ApiOperation({ summary: 'Tổng số tài khoản và phân bố theo vai trò' })
+  @ApiOperation({ summary: 'Tổng số tài khoản, phân bố theo vai trò/trạng thái, số mới 30 ngày' })
   summary() {
     return this.directory.summary();
   }

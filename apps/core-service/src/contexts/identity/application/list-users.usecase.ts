@@ -140,20 +140,36 @@ export class ListUsersUseCase {
     }));
   }
 
-  /** Số liệu cho trang tổng quan: tổng số và phân bố theo vai trò. */
-  async summary(): Promise<{ total: number; byRole: Record<string, number> }> {
-    const rows = await this.prisma.$queryRaw<{ role: string; count: bigint }[]>`
-      SELECT u.role::text AS role, count(*) AS count
-      FROM users u WHERE u.status <> 'deleted' GROUP BY u.role`;
-
-    const byRole: Record<string, number> = {};
-    let total = 0;
-    for (const row of rows) {
-      // `count(*)` của Postgres về tới đây là bigint; JSON.stringify sẽ nổ nếu để nguyên.
-      const count = Number(row.count);
-      byRole[row.role] = count;
-      total += count;
-    }
-    return { total, byRole };
+  /** Số liệu cho tổng quan và dải KPI trang Người dùng — một lượt quét bảng cho mọi con số. */
+  async summary(): Promise<UserSummaryStats> {
+    const rows = await this.prisma.$queryRaw<
+      { role: string; status: string; count: bigint; recent: bigint }[]
+    >`
+      SELECT u.role::text AS role, u.status::text AS status, count(*) AS count,
+             count(*) FILTER (WHERE u.created_at >= now() - interval '30 days') AS recent
+      FROM users u WHERE u.status <> 'deleted' GROUP BY u.role, u.status`;
+    return summarize(rows);
   }
+}
+
+export interface UserSummaryStats {
+  total: number;
+  byRole: Record<string, number>;
+  byStatus: Record<string, number>;
+  newLast30Days: number;
+}
+
+export function summarize(
+  rows: { role: string; status: string; count: bigint | number; recent: bigint | number }[],
+): UserSummaryStats {
+  const stats: UserSummaryStats = { total: 0, byRole: {}, byStatus: {}, newLast30Days: 0 };
+  for (const row of rows) {
+    // `count(*)` của Postgres về tới đây là bigint; JSON.stringify sẽ nổ nếu để nguyên.
+    const count = Number(row.count);
+    stats.byRole[row.role] = (stats.byRole[row.role] ?? 0) + count;
+    stats.byStatus[row.status] = (stats.byStatus[row.status] ?? 0) + count;
+    stats.total += count;
+    stats.newLast30Days += Number(row.recent);
+  }
+  return stats;
 }
