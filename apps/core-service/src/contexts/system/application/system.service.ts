@@ -151,12 +151,6 @@ export class SystemService {
     const number = (key: string, fallback: number) => Number(this.config.get(key) ?? fallback);
     const configured = (...keys: string[]) => keys.every((key) => Boolean(text(key)));
     return {
-      environment: text('NODE_ENV') ?? 'development',
-      auth: {
-        keycloakIssuer: text('KEYCLOAK_ISSUER'),
-        realm: text('KEYCLOAK_REALM'),
-        adminClientConfigured: configured('KEYCLOAK_USER_SERVICE_CLIENT_ID', 'KEYCLOAK_USER_SERVICE_CLIENT_SECRET'),
-      },
       storage: {
         region: text('AWS_REGION'),
         bucket: text('AWS_S3_BUCKET'),
@@ -176,12 +170,6 @@ export class SystemService {
         // Cùng mặc định với `reminder-dispatcher` / `reminder-planner`.
         reminderPollSeconds: number('REMINDER_POLL_SECONDS', 60),
         learningInactivityDays: number('LEARNING_INACTIVITY_DAYS', 3),
-      },
-      platform: {
-        clientAppUrl: text('CLIENT_APP_URL'),
-        corsOrigins: text('CORS_ORIGINS'),
-        kafkaConfigured: configured('KAFKA_BROKERS'),
-        internalTokenConfigured: (text('INTERNAL_SERVICE_TOKEN')?.length ?? 0) >= 24,
       },
     };
   }
