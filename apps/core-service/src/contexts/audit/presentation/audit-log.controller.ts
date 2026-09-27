@@ -52,4 +52,11 @@ export class AuditLogController {
   list(@Query() query: ListAuditLogsQueryDto) {
     return this.audit.list(query);
   }
+
+  @Get('summary')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Số liệu tổng quan cho trang nhật ký kiểm toán' })
+  summary() {
+    return this.audit.summary();
+  }
 }

@@ -72,6 +72,23 @@ export class AuditLogService {
   }
 
   /**
+   * Dải KPI trang nhật ký. Mọi mốc đều quét theo `created_at`, khớp `idx_audit_logs_recent`;
+   * riêng `total` là `count(*)` cả bảng — chấp nhận được với bảng chỉ ghi khi admin thao tác.
+   */
+  async summary(): Promise<{ total: number; last24h: number; last7d: number; actors7d: number }> {
+    const [row] = await this.prisma.$queryRaw<
+      { total: number; last24h: number; last7d: number; actors7d: number }[]
+    >`
+      SELECT count(*)::int AS total,
+             count(*) FILTER (WHERE created_at >= now() - interval '24 hours')::int AS "last24h",
+             count(*) FILTER (WHERE created_at >= now() - interval '7 days')::int AS "last7d",
+             count(DISTINCT actor_email) FILTER (WHERE created_at >= now() - interval '7 days')::int
+               AS "actors7d"
+      FROM audit_logs`;
+    return row;
+  }
+
+  /**
    * Đọc nhật ký, mới nhất trước.
    *
    * Lọc theo đối tượng là đường dùng nhiều nhất (drawer chi tiết tài khoản), và nó khớp
