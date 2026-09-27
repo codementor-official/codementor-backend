@@ -17,6 +17,7 @@ import { Roadmap } from '../domain/model/roadmap';
 import type { CurrentLevel, RoadmapEdit, RoadmapField } from '../domain/model/roadmap';
 import {
   ROADMAP_REPOSITORY,
+  type RoadmapAdminSummary,
   type RoadmapCourseInput,
   type RoadmapListItem,
   type RoadmapRepository,
@@ -92,6 +93,10 @@ export class RoadmapUseCases {
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,
     });
     return toPage(rows, limit);
+  }
+
+  adminSummary(): Promise<RoadmapAdminSummary> {
+    return this.roadmaps.adminSummary();
   }
 
   topics(): Promise<CatalogueTopicSummary[]> {

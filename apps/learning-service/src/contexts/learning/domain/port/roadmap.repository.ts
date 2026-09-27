@@ -63,7 +63,17 @@ export interface RoadmapCourseInput {
   isOptional: boolean;
 }
 
+/** Dải KPI trang quản lý lộ trình — cùng hình dạng với `CourseAdminSummary`, trừ đánh giá. */
+export interface RoadmapAdminSummary {
+  /** Mọi trạng thái, kể cả `draft`. */
+  byStatus: Record<string, number>;
+  removalRequested: number;
+  /** Ghi danh chưa bỏ học (`status <> 'dropped'`). */
+  enrollments: number;
+}
+
 export interface RoadmapRepository {
+  adminSummary(): Promise<RoadmapAdminSummary>;
   findById(id: string): Promise<Roadmap | null>;
   existsBySlug(slug: string): Promise<boolean>;
   list(filter: RoadmapListFilter): Promise<RoadmapListItem[]>;

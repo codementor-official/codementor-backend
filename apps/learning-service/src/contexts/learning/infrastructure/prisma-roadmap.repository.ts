@@ -9,6 +9,7 @@ import type {
   RoadmapField,
 } from '../domain/model/roadmap';
 import type {
+  RoadmapAdminSummary,
   RoadmapCourseInput,
   RoadmapCourseItem,
   RoadmapListFilter,
@@ -138,6 +139,23 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
       ${order}
       LIMIT ${filter.limit + 1}`;
     return rows.map((row) => ({ ...row, topics: row.topics ?? [] }));
+  }
+
+  async adminSummary(): Promise<RoadmapAdminSummary> {
+    const [statuses, [totals]] = await Promise.all([
+      this.prisma.$queryRaw<{ status: string; count: number; removal: number }[]>`
+        SELECT status::text AS status, count(*)::int AS count,
+               count(*) FILTER (WHERE rejection_reason IS NOT NULL)::int AS removal
+        FROM roadmaps GROUP BY status`,
+      this.prisma.$queryRaw<{ enrollments: number }[]>`
+        SELECT count(*)::int AS enrollments FROM roadmap_enrollments WHERE status <> 'dropped'`,
+    ]);
+    return {
+      byStatus: Object.fromEntries(statuses.map((row) => [row.status, row.count])),
+      // Cùng định nghĩa với cột `removalRequested` của danh sách admin bên trên.
+      removalRequested: statuses.find((row) => row.status === 'published')?.removal ?? 0,
+      enrollments: totals.enrollments,
+    };
   }
 
   async listTopics(): Promise<CatalogueTopicSummary[]> {

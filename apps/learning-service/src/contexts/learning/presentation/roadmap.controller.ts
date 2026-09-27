@@ -69,6 +69,13 @@ export class RoadmapController {
     return this.roadmaps.list({ adminAll: true }, query);
   }
 
+  @Get('admin/summary')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Số liệu tổng quan cho trang quản lý lộ trình' })
+  adminSummary() {
+    return this.roadmaps.adminSummary();
+  }
+
   @Get('enrollments/mine')
   @ApiOperation({ summary: 'Các lộ trình người hiện tại đang học hoặc đã hoàn thành' })
   myEnrollments(@CurrentUser() user: AuthenticatedUser) {
