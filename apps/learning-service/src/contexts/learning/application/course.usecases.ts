@@ -28,6 +28,7 @@ import type { CatalogueTopicSummary } from '../domain/port/catalogue-topic';
 import {
   COURSE_REPOSITORY,
   LESSON_CONTENT_REPOSITORY,
+  type CourseAdminSummary,
   type CourseListItem,
   type CourseRepository,
   type LessonContent,
@@ -156,6 +157,10 @@ export class CourseUseCases {
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,
     });
     return toPage(rows, limit);
+  }
+
+  adminSummary(): Promise<CourseAdminSummary> {
+    return this.courses.adminSummary();
   }
 
   topics(): Promise<CatalogueTopicSummary[]> {

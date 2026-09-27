@@ -7,6 +7,7 @@ import type { ContentStatus, CurrentLevel, ProgressionMode } from '../domain/mod
 import { deriveLessonSources } from '../domain/model/curriculum';
 import type { ChapterDraft } from '../domain/model/curriculum';
 import type {
+  CourseAdminSummary,
   CourseListFilter,
   CourseListItem,
   CourseRepository,
@@ -148,6 +149,25 @@ export class PrismaCourseRepository implements CourseRepository {
       ${order}
       LIMIT ${filter.limit + 1}`;
     return rows.map((row) => ({ ...row, topics: row.topics ?? [] }));
+  }
+
+  async adminSummary(): Promise<CourseAdminSummary> {
+    const [statuses, [totals]] = await Promise.all([
+      this.prisma.$queryRaw<{ status: string; count: number; removal: number }[]>`
+        SELECT status::text AS status, count(*)::int AS count,
+               count(*) FILTER (WHERE rejection_reason IS NOT NULL)::int AS removal
+        FROM courses GROUP BY status`,
+      this.prisma.$queryRaw<{ enrollments: number; avgRating: string | null }[]>`
+        SELECT (SELECT count(*)::int FROM course_enrollments WHERE status <> 'dropped') AS enrollments,
+               (SELECT round(avg(rating), 2)::text FROM course_reviews) AS "avgRating"`,
+    ]);
+    return {
+      byStatus: Object.fromEntries(statuses.map((row) => [row.status, row.count])),
+      // Cùng định nghĩa với cột `removalRequested` của danh sách admin bên trên.
+      removalRequested: statuses.find((row) => row.status === 'published')?.removal ?? 0,
+      enrollments: totals.enrollments,
+      avgRating: totals.avgRating === null ? null : Number(totals.avgRating),
+    };
   }
 
   async listTopics(): Promise<CatalogueTopicSummary[]> {

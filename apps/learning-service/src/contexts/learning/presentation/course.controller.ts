@@ -72,6 +72,13 @@ export class CourseController {
     return this.courses.list({ adminAll: true }, query);
   }
 
+  @Get('admin/summary')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Số liệu tổng quan cho trang quản lý khóa học' })
+  adminSummary() {
+    return this.courses.adminSummary();
+  }
+
   @Get('enrollments/mine')
   @ApiOperation({ summary: 'Khóa học tôi đã ghi danh, mới hoạt động trước' })
   myEnrollments(@CurrentUser() user: AuthenticatedUser) {

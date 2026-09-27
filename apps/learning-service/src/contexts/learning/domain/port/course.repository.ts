@@ -85,7 +85,19 @@ export interface StoredChapter {
   lessons: StoredLesson[];
 }
 
+/** Dải KPI trang quản lý khóa học. Mọi số đếm đọc thẳng từ bảng gốc, không từ cột đệm. */
+export interface CourseAdminSummary {
+  /** Mọi trạng thái, kể cả `draft` — số khóa đang soạn cũng là thông tin. */
+  byStatus: Record<string, number>;
+  removalRequested: number;
+  /** Ghi danh chưa bỏ học (`status <> 'dropped'`). */
+  enrollments: number;
+  /** `null` khi chưa có đánh giá nào — khác với trung bình bằng 0. */
+  avgRating: number | null;
+}
+
 export interface CourseRepository extends AuthorNameLookup {
+  adminSummary(): Promise<CourseAdminSummary>;
   findById(id: string): Promise<Course | null>;
   existsBySlug(slug: string): Promise<boolean>;
   list(filter: CourseListFilter): Promise<CourseListItem[]>;
