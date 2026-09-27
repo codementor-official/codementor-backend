@@ -53,20 +53,7 @@ try {
     'ALTER TABLE group_exercises ADD COLUMN IF NOT EXISTS deleted_at timestamptz',
     'ALTER TABLE group_exercises ADD COLUMN IF NOT EXISTS deleted_by uuid',
     'ALTER TABLE group_exercises ADD COLUMN IF NOT EXISTS delete_reason text',
-    `CREATE TABLE IF NOT EXISTS workspace_document_reports (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      group_id uuid NOT NULL REFERENCES study_groups(id) ON DELETE CASCADE,
-      document_id uuid NOT NULL REFERENCES group_documents(id) ON DELETE CASCADE,
-      reporter_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      category text NOT NULL,
-      note text,
-      status text NOT NULL DEFAULT 'PENDING',
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now(),
-      CONSTRAINT workspace_document_reports_reporter_id_document_id_key UNIQUE (reporter_id, document_id)
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_workspace_document_reports_queue
-      ON workspace_document_reports(group_id, status, created_at DESC)`,
+    // workspace_document_reports đã bỏ — báo cáo tài liệu ghi vào content_reports (infra 0030).
   ];
   for (const statement of statements) await prisma.$executeRawUnsafe(statement);
   console.log('Workspace content schema is up to date.');

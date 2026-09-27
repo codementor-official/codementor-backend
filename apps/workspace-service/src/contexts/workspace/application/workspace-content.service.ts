@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
-import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
+import { BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
 import { DOCUMENT_CONTENT_TYPES, ObjectStorageService } from '@codementor/platform';
 import { TOPICS } from '@codementor/contracts';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
@@ -217,19 +217,15 @@ export class WorkspaceContentService {
     const document = await this.content.findDocument(detail.id, id);
     if (!document || document.deletedAt || document.status !== 'published')
       throw new NotFound('Tài liệu', id);
-    try {
-      return await this.content.reportDocument(
-        detail.id,
-        id,
-        userId,
-        dto.category,
-        clean(dto.note),
-      );
-    } catch (error) {
-      if ((error as { code?: string }).code === 'P2002')
-        throw new AlreadyExists('Báo cáo tài liệu');
-      throw error;
-    }
+    return this.content.reportDocument({
+      documentId: id,
+      reporterId: userId,
+      category: dto.category,
+      note: clean(dto.note),
+      // Admin không vào được nhóm riêng tư, nên ref phải tự đọc được: tên tài liệu trước,
+      // đường dẫn nhóm sau. Cột là varchar(240).
+      targetRef: `${document.title} · /workspace/${slug}`.slice(0, 240),
+    });
   }
   async documentDownload(userId: string, slug: string, id: string, preview = false) {
     const detail = await this.workspaces.detail(userId, slug);

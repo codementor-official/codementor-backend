@@ -185,23 +185,30 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     return this.document(found);
   }
 
-  async reportDocument(
-    groupId: string,
-    documentId: string,
-    reporterId: string,
-    category: string,
-    note?: string,
-  ) {
-    const row = await this.prisma.workspace_document_reports.create({
-      data: {
-        group_id: groupId,
-        document_id: documentId,
-        reporter_id: reporterId,
-        category,
-        note,
-      },
-    });
-    return { id: row.id, status: row.status, createdAt: row.created_at };
+  async reportDocument(input: {
+    documentId: string;
+    reporterId: string;
+    category: string;
+    note?: string;
+    targetRef: string;
+  }) {
+    // Cùng câu upsert với `ContentReportService.submit` ở core-service. Hai service chung một
+    // PostgreSQL nên ghi thẳng; bảng này là hàng chờ admin, không thuộc riêng ai.
+    const [row] = await this.prisma.$queryRaw<{ id: string; status: string; createdAt: Date }[]>`
+      INSERT INTO content_reports (reporter_id, target_type, target_id, target_ref, category, note, status)
+      VALUES (${input.reporterId}::uuid, 'DOCUMENT', ${input.documentId}::uuid, ${input.targetRef},
+              ${input.category}, ${input.note ?? null}, 'PENDING')
+      ON CONFLICT (reporter_id, target_type, target_id) DO UPDATE SET
+        target_ref = EXCLUDED.target_ref,
+        category = EXCLUDED.category,
+        note = EXCLUDED.note,
+        status = 'PENDING',
+        resolution_note = NULL,
+        resolved_by = NULL,
+        resolved_at = NULL,
+        updated_at = now()
+      RETURNING id, status, created_at AS "createdAt"`;
+    return row;
   }
 
   async approvedDocumentContext(groupId: string, documentIds?: string[]) {

@@ -389,7 +389,6 @@ model group_documents {
   users_group_documents_reviewed_byTousers users?                       @relation("group_documents_reviewed_byTousers", fields: [reviewed_by], references: [id], onUpdate: NoAction)
   users_group_documents_uploader_idTousers users?                       @relation("group_documents_uploader_idTousers", fields: [uploader_id], references: [id], onUpdate: NoAction)
   group_exercises                          group_exercises[]
-  workspace_document_reports               workspace_document_reports[]
 
   @@index([group_id, uploaded_at(sort: Desc)], map: "idx_group_documents_group")
 }
@@ -691,7 +690,6 @@ model study_groups {
   group_role_permissions     group_role_permissions[]
   workspace_join_requests    workspace_join_requests[]
   workspace_messages         workspace_messages[]
-  workspace_document_reports workspace_document_reports[]
   users                      users                        @relation(fields: [owner_id], references: [id], onUpdate: NoAction)
 }
 
@@ -707,24 +705,6 @@ model workspace_messages {
   users        users        @relation(fields: [sender_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([group_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_workspace_messages_history")
-}
-
-model workspace_document_reports {
-  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  group_id        String          @db.Uuid
-  document_id     String          @db.Uuid
-  reporter_id     String          @db.Uuid
-  category        String
-  note            String?
-  status          String          @default("PENDING")
-  created_at      DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime        @default(now()) @db.Timestamptz(6)
-  study_groups    study_groups    @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  group_documents group_documents @relation(fields: [document_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users           users           @relation(fields: [reporter_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([reporter_id, document_id])
-  @@index([group_id, status, created_at(sort: Desc)], map: "idx_workspace_document_reports_queue")
 }
 
 model workspace_message_reads {
@@ -854,7 +834,6 @@ model users {
   workspace_join_requests_requested                  workspace_join_requests[]    @relation("workspace_join_request_user")
   workspace_join_requests_reviewed                   workspace_join_requests[]    @relation("workspace_join_request_reviewer")
   workspace_messages                                 workspace_messages[]
-  workspace_document_reports                         workspace_document_reports[]
   articles                                           articles[]
   assignments                                        assignments[]
   course_enrollments                                 course_enrollments[]

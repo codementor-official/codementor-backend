@@ -153,13 +153,17 @@ export interface WorkspaceContentRepository {
   ): Promise<boolean>;
   restoreDocument(groupId: string, id: string): Promise<boolean>;
   purgeDocument(groupId: string, id: string): Promise<WorkspaceDocumentRecord | null>;
-  reportDocument(
-    groupId: string,
-    documentId: string,
-    reporterId: string,
-    category: string,
-    note?: string,
-  ): Promise<{ id: string; status: string; createdAt: Date }>;
+  /**
+   * Ghi vào `content_reports` — cùng hàng chờ admin với mọi loại báo cáo khác. Báo cáo lại
+   * cùng tài liệu mở lại báo cáo cũ thay vì tạo bản thứ hai.
+   */
+  reportDocument(input: {
+    documentId: string;
+    reporterId: string;
+    category: string;
+    note?: string;
+    targetRef: string;
+  }): Promise<{ id: string; status: string; createdAt: Date }>;
   approvedDocumentContext(
     groupId: string,
     documentIds?: string[],

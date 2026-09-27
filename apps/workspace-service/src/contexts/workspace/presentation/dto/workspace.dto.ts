@@ -322,8 +322,9 @@ export class RemoveWorkspaceContentDto {
 }
 
 export class ReportWorkspaceDocumentDto {
-  @IsIn(['spam', 'inappropriate', 'copyright', 'harmful', 'irrelevant', 'other'])
-  category!: 'spam' | 'inappropriate' | 'copyright' | 'harmful' | 'irrelevant' | 'other';
+  // Cùng bộ với `content_reports.category` (ràng buộc CHECK ở DB), vì báo cáo đổ chung bảng đó.
+  @IsIn(['SPAM', 'MISLEADING', 'INAPPROPRIATE', 'COPYRIGHT', 'OTHER'])
+  category!: 'SPAM' | 'MISLEADING' | 'INAPPROPRIATE' | 'COPYRIGHT' | 'OTHER';
 
   @IsOptional() @IsString() @MaxLength(1000) note?: string;
 }
