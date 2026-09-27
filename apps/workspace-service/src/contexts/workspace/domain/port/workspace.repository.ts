@@ -113,6 +113,10 @@ export interface AdminWorkspaceSummary {
   archived: number;
   public: number;
   private: number;
+  /** Người dùng khác nhau đang là thành viên của ít nhất một nhóm còn hoạt động. */
+  members: number;
+  /** Tài liệu đang chờ trưởng/phó nhóm duyệt, trong nhóm còn hoạt động. */
+  pendingDocuments: number;
 }
 export interface MemberListFilter {
   q?: string;

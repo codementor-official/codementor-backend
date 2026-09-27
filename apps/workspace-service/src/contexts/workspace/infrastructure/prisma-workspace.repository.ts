@@ -212,9 +212,18 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
   }
 
   async adminSummary() {
-    const [byStatus, byPrivacy] = await Promise.all([
+    const [byStatus, byPrivacy, [content]] = await Promise.all([
       this.prisma.study_groups.groupBy({ by: ['status'], _count: { _all: true } }),
       this.prisma.study_groups.groupBy({ by: ['privacy'], _count: { _all: true } }),
+      this.prisma.$queryRaw<Array<{ members: number; pendingDocuments: number }>>`
+        SELECT
+          (SELECT count(DISTINCT m.user_id)::int FROM group_members m
+             JOIN study_groups g ON g.id = m.group_id
+            WHERE m.status = 'active' AND g.status = 'active') AS members,
+          (SELECT count(*)::int FROM group_documents d
+             JOIN study_groups g ON g.id = d.group_id
+            WHERE d.status = 'pending' AND d.deleted_at IS NULL AND g.status = 'active')
+            AS "pendingDocuments"`,
     ]);
     const count = <T>(rows: Array<{ _count: { _all: number } } & T>, match: (row: T) => boolean) =>
       rows.find(match)?._count._all ?? 0;
@@ -226,6 +235,8 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
       archived,
       public: count(byPrivacy, (row) => row.privacy === workspace_privacy.public),
       private: count(byPrivacy, (row) => row.privacy === workspace_privacy.private),
+      members: content.members,
+      pendingDocuments: content.pendingDocuments,
     };
   }
 
