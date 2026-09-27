@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse
 from pymongo import AsyncMongoClient
 from pymongo.errors import PyMongoError
 
+from app import telemetry
+from app.admin import router as admin_router
 from app.codey.endpoint import router as codey_router
 from app.config import settings
 from app.dashboard import router as dashboard_router
@@ -30,6 +32,7 @@ async def lifespan(app: FastAPI):
     # dòng đầu, và không router nào trong ba cái đó liên quan gì tới hỏi đáp tài liệu.
     app.state.db = database
     app.state.provider = provider
+    telemetry.init(database)
     # MỘT `DocumentIndex` cho cả tiến trình, và đúng MỘT worker. Mỗi bề mặt dựng một bản riêng
     # nghĩa là mỗi bản một vòng lặp poll cùng một collection, tranh nhau lease của cùng một job.
     storage = DocumentStorage(settings)
@@ -93,6 +96,7 @@ async def mongo_error(_request: Request, _exc: PyMongoError):
     )
 
 
+app.include_router(admin_router)
 app.include_router(suggest_router)
 app.include_router(dashboard_router)
 app.include_router(lecter_router)
@@ -107,6 +111,7 @@ async def health():
 
 @app.post("/api/v1/internal/workspace-ai/{action}")
 async def execute(action: str, body: InternalRequest, request: Request):
+    telemetry.set_scope("rag", str(body.userId), str(body.workspaceId))
     rag = request.app.state.rag
     if action == "status":
         result = rag.status()

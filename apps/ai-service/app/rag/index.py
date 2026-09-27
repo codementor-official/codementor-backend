@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
-from app import budget
+from app import budget, telemetry
 from app.config import Settings
 from app.provider import OpenAIProvider
 from app.rag.documents import SUPPORTED_TYPES, DocumentStorage, cosine, extract_isolated, tokenizer
@@ -170,6 +170,8 @@ class DocumentIndex:
     # --- worker -------------------------------------------------------------
 
     async def worker(self):
+        # Task riêng của tiến trình: phạm vi này chỉ sống trong nó, không rò sang request nào.
+        telemetry.set_scope("rag_index")
         while True:
             try:
                 if self.config.configured:

@@ -28,6 +28,7 @@ from langgraph.prebuilt import ToolNode
 from langgraph.types import Command
 from typing_extensions import TypedDict
 
+from app import telemetry
 from app.capability import Capability
 from app.config import settings
 from app.lecter.http import ToolCallError
@@ -247,6 +248,9 @@ def make_chat(capability: Capability):
             # của nhà cung cấp, và câu họ nhận được là "đã dùng hết lượt AI hôm nay".
             max_retries=2,
             output_version="responses/v1",
+            # Đo token/độ trễ/lỗi cho trang Vận hành AI; ai gọi thì đọc từ phạm vi đặt ở
+            # `stream_run`, không truyền qua đây.
+            callbacks=[telemetry.UsageCallback(capability.model)],
             # Không truyền khoá này khi capability không khai: để `None` đi qua sẽ ghi đè mặc
             # định của nhà cung cấp bằng một giá trị rỗng thay vì bỏ qua nó.
             **(

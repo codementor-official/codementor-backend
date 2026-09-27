@@ -17,7 +17,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app import budget
+from app import budget, telemetry
 from app.auth import require_user
 from app.config import settings
 
@@ -225,6 +225,7 @@ async def suggest_test_cases(
     validate_request(body)
 
     state = request.app.state
+    telemetry.set_scope("suggest", claims["sub"])
     state.provider.require_configured()
     await budget.consume(state.db, claims["sub"], "suggest", settings.ai_suggest_daily_limit)
 

@@ -11,6 +11,8 @@ from fastapi import HTTPException
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+from app import telemetry
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -39,4 +41,5 @@ async def consume(
             {"_id": key}, {"$inc": {"count": cost}}, return_document=ReturnDocument.AFTER
         )
     if usage["count"] > limit:
+        telemetry.record(ok=False, errorType="daily_limit")
         raise HTTPException(429, message or DEFAULT_MESSAGE)

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
-from app import budget
+from app import budget, telemetry
 from app.auth import require_user
 from app.config import settings
 from app.dashboard_prompt import INSTRUCTIONS
@@ -108,6 +108,7 @@ def validated_steps(raw, candidates):
 
 async def execute(request, claims, generate):
     state = request.app.state
+    telemetry.set_scope("dashboard", claims["sub"])
     now = datetime.now(UTC)
     async with httpx.AsyncClient(
         headers={"Authorization": f"Bearer {request.state.access_token}"}, timeout=12

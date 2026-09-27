@@ -21,7 +21,7 @@ from ag_ui_langgraph import LangGraphAgent
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 
-from app import budget, sessions
+from app import budget, sessions, telemetry
 from app.capability import Capability
 from app.graph import graph_for
 
@@ -39,6 +39,9 @@ async def stream_run(
 ) -> StreamingResponse:
     """Thân chung của MỌI bề mặt agent. Khác nhau đúng một `Capability` và vài khoá config."""
     state = request.app.state
+    thread_id = input_data.thread_id
+    # Trước `budget.consume`: một lần bị chặn hạn mức cũng phải biết là của agent nào.
+    telemetry.set_scope(capability.agent_id, claims["sub"], workspace_id, thread_id)
     state.provider.require_configured()
     await budget.consume(
         state.db,
@@ -72,7 +75,6 @@ async def stream_run(
         },
     )
     encoder = EventEncoder(accept=request.headers.get("accept"))
-    thread_id = input_data.thread_id
 
     async def stream():
         # `finally`, không phải dòng sau vòng lặp: đóng tab giữa lúc Lecter đang trả lời làm
@@ -86,6 +88,7 @@ async def stream_run(
             # Không có RUN_ERROR thì trình duyệt treo mãi ở dòng tool đang chạy: SSE đã mở, nên
             # một ngoại lệ ở đây chỉ đóng kết nối, không thành mã lỗi HTTP nào cả.
             logger.exception("Lecter run hỏng giữa chừng (thread %s)", thread_id)
+            telemetry.record(ok=False, errorType="run_failed")
             yield encoder.encode(
                 RunErrorEvent(
                     type=EventType.RUN_ERROR,

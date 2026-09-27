@@ -69,3 +69,13 @@ def require_user(
     # trình duyệt bằng STATE_SNAPSHOT).
     request.state.access_token = credentials.credentials
     return claims
+
+
+def require_admin(claims: dict = Depends(require_user)) -> dict:
+    """403 khi token không mang realm role admin — cùng luật với `platformRoleOf` ở
+    `libs/platform` (đọc `realm_access.roles`, KHÔNG phân biệt hoa thường) và `require_admin`
+    của judge-service. Realm thật có cả `ADMIN` lẫn `admin`."""
+    roles = (claims.get("realm_access") or {}).get("roles") or []
+    if "admin" not in {role.lower() for role in roles}:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Cần quyền quản trị.")
+    return claims

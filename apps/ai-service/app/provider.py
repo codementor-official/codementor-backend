@@ -1,9 +1,11 @@
 import json
 import math
+import time
 
 from fastapi import HTTPException
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 
+from app import telemetry
 from app.config import Settings
 from app.models import GroundedAnswer
 
@@ -67,6 +69,7 @@ class OpenAIProvider:
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         self.require_configured()
+        started = time.perf_counter()
         try:
             result = await self.client.embeddings.create(
                 model=self.config.openai_embedding_model,
@@ -75,7 +78,9 @@ class OpenAIProvider:
                 encoding_format="float",
             )
         except (APIStatusError, APIConnectionError) as exc:
+            telemetry.record_call(self.config.openai_embedding_model, started, error=exc)
             raise self.safe_error(exc) from None
+        telemetry.record_call(self.config.openai_embedding_model, started, usage=getattr(result, "usage", None))
         rows = sorted(result.data, key=lambda row: row.index)
         if len(rows) != len(texts) or any(
             row.index != i
@@ -90,6 +95,7 @@ class OpenAIProvider:
         self, question: str, sources: list[dict], previous_questions: list[str]
     ) -> dict:
         self.require_configured()
+        started = time.perf_counter()
         try:
             result = await self.client.responses.create(
                 model=self.config.openai_chat_model,
@@ -116,7 +122,9 @@ class OpenAIProvider:
                 },
             )
         except (APIStatusError, APIConnectionError) as exc:
+            telemetry.record_call(self.config.openai_chat_model, started, error=exc)
             raise self.safe_error(exc) from None
+        telemetry.record_call(self.config.openai_chat_model, started, usage=getattr(result, "usage", None))
         if result.status != "completed":
             raise HTTPException(502, "AI chưa hoàn tất câu trả lời. Vui lòng hỏi ngắn gọn hơn.")
         try:
@@ -149,9 +157,11 @@ class OpenAIProvider:
         vào chỗ không cần tới nó.
         """
         self.require_configured()
+        model = model or self.config.openai_chat_model
+        started = time.perf_counter()
         try:
             result = await self.client.responses.create(
-                model=model or self.config.openai_chat_model,
+                model=model,
                 store=False,
                 reasoning={"effort": "low"},
                 max_output_tokens=max_output_tokens,
@@ -168,7 +178,9 @@ class OpenAIProvider:
                 },
             )
         except (APIStatusError, APIConnectionError) as exc:
+            telemetry.record_call(model, started, error=exc)
             raise self.safe_error(exc) from None
+        telemetry.record_call(model, started, usage=getattr(result, "usage", None))
         if result.status != "completed":
             raise HTTPException(502, "AI chưa hoàn tất yêu cầu. Vui lòng thử lại.")
         try:

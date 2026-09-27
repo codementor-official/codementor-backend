@@ -60,6 +60,16 @@ còn phải có chữ ký kèm ít nhất một tham số.
 Route Kong ở `kong/kong.yml` (`ai-service`, `read_timeout: 300000`) chỉ mở `/api/v1/ai`.
 `/api/v1/internal/*` KHÔNG nằm trong đó và vẫn chỉ tới được từ trong mạng Docker.
 
+## Đo đếm: `ai_call_events`
+
+`app/telemetry.py` ghi một dòng cho mỗi lời gọi model (token vào/ra, độ trễ, lỗi), mỗi lần chặn
+hạn mức và mỗi run agent hỏng; không ghi prompt hay nội dung. Agent/người dùng lấy từ phạm vi đặt
+ở cửa vào (`telemetry.set_scope`). Collection có validator + TTL 90 ngày ở
+`codementor-infra/database/mongo/schemas/10-ai-call-events.js` — chạy `npm run migrate:ai` TRƯỚC
+khi deploy, nếu không Mongo tự tạo collection không có TTL.
+
+`GET /api/v1/ai/admin/stats?days=7|30` (realm role admin) là nguồn số liệu của trang Vận hành AI.
+
 ## Client flow
 
 /ai-tutor → choose an existing membership → search approved documents → select 1–8 sources
