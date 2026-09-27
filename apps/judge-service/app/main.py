@@ -10,12 +10,15 @@ Service này giữ socket Docker của host — đọc phần Bảo mật trong 
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from app.api import router as judge_router
+from app.auth import require_admin
 from app.config import settings
 from app.messaging import publisher
 from app.messaging.consumer import JudgeConsumer
+from app.services.execution_config import LANGUAGE_CONFIG
+from app.services.langs import RUNNERS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("judge")
@@ -50,3 +53,24 @@ app.include_router(judge_router)
 @app.get("/api/v1/judge/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "engine": settings.execution_engine}
+
+
+@app.get("/api/v1/judge/admin/config")
+def admin_config(_claims: dict = Depends(require_admin)) -> dict:
+    """Cấu hình đang chạy, chỉ đọc, cho trang Chấm bài và Cài đặt của admin.
+
+    Đổi bằng biến môi trường rồi restart judge-service — không có đường ghi qua HTTP.
+    """
+    return {
+        "data": {
+            "engine": settings.execution_engine,
+            "dockerExecutionConcurrency": settings.docker_execution_concurrency,
+            "maxSourceBytes": settings.max_source_bytes,
+            "maxTestCases": settings.max_test_cases,
+            "maxTestCaseBytes": settings.max_test_case_bytes,
+            "languages": [
+                {"id": name, "image": config["image"], "functionMode": name in RUNNERS}
+                for name, config in LANGUAGE_CONFIG.items()
+            ],
+        }
+    }

@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { CurrentUser, type AuthenticatedUser } from '@codementor/platform';
+import { CurrentUser, Roles, type AuthenticatedUser } from '@codementor/platform';
 import { CreateSubmissionUseCase, QuerySubmissionsUseCase } from '../application/submission.usecases';
-import { CreateSubmissionDto, ListMySubmissionsDto } from './dto/submission.dto';
+import { CreateSubmissionDto, ListMySubmissionsDto, SubmissionStatsQueryDto } from './dto/submission.dto';
 
 @ApiTags('submissions')
 @ApiBearerAuth('access-token')
@@ -27,6 +27,14 @@ export class SubmissionController {
   @ApiOperation({ summary: 'Lịch sử bài nộp của người đang đăng nhập' })
   mine(@CurrentUser() user: AuthenticatedUser, @Query() query: ListMySubmissionsDto) {
     return this.querySubmissions.list(user, query);
+  }
+
+  // Trước `:id`: Nest khớp theo thứ tự khai báo.
+  @Get('admin/stats')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Admin: số liệu chấm bài 7 hoặc 30 ngày gần nhất' })
+  adminStats(@Query() query: SubmissionStatsQueryDto) {
+    return this.querySubmissions.adminStats(query.days);
   }
 
   @Get(':id')

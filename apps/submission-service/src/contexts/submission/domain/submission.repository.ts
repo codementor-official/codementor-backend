@@ -1,4 +1,5 @@
 import type { JudgeResult, SubmissionRecord } from './submission';
+import type { SubmissionStats } from './submission-stats';
 
 export interface CreateSubmissionInput {
   userId: string;
@@ -23,6 +24,8 @@ export interface SubmissionRepository {
   findOwned(id: string, userId: string): Promise<SubmissionRecord | null>;
   listOwned(userId: string, exerciseId: string | undefined, page: number, limit: number): Promise<SubmissionPage>;
   hasAccepted(userId: string, exerciseId: string): Promise<boolean>;
+  /** Số liệu `days` ngày gần nhất (theo giờ Việt Nam) cho trang Chấm bài của admin. */
+  adminStats(days: number): Promise<SubmissionStats>;
 }
 
 export const SUBMISSION_REPOSITORY = Symbol('SUBMISSION_REPOSITORY');

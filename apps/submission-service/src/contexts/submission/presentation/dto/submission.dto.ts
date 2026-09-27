@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -54,4 +55,11 @@ export class ListMySubmissionsDto {
   @Min(1)
   @Max(50)
   limit = 10;
+}
+
+export class SubmissionStatsQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsIn([7, 30])
+  days: 7 | 30 = 7;
 }

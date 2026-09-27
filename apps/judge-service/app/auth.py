@@ -63,3 +63,13 @@ def require_user(
 
     request.state.user_id = claims.get("sub")
     return claims
+
+
+def require_admin(claims: dict = Depends(require_user)) -> dict:
+    """403 khi token không mang realm role admin — cùng luật với `platformRoleOf` ở
+    `libs/platform` (đọc `realm_access.roles`, KHÔNG phân biệt hoa thường), để một tài khoản
+    không thể là admin ở Nest mà không ở đây. Realm thật có cả `ADMIN` lẫn `admin`."""
+    roles = (claims.get("realm_access") or {}).get("roles") or []
+    if "admin" not in {role.lower() for role in roles}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="cần quyền quản trị")
+    return claims

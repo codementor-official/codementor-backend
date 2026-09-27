@@ -192,6 +192,10 @@ export class QuerySubmissionsUseCase {
     return { ...result, items: result.items.map((item) => view(item)) };
   }
 
+  adminStats(days: number) {
+    return this.submissions.adminStats(days);
+  }
+
   async detail(user: AuthenticatedUser, id: string) {
     const result = await this.submissions.findOwned(id, requireHumanId(user));
     if (!result) throw new NotFoundException('Không tìm thấy bài nộp');
