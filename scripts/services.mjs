@@ -16,6 +16,16 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const isWindows = platform() === "win32";
 const logDir = process.env.CODEMENTOR_LOG_DIR ?? join(repoRoot, ".logs");
 
+// Script quản lý process cũng cần biết các override của môi trường local. Các app tự đọc
+// `.env` qua ConfigModule/Pydantic, nhưng nếu script không đọc thì nó vẫn cố mở một service
+// local đã được cấu hình dùng remote (điển hình là Judge production khi máy dev không chạy
+// Docker sandbox).
+try {
+  process.loadEnvFile(join(repoRoot, ".env"));
+} catch {
+  // Giữ hành vi cũ khi repo mới clone chưa có `.env`; app sẽ tự báo config còn thiếu.
+}
+
 const SERVICES = [
   ["core", 3001],
   ["learning", 3002],
@@ -28,6 +38,7 @@ const SERVICES = [
   // 3010/3011 là apps/lecturer và apps/admin bên frontend, nên dải backend nhảy qua.
   ["notification", 3012],
   ["recommendation", 3013],
+  ["gateway", 8000],
 ];
 
 function pidOnPort(port) {
@@ -66,7 +77,42 @@ function selected(names) {
   return names.map((want) => SERVICES.find(([name]) => name === want)).filter(Boolean);
 }
 
+function ensureRemoteKafkaTunnel() {
+  if (!isWindows || pidOnPort(9092)) return;
+  const brokers = (process.env.KAFKA_BROKERS ?? "").split(",").map((value) => value.trim());
+  if (!brokers.some((value) => value === "localhost:9092" || value === "127.0.0.1:9092")) return;
+
+  const tunnelScript = join(repoRoot, "scripts", "dev-remote-infra.ps1");
+  if (!existsSync(tunnelScript)) return;
+  try {
+    execFileSync(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tunnelScript],
+      { cwd: repoRoot, stdio: "inherit" },
+    );
+  } catch {
+    console.error("Không mở được Kafka SSH tunnel. Chạy scripts/dev-remote-infra.ps1 để xem lỗi chi tiết.");
+    throw new Error("Kafka SSH tunnel chưa sẵn sàng");
+  }
+}
+
+function remoteServiceUrl(name) {
+  const value = name === "judge" ? process.env.JUDGE_SERVICE_URL : undefined;
+  if (!value) return null;
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" ? null : value;
+  } catch {
+    return null;
+  }
+}
+
 function stopOne(name, port) {
+  const remoteUrl = remoteServiceUrl(name);
+  if (remoteUrl) {
+    console.log(`  ${name.padEnd(12)} dùng remote ${remoteUrl} — không dừng`);
+    return;
+  }
   const pid = pidOnPort(port);
   if (!pid) {
     console.log(`  ${name.padEnd(12)} không chạy`);
@@ -114,6 +160,11 @@ function newestTs(dir) {
 const libsMtime = newestTs(join(repoRoot, "libs"));
 
 async function startOne(name, port) {
+  const remoteUrl = remoteServiceUrl(name);
+  if (remoteUrl) {
+    console.log(`  ${name.padEnd(12)} dùng remote ${remoteUrl} — bỏ qua local`);
+    return true;
+  }
   if (pidOnPort(port)) {
     console.log(`  ${name.padEnd(12)} đang chạy sẵn ở :${port} — bỏ qua`);
     return true;
@@ -122,6 +173,8 @@ async function startOne(name, port) {
   let command;
   if (name === "judge" || name === "ai") {
     command = pythonCommand(name, port);
+  } else if (name === "gateway") {
+    command = { cmd: "node", args: [join(repoRoot, "scripts", "dev-gateway.mjs")], cwd: repoRoot };
   } else {
     const entry = join(repoRoot, "dist", "apps", `${name}-service`, "apps", `${name}-service`, "src", "main.js");
     if (!existsSync(entry)) {
@@ -165,12 +218,19 @@ async function startOne(name, port) {
 }
 
 function statusOne(name, port) {
+  const remoteUrl = remoteServiceUrl(name);
+  if (remoteUrl) {
+    console.log(`  ${name.padEnd(12)} remote ${remoteUrl}`);
+    return;
+  }
   const pid = pidOnPort(port);
   console.log(pid ? `  ${name.padEnd(12)} :${String(port).padEnd(6)} pid ${pid}` : `  ${name.padEnd(12)} :${String(port).padEnd(6)} dừng`);
 }
 
 const [action = "status", ...rest] = process.argv.slice(2);
 const chosen = selected(rest);
+
+if (action === "start" || action === "restart") ensureRemoteKafkaTunnel();
 
 let failed = false;
 switch (action) {

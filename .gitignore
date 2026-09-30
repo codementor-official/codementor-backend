@@ -3,6 +3,11 @@ dist/
 coverage/
 .env
 .env.local
+.env.*
+!.env.example
+!.env.commerce.example
+*.pem
+*.key
 *.log
 generated/
 
