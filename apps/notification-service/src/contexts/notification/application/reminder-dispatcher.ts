@@ -35,6 +35,7 @@ export class ReminderDispatcher implements OnModuleInit, OnModuleDestroy {
     private readonly record: RecordNotificationUseCase,
   ) {}
   onModuleInit() {
+    if (process.env.COMMERCE_TEST_NOTIFICATION_MODE === 'true') return;
     this.timer = setInterval(
       () => void this.run(),
       this.config.get<number>('REMINDER_POLL_SECONDS', 60) * 1000,

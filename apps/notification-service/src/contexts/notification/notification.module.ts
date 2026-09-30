@@ -13,6 +13,7 @@ import { MongoNotificationRepository } from './infrastructure/mongo-notification
 import { RecordNotificationUseCase } from './application/record-notification.usecase';
 import {
   fromAdminAnnouncement,
+  fromCommerceUpdated,
   fromAssignmentReminder,
   fromArticlePublished,
   fromContentModerated,
@@ -71,9 +72,27 @@ export class NotificationModule implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    this.consumer
-      .on(TOPICS.ASSIGNMENT_REVIEWED, (payload, envelope) => this.workspaceActivity.assignmentReviewed(payload, envelope), { replaySafe: true, fromBeginning: true })
-      .on(TOPICS.WORKSPACE_ACTIVITY, (payload, envelope) => this.workspaceActivity.handle(payload, envelope), { replaySafe: true, fromBeginning: true })
+    this.consumer.on(
+        TOPICS.COMMERCE_UPDATED,
+        (payload, envelope) => this.record.record(envelope, fromCommerceUpdated(payload)),
+        { replaySafe: true, fromBeginning: true },
+      );
+    // Isolated local commerce test: no production consumer group, unrelated events,
+    // reminder scheduler or email delivery. Only the purchase bell is exercised.
+    if (process.env.COMMERCE_TEST_NOTIFICATION_MODE === 'true') {
+      await this.consumer.start('notification-service-commerce-test');
+      return;
+    }
+    this.consumer.on(
+        TOPICS.ASSIGNMENT_REVIEWED,
+        (payload, envelope) => this.workspaceActivity.assignmentReviewed(payload, envelope),
+        { replaySafe: true, fromBeginning: true },
+      )
+      .on(
+        TOPICS.WORKSPACE_ACTIVITY,
+        (payload, envelope) => this.workspaceActivity.handle(payload, envelope),
+        { replaySafe: true, fromBeginning: true },
+      )
       .on(TOPICS.COURSE_PUBLISHED, (payload, envelope) =>
         this.record.record(envelope, fromCoursePublished(payload)),
       )

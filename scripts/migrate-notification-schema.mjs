@@ -6,13 +6,14 @@ if (!uri) throw new Error('MONGO_URI is required');
 const client = new MongoClient(uri);
 await client.connect();
 try {
-  const db = client.db();
+  const db = client.db(process.env.MONGO_DB || undefined);
   const collection = await db.listCollections({ name: 'notifications' }).next();
   if (!collection) throw new Error('notifications collection does not exist');
   const validator = collection.options?.validator;
   const types = validator?.$jsonSchema?.properties?.type?.enum;
   if (!Array.isArray(types)) throw new Error('notifications type validator is missing');
   for (const type of [
+    'COMMERCE_UPDATED',
     'WORKSPACE_ASSIGNMENT_DUE_SOON',
     'WORKSPACE_ASSIGNMENT_OVERDUE',
     'WORKSPACE_MESSAGE',
@@ -34,6 +35,9 @@ try {
   ]) {
     if (!types.includes(type)) types.push(type);
   }
+  const referenceTypes = validator?.$jsonSchema?.properties?.referenceType?.enum;
+  if (!Array.isArray(referenceTypes)) throw new Error('notifications referenceType validator is missing');
+  if (!referenceTypes.includes('COMMERCE')) referenceTypes.push('COMMERCE');
   await db.command({ collMod: 'notifications', validator, validationLevel: 'strict' });
   console.log('notification schema is ready');
 } finally {

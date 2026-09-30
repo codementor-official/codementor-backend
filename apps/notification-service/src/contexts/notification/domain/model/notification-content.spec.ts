@@ -1,5 +1,6 @@
 import { NotificationContent } from './notification-content';
 import {
+  fromCommerceUpdated,
   fromAdminAnnouncement,
   fromAssignmentCreated,
   fromContentModerated,
@@ -25,6 +26,15 @@ describe('NotificationContent', () => {
     const result = NotificationContent.create({ ...valid, title: '  Khóa học mới  ' });
     expect(result.isOk).toBe(true);
     expect(result.value.title).toBe('Khóa học mới');
+  });
+  it('giao dịch có tham chiếu riêng và đường dẫn nội bộ hợp lệ', () => {
+    const result = fromCommerceUpdated({
+      recipientExternalId: 'buyer-sub', title: 'Đã mua khóa học',
+      message: 'Đã cấp quyền học.', entityId: 'order-id',
+      actionUrl: '/purchases/order-id',
+    });
+    expect(result.isOk).toBe(true);
+    expect(result.value.referenceType).toBe('COMMERCE');
   });
 
   it('từ chối tiêu đề hoặc nội dung rỗng', () => {

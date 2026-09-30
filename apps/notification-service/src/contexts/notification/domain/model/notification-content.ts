@@ -10,6 +10,7 @@ import type { AudienceType } from '@codementor/contracts';
  * lúc tác giả bấm tạo, nhưng chỉ tới lúc admin duyệt mới có gì đáng báo cho người học.
  */
 export type NotificationType =
+  | 'COMMERCE_UPDATED'
   | 'COURSE_PUBLISHED'
   | 'EXERCISE_PUBLISHED'
   | 'ROADMAP_PUBLISHED'
@@ -52,7 +53,7 @@ export type NotificationType =
  * gọi loại nội dung này là "post". Bên trong hệ thống nó vẫn là `articles` — xem
  * `TOPICS.ARTICLE_PUBLISHED`.
  */
-export type ReferenceType = 'COURSE' | 'EXERCISE' | 'ROADMAP' | 'POST' | 'WORKSPACE';
+export type ReferenceType = 'COURSE' | 'EXERCISE' | 'ROADMAP' | 'POST' | 'WORKSPACE' | 'COMMERCE';
 
 interface ContentProps extends Record<string, unknown> {
   type: NotificationType;

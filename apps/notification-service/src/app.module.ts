@@ -40,7 +40,7 @@ import { NotificationModule } from './contexts/notification/notification.module'
     LoggingModule,
     MongoModule,
     PrismaModule,
-    MessagingModule.forRoot({ serviceName: 'notification-service' }),
+    MessagingModule.forRoot({ serviceName: process.env.COMMERCE_TEST_NOTIFICATION_MODE === 'true' ? 'notification-service-commerce-test' : 'notification-service' }),
     NotificationModule,
   ],
 })

@@ -5,6 +5,7 @@ import type {
   AssignmentReminderV1,
   ArticlePublishedV1,
   ContentModeratedV1,
+  CommerceUpdatedV1,
   ContentRemovalRequestedV1,
   ContentReviewRequestedV1,
   CoursePublishedV1,
@@ -33,6 +34,21 @@ type Draft = Result<NotificationContent, InvalidInput>;
 /** Dấu nháy kép kiểu Việt cho tên nội dung, để câu văn không bị lẫn với dấu nháy code. */
 function quoted(title: string): string {
   return `“${title}”`;
+}
+
+export function fromCommerceUpdated(payload: CommerceUpdatedV1): Draft {
+  return NotificationContent.create({
+    type: 'COMMERCE_UPDATED',
+    audienceType: 'USER',
+    audienceKey: payload.recipientExternalId,
+    title: payload.title,
+    message: payload.message,
+    referenceType: 'COMMERCE',
+    referenceId: payload.entityId,
+    actionLabel: 'Xem giao dịch',
+    actionUrl: payload.actionUrl,
+    metadata: { entityId: payload.entityId },
+  });
 }
 
 export function fromCoursePublished(payload: CoursePublishedV1): Draft {
