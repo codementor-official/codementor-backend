@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { CommerceAccessService } from '../../commerce/application/commerce-access.service';
 import { BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
 import { requireHumanId, type AuthenticatedUser } from '@codementor/platform';
 import { COURSE_REPOSITORY, type CourseRepository } from '../domain/port/course.repository';
@@ -23,6 +24,7 @@ export class EnrollmentUseCases {
     @Inject(ENROLLMENT_REPOSITORY) private readonly enrollments: EnrollmentRepository,
     @Inject(COURSE_REPOSITORY) private readonly courses: CourseRepository,
     @Inject(ROADMAP_REPOSITORY) private readonly roadmaps: RoadmapRepository,
+    private readonly access: CommerceAccessService,
   ) {}
 
   /**
@@ -43,6 +45,7 @@ export class EnrollmentUseCases {
     if (course.status !== 'published') {
       throw new BusinessRuleViolation('Khóa học chưa được công khai');
     }
+    await this.access.grantFreeOrRequirePurchase(userId, courseId);
     return this.enrollments.enroll(userId, courseId, viaRoadmapId);
   }
 
@@ -128,6 +131,7 @@ export class EnrollmentUseCases {
   ): Promise<LessonProgressView> {
     const courseId = await this.enrollments.findCourseIdForLesson(lessonId);
     if (!courseId) throw new NotFound('Không tìm thấy bài học');
+    await this.access.requireCourse(userId, courseId);
 
     const enrollment = await this.enrollments.findCourseEnrollment(userId, courseId);
     if (!enrollment || enrollment.status === 'dropped') {

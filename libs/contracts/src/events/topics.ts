@@ -88,6 +88,7 @@ export const TOPICS = {
    * kênh đẩy khác chỉ là thêm consumer, không đụng notification-service.
    */
   NOTIFICATION_CREATED: 'evt.notification.created.v1',
+  COMMERCE_UPDATED: 'evt.commerce.updated.v1',
   REMINDER_SOURCE_CHANGED: 'evt.reminder.source-changed.v1',
 
   // ---- Workspace ----
@@ -146,6 +147,7 @@ export const PARTITION_KEY: Record<TopicName, string> = {
   [TOPICS.CONTENT_MODERATED]: 'contentId',
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: 'announcementId',
   [TOPICS.NOTIFICATION_CREATED]: 'notificationId',
+  [TOPICS.COMMERCE_UPDATED]: 'recipientExternalId',
   [TOPICS.REMINDER_SOURCE_CHANGED]: 'entityId',
 
   [TOPICS.ASSIGNMENT_CREATED]: 'groupId',

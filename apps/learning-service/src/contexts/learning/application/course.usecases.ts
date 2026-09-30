@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CommerceAccessService } from '../../commerce/application/commerce-access.service';
 import { randomUUID } from 'node:crypto';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
@@ -50,6 +51,17 @@ export interface ListCoursesQuery {
 }
 
 export interface CourseView {
+  priceVnd?: number;
+  listPriceVnd?: number;
+  salePriceVnd?: number | null;
+  savingsVnd?: number;
+  discountPercent?: number;
+  promotion?: {
+    label: string;
+    startsAt: string | null;
+    endsAt: string | null;
+    isActive: boolean;
+  } | null;
   id: string;
   slug: string;
   title: string;
@@ -127,6 +139,7 @@ export class CourseUseCases {
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
     private readonly authors: ContentAuthorLookup,
     private readonly storage: ObjectStorageService,
+    private readonly access: CommerceAccessService,
   ) {}
 
   async list(
@@ -156,7 +169,18 @@ export class CourseUseCases {
       limit,
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,
     });
-    return toPage(rows, limit);
+    const prices = await this.access.offers(rows.map(row => row.id));
+    return toPage(rows.map(row => ({
+      ...row,
+      ...(prices.get(row.id) ?? {
+        priceVnd: 0,
+        listPriceVnd: 0,
+        salePriceVnd: null,
+        savingsVnd: 0,
+        discountPercent: 0,
+        promotion: null,
+      }),
+    })), limit);
   }
 
   adminSummary(): Promise<CourseAdminSummary> {
@@ -172,7 +196,8 @@ export class CourseUseCases {
     if (course.status !== 'published' && !canEditCourse(user, { created_by: course.createdBy })) {
       throw new NotFound('Khóa học', id);
     }
-    return toView(course, await this.courses.findCurriculum(id));
+    const offer = await this.access.offer(requireHumanId(user), id, user.role==='admin');
+    return { ...toView(course, await this.courses.findCurriculum(id)), ...offer };
   }
 
   async getReferences(
@@ -299,6 +324,12 @@ export class CourseUseCases {
      */
     const conflict = lessonDurationConflict(lesson.durationMinutes, content.media?.durationSeconds);
     if (conflict) throw new BusinessRuleViolation(conflict);
+    const key = content.media?.url ? this.privateLessonKey(content.media.url, courseId, lessonId) : null;
+    if (key && content.media) content = { ...content, media: { ...content.media, url: this.storage.publicUrl(key) } };
+    if (!lesson.isPreview && (await this.access.offer(requireHumanId(user), courseId)).priceVnd > 0 && content.media?.url &&
+      (!key || process.env.COMMERCE_PRIVATE_MEDIA_READY !== 'true' || content.media.captionsUrl)) {
+      throw new BusinessRuleViolation('Khóa trả phí chỉ chấp nhận video tải lên vùng riêng đã cấu hình; không dùng video/phụ đề URL công khai.');
+    }
 
     // Document trước, tham chiếu sau — cùng thứ tự như thân bài code.
     const contentRef = await this.contents.upsert(lessonId, content);
@@ -314,7 +345,17 @@ export class CourseUseCases {
     lessonId: string,
   ): Promise<LessonContent | null> {
     await this.get(user, courseId);
-    return this.contents.findByLessonId(lessonId);
+    await this.access.requireLesson(user, courseId, lessonId);
+    const content = await this.contents.findByLessonId(lessonId);
+    if (content?.media?.url) {
+      const key = this.privateLessonKey(content.media.url, courseId, lessonId);
+      if (key) {
+        const signed = await this.storage.presignDownload(key, undefined, 'inline');
+        if (signed.isFail) throw signed.error;
+        return { ...content, media: { ...content.media, url: signed.value.url } };
+      }
+    }
+    return content;
   }
 
   /**
@@ -358,12 +399,18 @@ export class CourseUseCases {
     if (!lesson) throw new NotFound('Bài học', lessonId);
 
     const signed = await this.storage.presignUpload({
+      privateVideo: process.env.COMMERCE_PRIVATE_MEDIA_READY === 'true',
       prefix: `courses/${courseId}/lessons/${lessonId}`,
       filename: input.filename,
       contentType: input.contentType,
       sizeBytes: input.sizeBytes,
     });
     if (signed.isFail) throw signed.error;
+    if (process.env.COMMERCE_PRIVATE_MEDIA_READY === 'true') {
+      const preview = await this.storage.presignDownload(signed.value.objectKey, undefined, 'inline');
+      if (preview.isFail) throw preview.error;
+      return { ...signed.value, publicUrl: preview.value.url };
+    }
     return signed.value;
   }
 
@@ -372,6 +419,14 @@ export class CourseUseCases {
     const curriculum = await this.courses.findCurriculum(id);
 
     const lessons = curriculum.flatMap((chapter) => chapter.lessons);
+    if ((await this.access.offer(requireHumanId(user), id)).priceVnd > 0) {
+      for (const lesson of lessons.filter(row => !row.isPreview)) {
+        const content = await this.contents.findByLessonId(lesson.id);
+        if (content?.media?.url && (process.env.COMMERCE_PRIVATE_MEDIA_READY !== 'true' || !this.privateLessonKey(content.media.url, id, lesson.id) || content.media.captionsUrl)) {
+          throw new BusinessRuleViolation('Video trả phí phải tải lên vùng lưu trữ riêng đã cấu hình. Thay video công khai cũ và bỏ phụ đề URL công khai trước khi gửi duyệt.');
+        }
+      }
+    }
     // Bài lý thuyết chưa có `content_ref` là ô rỗng với học viên.
     const lessonsMissingContent = lessons.filter(
       (lesson) => !lesson.exerciseId && lesson.contentRef === null,
@@ -413,6 +468,20 @@ export class CourseUseCases {
       );
     }
     return toView(course, curriculum);
+  }
+
+  private privateLessonKey(url: string, courseId: string, lessonId: string): string | null {
+    const prefix = `private/course-videos/courses/${courseId}/lessons/${lessonId}/`;
+    // A signed S3 URL can have a different host from the public/CDN base. Extract ONLY
+    // this lesson's fixed key namespace, then always use our configured storage client.
+    // The supplied host is never fetched or trusted as a storage destination.
+    let path: string;
+    try { path = new URL(url).pathname; } catch { return null; }
+    const marker = '/' + prefix;
+    const at = path.indexOf(marker);
+    if (at < 0) return null;
+    const filename = path.slice(at + marker.length);
+    return /^[a-f0-9-]+\.[a-z0-9]+$/i.test(filename) ? prefix + filename : null;
   }
 
   async withdraw(user: AuthenticatedUser, id: string): Promise<CourseView> {

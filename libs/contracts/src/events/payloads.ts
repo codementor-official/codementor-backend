@@ -462,6 +462,14 @@ export interface WorkspaceActivityV1 {
  * Ánh xạ topic → kiểu payload. Producer và consumer đều đi qua map này nên không thể
  * ghép sai cặp topic/payload — lỗi sẽ hiện lúc biên dịch thay vì lúc chạy.
  */
+export interface CommerceUpdatedV1 {
+  recipientExternalId: string;
+  title: string;
+  message: string;
+  actionUrl: string;
+  entityId: string;
+}
+
 export interface TopicPayloadMap {
   [TOPICS.USER_PROVISIONED]: UserProvisionedV1;
 
@@ -493,6 +501,7 @@ export interface TopicPayloadMap {
 
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: AdminAnnouncementCreatedV1;
   [TOPICS.NOTIFICATION_CREATED]: NotificationCreatedV1;
+  [TOPICS.COMMERCE_UPDATED]: CommerceUpdatedV1;
   [TOPICS.REMINDER_SOURCE_CHANGED]: ReminderSourceChangedV1;
 
   [TOPICS.ASSIGNMENT_CREATED]: AssignmentCreatedV1;

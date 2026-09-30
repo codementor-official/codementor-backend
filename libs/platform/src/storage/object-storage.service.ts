@@ -134,6 +134,7 @@ export class ObjectStorageService {
    * trùng nhau giữa hai giảng viên, và làm lộ tên tệp trên máy họ. Chỉ giữ lại phần đuôi.
    */
   async presignUpload(input: {
+    privateVideo?: boolean;
     prefix: string;
     filename: string;
     contentType: string;
@@ -168,7 +169,7 @@ export class ObjectStorageService {
     // duy nhất trong bucket, nên đặt quyền đọc công khai (hoặc trỏ CDN) cho đúng nhánh đó
     // là xong, không phải liệt kê từng khoá học.
     const objectKey = [
-      this.videoPrefix,
+      input.privateVideo ? 'private/course-videos' : this.videoPrefix,
       input.prefix.replace(/^\/+|\/+$/g, ''),
       `${randomUUID()}${extensionOf(input.filename)}`,
     ]
