@@ -14,8 +14,12 @@ x-service-base: &service-base
   env_file: .env
   environment: &service-env
     NODE_ENV: production
-    DATABASE_URL: postgresql://codementor:codementor@host.docker.internal:55432/codementor?schema=public
-    MONGO_URI: mongodb://codementor:codementor@host.docker.internal:57017/codementor?authSource=admin
+    # Production/local remote-infra credentials live in the ignored `.env`. Keep the
+    # tunnel defaults only as a fallback for a fresh developer checkout; hard-coding
+    # them here overrides `env_file` and silently points deployed services at the wrong
+    # database account.
+    DATABASE_URL: ${DATABASE_URL:-postgresql://codementor:codementor@host.docker.internal:55432/codementor?schema=public}
+    MONGO_URI: ${MONGO_URI:-mongodb://codementor:codementor@host.docker.internal:57017/codementor?authSource=admin}
     KAFKA_BROKERS: kafka:29092
     KEYCLOAK_ISSUER: http://keycloak:8080/realms/codementor
     CORE_SERVICE_URL: http://core-service:3001
