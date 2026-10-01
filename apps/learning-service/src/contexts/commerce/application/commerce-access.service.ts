@@ -76,19 +76,26 @@ function pricing(row: PricingRow) {
 @Injectable()
 export class CommerceAccessService {
   constructor(private readonly store: CommerceStore) {}
-  async offers(ids: string[]) {
+  async offers(ids: string[], includePending = false) {
     if (!ids.length) return new Map<string, ReturnType<typeof pricing>>();
     const rows = await this.store.db.$queryRaw<
       PricingRow[]
     >(Prisma.sql`
-      SELECT p.course_id,p.price_vnd AS list_price,pr.sale_price_vnd AS sale_price,
+      SELECT p.course_id,p.price_vnd AS list_price,p.pending_price_vnd AS pending_price,
+        pr.sale_price_vnd AS sale_price,
         pr.label AS promotion_label,pr.starts_at AS promotion_starts_at,
         pr.ends_at AS promotion_ends_at,pr.is_active AS promotion_active,
         CASE WHEN pr.is_active AND now() >= pr.starts_at AND now() < pr.ends_at
           AND pr.sale_price_vnd < p.price_vnd THEN pr.sale_price_vnd ELSE p.price_vnd END AS effective_price
       FROM course_prices p LEFT JOIN course_promotions pr ON pr.course_id=p.course_id
       WHERE p.course_id IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))})`);
-    return new Map(rows.map((r) => [r.course_id, pricing(r)]));
+    return new Map(rows.map((r) => [
+      r.course_id,
+      {
+        ...pricing(r),
+        ...(includePending ? { pendingPriceVnd: r.pending_price } : {}),
+      },
+    ]));
   }
   async offer(userId: string, courseId: string, admin = false) {
     const [row] = await this.store.db.$queryRaw<

@@ -169,7 +169,10 @@ export class CourseUseCases {
       limit,
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,
     });
-    const prices = await this.access.offers(rows.map(row => row.id));
+    const prices = await this.access.offers(
+      rows.map(row => row.id),
+      'adminAll' in scope || 'createdBy' in scope,
+    );
     return toPage(rows.map(row => ({
       ...row,
       ...(prices.get(row.id) ?? {
