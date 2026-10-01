@@ -1,0 +1,28 @@
+title: Đổi giây sang giờ, phút, giây
+difficulty: easy
+summary: Dùng phép chia nguyên và chia lấy dư để đổi một khoảng thời gian tính bằng giây sang dạng HH:MM:SS.
+tags: [python, nhap-mon]
+xp: 15
+minutes: 15
+constraints:
+  - "0 ≤ n ≤ 10^9"
+hints:
+  - "Một giờ có 3600 giây. `n // 3600` cho số giờ trọn vẹn, `n % 3600` là phần giây còn lại."
+  - "Làm tương tự với phần còn lại để ra phút (60 giây) và giây."
+  - "Định dạng hai chữ số bằng f-string: `f\"{m:02d}\"`. Số giờ có thể lớn hơn 99, đừng cắt nó."
+examples:
+  - input: "3725\n"
+    output: "01:02:05"
+    explanation: "3725 giây = 1 giờ (3600 giây) + 2 phút (120 giây) + 5 giây."
+  - input: "59\n"
+    output: "00:00:59"
+    explanation: "Chưa đủ một phút, nên giờ và phút đều bằng 0."
+tests:
+  - { input: "0\n", visibility: public }
+  - { input: "60\n", visibility: public }
+  - { input: "3599\n", visibility: hidden }
+  - { input: "3600\n", visibility: hidden }
+  - { input: "86399\n", visibility: hidden }
+  - { input: "86400\n", visibility: hidden }
+  - { input: "360000\n", visibility: hidden }
+  - { input: "1000000000\n", visibility: hidden }
