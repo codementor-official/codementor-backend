@@ -21,7 +21,11 @@ x-service-base: &service-base
     DATABASE_URL: ${DATABASE_URL:-postgresql://codementor:codementor@host.docker.internal:55432/codementor?schema=public}
     MONGO_URI: ${MONGO_URI:-mongodb://codementor:codementor@host.docker.internal:57017/codementor?authSource=admin}
     KAFKA_BROKERS: kafka:29092
-    KEYCLOAK_ISSUER: http://keycloak:8080/realms/codementor
+    # The issuer is part of the JWT signature contract and must match the exact
+    # public `iss` claim. Allow production (and remote-infra development) to
+    # supply it via the ignored `.env`; keep the container URL only as a local
+    # fallback when the bundled Keycloak profile is used.
+    KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/codementor}
     CORE_SERVICE_URL: http://core-service:3001
     LEARNING_SERVICE_URL: http://learning-service:3002
     RECOMMENDATION_SERVICE_URL: http://recommendation-service:3013
