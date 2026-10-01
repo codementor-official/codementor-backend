@@ -6,15 +6,17 @@ import {
   IsBoolean,
   IsDateString,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  Min,
   MinLength,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { PageQuery } from '@codementor/platform';
+import { IMAGE_CONTENT_TYPES, PageQuery } from '@codementor/platform';
 
 export const FIELDS = [
   'frontend',
@@ -123,6 +125,24 @@ export class UpdateRoadmapDto {
   @IsArray()
   @IsUUID('4', { each: true })
   tagIds?: string[];
+}
+
+export class RoadmapCoverUploadUrlDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  filename!: string;
+
+  @ApiProperty({ enum: IMAGE_CONTENT_TYPES })
+  @IsIn(IMAGE_CONTENT_TYPES)
+  contentType!: (typeof IMAGE_CONTENT_TYPES)[number];
+
+  @ApiProperty({ minimum: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  sizeBytes!: number;
 }
 
 class RoadmapCourseDto {

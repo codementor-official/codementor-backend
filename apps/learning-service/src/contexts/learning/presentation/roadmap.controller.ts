@@ -21,6 +21,7 @@ import {
   CreateRoadmapDto,
   ListRoadmapsQueryDto,
   ReplaceRoadmapCoursesDto,
+  RoadmapCoverUploadUrlDto,
   UpdateRoadmapDto,
 } from './dto/roadmap.dto';
 import { ArchiveMineDto, ModerateDto } from './dto/moderate.dto';
@@ -82,6 +83,13 @@ export class RoadmapController {
     return this.enrollments.myRoadmaps(user);
   }
 
+  @Get('cover-upload-config')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Cấu hình tải ảnh bìa lộ trình' })
+  coverUploadConfig() {
+    return this.roadmaps.coverUploadConfig();
+  }
+
   @Post(':id/enroll')
   @ApiOperation({ summary: 'Bắt đầu hoặc tiếp tục lại một lộ trình công khai' })
   enroll(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
@@ -123,6 +131,17 @@ export class RoadmapController {
     @Body() dto: UpdateRoadmapDto,
   ) {
     return this.roadmaps.update(user, id, dto);
+  }
+
+  @Post(':id/cover-upload-url')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Tạo URL tải trực tiếp ảnh bìa lộ trình' })
+  coverUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RoadmapCoverUploadUrlDto,
+  ) {
+    return this.roadmaps.presignCoverImage(user, id, dto);
   }
 
   @Put(':id/courses')

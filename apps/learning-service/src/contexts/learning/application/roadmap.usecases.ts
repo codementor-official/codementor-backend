@@ -10,8 +10,11 @@ import {
   requireHumanId,
   toPage,
   ContentAuthorLookup,
+  IMAGE_CONTENT_TYPES,
+  ObjectStorageService,
   type AuthenticatedUser,
   type Page,
+  type PresignedUpload,
 } from '@codementor/platform';
 import { Roadmap } from '../domain/model/roadmap';
 import type { CurrentLevel, RoadmapEdit, RoadmapField } from '../domain/model/roadmap';
@@ -66,7 +69,30 @@ export class RoadmapUseCases {
     @Inject(ROADMAP_REPOSITORY) private readonly roadmaps: RoadmapRepository,
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
     private readonly authors: ContentAuthorLookup,
+    private readonly storage: ObjectStorageService,
   ) {}
+
+  coverUploadConfig(): { enabled: boolean; maxBytes: number; acceptedTypes: string[] } {
+    return {
+      enabled: this.storage.isConfigured,
+      maxBytes: this.storage.maxImageUploadBytes,
+      acceptedTypes: [...IMAGE_CONTENT_TYPES],
+    };
+  }
+
+  async presignCoverImage(
+    user: AuthenticatedUser,
+    id: string,
+    input: { filename: string; contentType: (typeof IMAGE_CONTENT_TYPES)[number]; sizeBytes: number },
+  ): Promise<PresignedUpload> {
+    const roadmap = await this.mustOwn(user, id);
+    const signed = await this.storage.presignImageUpload({
+      prefix: `roadmaps/${roadmap.id}/cover`,
+      ...input,
+    });
+    if (signed.isFail) throw signed.error;
+    return signed.value;
+  }
 
   async list(
     scope:

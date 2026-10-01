@@ -18,7 +18,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { PageQuery, VIDEO_CONTENT_TYPES } from '@codementor/platform';
+import { IMAGE_CONTENT_TYPES, PageQuery, VIDEO_CONTENT_TYPES } from '@codementor/platform';
 import { LESSON_TYPES } from '../../domain/model/curriculum';
 import { CONTENT_STATUSES, LEVELS, MODES } from './roadmap.dto';
 
@@ -100,6 +100,23 @@ export class UpdateCourseDto {
   @IsArray()
   @IsUUID('4', { each: true })
   tagIds?: string[];
+}
+
+export class CourseCoverUploadUrlDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  filename!: string;
+
+  @ApiProperty({ enum: IMAGE_CONTENT_TYPES })
+  @IsIn(IMAGE_CONTENT_TYPES)
+  contentType!: (typeof IMAGE_CONTENT_TYPES)[number];
+
+  @ApiProperty({ minimum: 1 })
+  @IsInt()
+  @Min(1)
+  sizeBytes!: number;
 }
 
 class LessonDraftDto {

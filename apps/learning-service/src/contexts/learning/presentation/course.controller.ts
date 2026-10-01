@@ -19,6 +19,7 @@ import { CourseUseCases } from '../application/course.usecases';
 import { EnrollmentUseCases } from '../application/enrollment.usecases';
 import {
   CreateCourseDto,
+  CourseCoverUploadUrlDto,
   ListCoursesQueryDto,
   SaveCurriculumDto,
   SaveLessonContentDto,
@@ -83,6 +84,13 @@ export class CourseController {
   @ApiOperation({ summary: 'Khóa học tôi đã ghi danh, mới hoạt động trước' })
   myEnrollments(@CurrentUser() user: AuthenticatedUser) {
     return this.enrollments.myCourses(user);
+  }
+
+  @Get('cover-upload-config')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Cấu hình tải ảnh bìa khóa học' })
+  coverUploadConfig() {
+    return this.courses.coverUploadConfig();
   }
 
   @Get(':id')
@@ -153,6 +161,17 @@ export class CourseController {
     @Body() dto: UpdateCourseDto,
   ) {
     return this.courses.update(user, id, dto);
+  }
+
+  @Post(':id/cover-upload-url')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Tạo URL tải trực tiếp ảnh bìa khóa học' })
+  coverUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CourseCoverUploadUrlDto,
+  ) {
+    return this.courses.presignCoverImage(user, id, dto);
   }
 
   @Put(':id/curriculum')

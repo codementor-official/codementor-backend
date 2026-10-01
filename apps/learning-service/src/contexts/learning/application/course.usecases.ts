@@ -11,6 +11,7 @@ import {
   requireHumanId,
   toPage,
   ContentAuthorLookup,
+  IMAGE_CONTENT_TYPES,
   ObjectStorageService,
   VIDEO_CONTENT_TYPES,
   type AuthenticatedUser,
@@ -141,6 +142,28 @@ export class CourseUseCases {
     private readonly storage: ObjectStorageService,
     private readonly access: CommerceAccessService,
   ) {}
+
+  coverUploadConfig(): { enabled: boolean; maxBytes: number; acceptedTypes: string[] } {
+    return {
+      enabled: this.storage.isConfigured,
+      maxBytes: this.storage.maxImageUploadBytes,
+      acceptedTypes: [...IMAGE_CONTENT_TYPES],
+    };
+  }
+
+  async presignCoverImage(
+    user: AuthenticatedUser,
+    id: string,
+    input: { filename: string; contentType: (typeof IMAGE_CONTENT_TYPES)[number]; sizeBytes: number },
+  ): Promise<PresignedUpload> {
+    const course = await this.mustOwn(user, id);
+    const signed = await this.storage.presignImageUpload({
+      prefix: `courses/${course.id}/cover`,
+      ...input,
+    });
+    if (signed.isFail) throw signed.error;
+    return signed.value;
+  }
 
   async list(
     scope:
