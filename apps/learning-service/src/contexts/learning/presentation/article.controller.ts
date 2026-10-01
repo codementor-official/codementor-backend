@@ -13,7 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { CurrentUser, Roles } from '@codementor/platform';
+import { CurrentUser, Public, Roles } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { ArticleUseCases } from '../application/article.usecases';
 import {
@@ -42,12 +42,14 @@ export class ArticleController {
   constructor(private readonly articles: ArticleUseCases) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Danh mục bài viết đã công khai' })
   catalogue(@Query() query: ListArticlesQueryDto) {
     return this.articles.catalogue(query);
   }
 
   @Get('tags')
+  @Public()
   @ApiOperation({ summary: 'Chủ đề của các bài đã công khai, kèm số bài' })
   tags() {
     return this.articles.tags();

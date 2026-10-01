@@ -13,7 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { CurrentUser, Roles, requireHumanId } from '@codementor/platform';
+import { CurrentUser, Public, Roles, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { CourseUseCases } from '../application/course.usecases';
 import { EnrollmentUseCases } from '../application/enrollment.usecases';
@@ -39,12 +39,14 @@ export class CourseController {
   ) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Danh mục khóa học đã công khai' })
   catalogue(@Query() query: ListCoursesQueryDto) {
     return this.courses.list({ publishedOnly: true }, query);
   }
 
   @Get('topics')
+  @Public()
   @ApiOperation({ summary: 'Chủ đề đang có khóa học công khai, kèm số lượng' })
   topics() {
     return this.courses.topics();

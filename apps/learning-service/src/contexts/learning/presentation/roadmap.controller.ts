@@ -13,7 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { CurrentUser, Roles, requireHumanId } from '@codementor/platform';
+import { CurrentUser, Public, Roles, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { EnrollmentUseCases } from '../application/enrollment.usecases';
 import { RoadmapUseCases } from '../application/roadmap.usecases';
@@ -36,12 +36,14 @@ export class RoadmapController {
   ) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Danh mục lộ trình đã công khai' })
   catalogue(@Query() query: ListRoadmapsQueryDto) {
     return this.roadmaps.list({ publishedOnly: true }, query);
   }
 
   @Get('topics')
+  @Public()
   @ApiOperation({ summary: 'Chủ đề đang có lộ trình công khai, kèm số lượng' })
   topics() {
     return this.roadmaps.topics();
