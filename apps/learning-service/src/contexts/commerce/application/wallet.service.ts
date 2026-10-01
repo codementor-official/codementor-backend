@@ -108,7 +108,6 @@ export class WalletService {
       testReference: string;
     },
   ) {
-    this.providers.assertEnabled();
     await this.store.db
       .$executeRaw`INSERT INTO commerce_recipients(user_id,label,test_reference,method,institution_code,account_name,account_number)
       VALUES (${userId}::uuid,${recipient.label},${recipient.testReference},${recipient.method},${recipient.institutionCode},${recipient.accountName},${recipient.accountNumber})

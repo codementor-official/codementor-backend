@@ -51,10 +51,13 @@ export class CommerceController {
     private readonly jobs: CommerceJobs,
   ) {}
   @Get('config') config() {
+    const methods = this.providers.methods();
     return {
-      methods: this.providers.methods(),
+      methods,
       mode: this.providers.mode,
-      label: 'Môi trường thử nghiệm — không chuyển tiền thật',
+      label: methods.length
+        ? 'Thanh toán trực tuyến'
+        : 'Thanh toán trực tuyến chưa được cấu hình',
     };
   }
   @Get('courses/:id') offer(
@@ -68,7 +71,6 @@ export class CommerceController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() b: PriceDto,
   ) {
-    this.providers.assertEnabled();
     return this.access.setPrice(u, id, b.priceVnd);
   }
   @Get('promotions') @Roles('lecturer') promotions(@CurrentUser() u: AuthenticatedUser) {
@@ -284,7 +286,6 @@ export class CommerceController {
     @CurrentUser() u: AuthenticatedUser,
     @Body() p: PolicyDto,
   ) {
-    this.providers.assertEnabled();
     await this.store.transaction(async (tx) => {
       await tx.$executeRaw`UPDATE commerce_policy SET instructor_bps=${p.instructorBps},hold_days=${p.holdDays},minimum_withdrawal=${p.minimumWithdrawal},approval_required=${p.approvalRequired},updated_at=now()`;
       await audit(tx, 'policy.updated', null, requireHumanId(u), p);
