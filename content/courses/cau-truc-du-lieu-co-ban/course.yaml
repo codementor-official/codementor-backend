@@ -1,0 +1,39 @@
+slug: cau-truc-du-lieu-co-ban
+title: Cấu trúc dữ liệu cơ bản
+level: basic
+description: >-
+  Học cách chọn đúng cấu trúc dữ liệu và đánh giá chương trình nhanh hay chậm trước khi chạy.
+  Khóa học đi qua độ phức tạp Big-O, mảng động, ngăn xếp, hàng đợi, danh sách liên kết, bảng
+  băm, tìm kiếm nhị phân, sắp xếp và cây nhị phân tìm kiếm. Ví dụ viết bằng Python; mỗi chương
+  có bài tập chấm tự động với dữ liệu đủ lớn để phân biệt lời giải tốt và lời giải chậm.
+prerequisiteNote: Viết được chương trình Python có vòng lặp, list, dictionary và hàm (khóa Python cơ bản).
+tags: [mang, ngan-xep, hang-doi, cay, tim-kiem-nhi-phan, sap-xep]
+submitNote: Viết lại toàn bộ nội dung khóa học (đợt 1, plan-content-dashboard).
+chapters:
+  - title: Đánh giá thuật toán và mảng
+    description: Đo chi phí bằng Big-O, hiểu mảng động và kỹ thuật hai con trỏ.
+    lessons:
+      - md: 01-do-phuc-tap.md
+      - md: 02-mang-dong.md
+      - exercise: dem-cap-co-tong-bang-k
+  - title: Ngăn xếp và hàng đợi
+    description: Hai cấu trúc chỉ thao tác ở đầu mút — LIFO và FIFO — cùng các bài toán kinh điển.
+    lessons:
+      - md: 03-ngan-xep.md
+      - exercise: ngoac-can-bang
+      - md: 04-hang-doi.md
+      - exercise: xu-ly-hang-doi-luot
+  - title: Danh sách liên kết và bảng băm
+    description: Con trỏ thay cho ô liền nhau, và bí mật đằng sau tốc độ của dict và set.
+    lessons:
+      - md: 05-danh-sach-lien-ket.md
+      - md: 06-bang-bam.md
+      - exercise: phan-tu-lap-lai-dau-tien
+  - title: Tìm kiếm, sắp xếp và cây
+    description: Tìm kiếm nhị phân, sắp xếp chia để trị và cây nhị phân tìm kiếm.
+    lessons:
+      - md: 07-tim-kiem-nhi-phan.md
+      - exercise: vi-tri-chen-tim-kiem-nhi-phan
+      - md: 08-sap-xep.md
+      - md: 09-cay-nhi-phan.md
+      - exercise: cay-nhi-phan-tim-kiem
