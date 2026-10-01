@@ -1,6 +1,6 @@
 // Markdown → HTML cho thân bài học, đúng tập con mà studio (TipTap StarterKit + CodeBlock) đọc
 // lại được: h2/h3, đoạn, danh sách một cấp, code block có ngôn ngữ, trích dẫn, kẻ ngang, và
-// inline code / đậm / nghiêng / liên kết. Không có bảng: StarterKit không có, giảng viên mở bài
+// inline code / đậm / nghiêng / liên kết, và ảnh đứng riêng một dòng. Không có bảng: StarterKit không có, giảng viên mở bài
 // ra sửa sẽ mất bảng.
 //
 // ponytail: tự viết thay vì thêm `marked` — nội dung do mình soạn, tập cú pháp cố định và nhỏ.
@@ -54,6 +54,16 @@ export function markdownToHtml(source) {
       i += 1;
       continue;
     }
+    // Ảnh đứng riêng một dòng → node Image của TipTap. `illustration:<tên>` được content-sync thay
+    // bằng URL S3 trước khi tới đây; bất kỳ scheme nào khác ngoài https là lỗi soạn thảo.
+    const image = line.match(/^!\[([^\]]+)\]\((\S+)\)\s*$/);
+    if (image) {
+      if (!/^https:\/\//.test(image[2])) throw new Error(`dòng ${i + 1}: ảnh phải là https:// (gặp "${image[2]}")`);
+      flush();
+      html.push(`<img src="${escape(image[2])}" alt="${escape(image[1])}">`);
+      i += 1;
+      continue;
+    }
     if (/^#\s/.test(line)) throw new Error(`dòng ${i + 1}: không dùng "# " trong thân bài — tiêu đề bài đã là h1`);
     if (/^-{3,}\s*$/.test(line)) {
       flush();
@@ -95,6 +105,7 @@ export function markdownToHtml(source) {
 export function proseWords(markdown) {
   return markdown
     .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/[#>*`_[\]()-]/g, ' ')
     .split(/\s+/)
     .filter(Boolean).length;

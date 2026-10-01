@@ -7,6 +7,7 @@ description: >-
   thúc bằng một bài tập được chấm tự động. Học xong, bạn đọc hiểu và tự viết được chương trình
   Python vài chục dòng, đủ nền tảng để bước sang Cấu trúc dữ liệu và giải thuật.
 prerequisiteNote: Không cần kiến thức lập trình trước. Chỉ cần biết dùng máy tính và trình duyệt.
+cover: programming
 tags: [python, nhap-mon]
 submitNote: Viết lại toàn bộ nội dung khóa học (đợt 1, plan-content-dashboard).
 chapters:

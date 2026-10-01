@@ -10,6 +10,8 @@ minutes: 20
 
 Cho tới giờ, chương trình của bạn luôn chạy mọi dòng theo đúng một con đường. Nhưng phần mềm thật phải **ra quyết định**: mật khẩu đúng thì cho vào, sai thì báo lỗi; giỏ hàng trên 500.000 đồng thì miễn phí giao hàng. Công cụ để làm điều đó là câu lệnh điều kiện.
 
+![Người đứng trước biển chỉ hai hướng: chương trình chọn nhánh theo điều kiện](illustration:decision-point)
+
 ## Biểu thức so sánh
 
 Một điều kiện là biểu thức cho ra `True` hoặc `False`:

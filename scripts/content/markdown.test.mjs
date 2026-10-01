@@ -38,3 +38,12 @@ test('đếm chữ bỏ qua code', () => {
 test('frontmatter', () => {
   assert.deepEqual(splitFrontmatter('---\ntitle: A\n---\nthân'), ['title: A', 'thân']);
 });
+
+test('ảnh đứng riêng một dòng thành <img>, chỉ nhận https', () => {
+  assert.equal(
+    markdownToHtml('Mở đầu.\n![Hàng người chờ](https://cdn.example/a.webp)\nTiếp.'),
+    '<p>Mở đầu.</p>\n<img src="https://cdn.example/a.webp" alt="Hàng người chờ">\n<p>Tiếp.</p>',
+  );
+  assert.throws(() => markdownToHtml('![x](illustration:queue)'), /ảnh phải là https/);
+  assert.equal(proseWords('một ![mô tả dài](illustration:x) hai'), 2);
+});

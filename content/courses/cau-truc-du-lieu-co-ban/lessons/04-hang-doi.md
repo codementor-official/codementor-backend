@@ -10,6 +10,8 @@ minutes: 25
 
 Ở quầy thanh toán siêu thị, người đến trước được phục vụ trước. Người mới đến xếp vào **cuối** hàng, người được phục vụ rời đi từ **đầu** hàng. Đó là **hàng đợi** (queue), với nguyên tắc *vào trước, ra trước* (FIFO: First In, First Out), ngược với ngăn xếp.
 
+![Mọi người xếp hàng trước quầy: người đến trước được phục vụ trước](illustration:wait-in-line)
+
 ## Các thao tác
 
 - `enqueue(x)`: thêm `x` vào cuối hàng.

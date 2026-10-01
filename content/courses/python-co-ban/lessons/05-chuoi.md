@@ -10,6 +10,8 @@ minutes: 20
 
 Phần lớn dữ liệu bạn xử lý ngoài đời là chữ: họ tên, địa chỉ email, nội dung tin nhắn, dòng trong file log. Python có bộ công cụ rất mạnh để làm việc với chuỗi, và thành thạo nó sẽ tiết kiệm cho bạn rất nhiều vòng lặp tự viết.
 
+![Người đứng cạnh ô nhập văn bản: chuỗi là một dãy ký tự](illustration:text-field)
+
 ## Chỉ số và cắt chuỗi
 
 Mỗi ký tự trong chuỗi có một **chỉ số** (index), bắt đầu từ `0`. Chỉ số âm đếm từ cuối: `-1` là ký tự cuối cùng.

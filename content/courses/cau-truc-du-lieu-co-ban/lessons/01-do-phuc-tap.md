@@ -11,6 +11,8 @@ preview: true
 
 Hai lời giải cho cùng một bài toán có thể đều cho kết quả **đúng**, nhưng một cái trả lời trong nháy mắt còn cái kia chạy cả tiếng. Khóa học này bắt đầu bằng công cụ để phân biệt chúng **trước khi** chạy: phân tích độ phức tạp.
 
+![Người đứng cạnh đồng hồ đo tốc độ: Big-O đo thời gian chạy tăng nhanh thế nào khi dữ liệu lớn dần](illustration:speed-test)
+
 ## Vì sao không chỉ bấm giờ
 
 Cách tự nhiên nhất để biết chương trình nhanh hay chậm là chạy thử và bấm giờ. Nhưng con số đó phụ thuộc vào quá nhiều thứ không liên quan tới thuật toán: máy nhanh hay chậm, ngôn ngữ nào, lúc đó máy có đang bận việc khác không. Quan trọng hơn, nó chỉ cho biết thời gian với **một** bộ dữ liệu. Thứ ta thực sự cần biết là: khi dữ liệu lớn gấp 10, gấp 1000 lần thì thời gian tăng thế nào?

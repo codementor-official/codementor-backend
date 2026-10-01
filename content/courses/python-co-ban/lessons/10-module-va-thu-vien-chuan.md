@@ -10,6 +10,8 @@ minutes: 20
 
 Python nổi tiếng với câu nói "có sẵn pin" (batteries included): ngay khi cài đặt, bạn đã có hàng trăm **module** viết sẵn cho toán học, ngày giờ, xử lý file, mạng, nén dữ liệu. Biết tìm và dùng chúng là một kỹ năng quan trọng không kém tự viết code: phần lớn vấn đề thường gặp đã có người giải tốt rồi.
 
+![Kiện hàng được giao tới cửa: import mang module có sẵn vào chương trình](illustration:package-arrived)
+
 ## import
 
 Một module là một file Python chứa các hàm, biến, lớp. Lệnh `import` nạp module để dùng:

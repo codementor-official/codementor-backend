@@ -10,6 +10,8 @@ minutes: 25
 
 Khi chương trình dài lên, bạn sẽ thấy mình chép đi chép lại cùng một đoạn code: kiểm tra số nguyên tố ở chỗ này, rồi lại ở chỗ kia. Chép code nghĩa là khi phát hiện lỗi, bạn phải sửa ở **mọi** bản chép. Hàm giải quyết việc đó: viết một lần, đặt tên, gọi ở bất cứ đâu.
 
+![Người lắp ghép các khối: mỗi hàm là một khối dùng lại được nhiều lần](illustration:building-blocks)
+
 ## Định nghĩa và gọi hàm
 
 ```python

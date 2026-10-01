@@ -10,6 +10,8 @@ minutes: 25
 
 Bạn mở một cuốn từ điển giấy để tra chữ "ngăn xếp". Không ai lật từng trang từ đầu. Bạn mở đại khoảng giữa, thấy chữ "lập trình", biết "ngăn" nằm phía sau, nên chỉ tìm tiếp ở nửa sau. Mỗi lần nhìn, bạn loại được một nửa số trang còn lại. Đó là **tìm kiếm nhị phân**.
 
+![Người cầm kính lúp dò trong một danh sách đã sắp xếp](illustration:file-searching)
+
 ## Vì sao nhanh
 
 Mỗi bước chia đôi khoảng tìm kiếm. Bắt đầu với `n` phần tử, sau `k` bước còn `n / 2^k`. Khoảng tìm kiếm còn một phần tử khi `k ≈ log₂ n`. Với một triệu phần tử chỉ cần khoảng 20 bước, với một tỷ phần tử khoảng 30 bước. Đó là `O(log n)`, so với `O(n)` của tìm tuần tự.

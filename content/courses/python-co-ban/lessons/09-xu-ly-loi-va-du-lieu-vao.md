@@ -10,6 +10,8 @@ minutes: 20
 
 Lỗi không phải dấu hiệu bạn học kém; nó là một phần bình thường của lập trình. Người lập trình giỏi không phải người không gặp lỗi, mà là người **đọc lỗi nhanh** và biết chương trình nên phản ứng thế nào khi dữ liệu không như mong đợi.
 
+![Người cầm búa xử lý con bọ trên màn hình: bắt và xử lý lỗi trong chương trình](illustration:fixing-bugs)
+
 ## Đọc thông điệp lỗi
 
 Khi chương trình gặp lỗi lúc chạy, Python in ra một **traceback**:

@@ -10,6 +10,8 @@ minutes: 25
 
 Khi cần lưu điểm của một học sinh, một biến là đủ. Khi cần lưu điểm của cả lớp 40 người, bạn cần một cấu trúc chứa **nhiều** giá trị. Trong Python, cấu trúc phổ biến nhất là **list**.
 
+![Người đánh dấu danh sách việc cần làm: list giữ các phần tử theo đúng thứ tự](illustration:to-do-list)
+
 ## Tạo và truy cập list
 
 List viết trong ngoặc vuông, các phần tử cách nhau bởi dấu phẩy. Chỉ số và cắt hoạt động y hệt chuỗi:

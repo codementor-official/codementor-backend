@@ -10,6 +10,8 @@ minutes: 25
 
 Giả sử bạn cần tính tổng các số từ 1 tới 100. Viết 100 phép cộng là điều không ai muốn làm. Máy tính sinh ra để làm việc lặp lại, và vòng lặp là cách bạn ra lệnh cho nó.
 
+![Danh sách phát đang lặp lại: vòng lặp chạy cùng một khối lệnh nhiều lần](illustration:playlist)
+
 ## Vòng lặp for với range
 
 `for` lặp qua **từng phần tử** của một dãy. Hàm `range` tạo ra dãy số:

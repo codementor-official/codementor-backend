@@ -10,6 +10,8 @@ minutes: 25
 
 Mảng là cấu trúc dữ liệu cơ bản nhất, và `list` của Python là thứ bạn đã dùng hàng ngày. Bài này nhìn vào bên trong nó để hiểu **vì sao** một số thao tác nhanh còn một số thao tác chậm. Hiểu điều đó, bạn sẽ chọn đúng cấu trúc dữ liệu trong các bài sau.
 
+![Màn hình hiện một bảng nhiều hàng: các phần tử của mảng nằm liền nhau và được truy cập theo chỉ số](illustration:data-table)
+
 ## Mảng: các ô liền nhau
 
 Bộ nhớ máy tính giống một dãy ô rất dài, mỗi ô có một địa chỉ. Một **mảng** chiếm một đoạn ô **liền nhau**, mỗi phần tử một ô cùng kích thước.

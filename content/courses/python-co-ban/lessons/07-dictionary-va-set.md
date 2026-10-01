@@ -10,6 +10,8 @@ minutes: 25
 
 List lưu dữ liệu theo **vị trí**: phần tử thứ 0, thứ 1, thứ 2. Nhưng nhiều khi ta muốn tra cứu theo **tên**: điểm của học sinh "An" là bao nhiêu, mã sản phẩm "SP01" giá bao nhiêu. Dò từng phần tử trong list để tìm là chậm và rườm rà. Dictionary sinh ra cho việc này.
 
+![Thẻ thông tin gồm các trường tên và giá trị, giống cặp khoá và giá trị của dictionary](illustration:personal-information)
+
 ## Dictionary: tra cứu theo khóa
 
 Dictionary (gọi tắt là dict) lưu các cặp **khóa: giá trị**, viết trong ngoặc nhọn:

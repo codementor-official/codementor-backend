@@ -10,6 +10,8 @@ minutes: 20
 
 Hầu như chương trình nào cũng cần **ghi nhớ** thứ gì đó: tên người dùng, số tiền trong giỏ hàng, số lần đã thử. Trong Python, ta ghi nhớ bằng **biến**.
 
+![Những chiếc hộp đựng đồ: mỗi biến là một cái tên gắn với một giá trị](illustration:moving)
+
 ## Biến là một cái tên
 
 Một biến là **tên** gắn với một **giá trị**. Dấu `=` trong Python nghĩa là "gán": tính giá trị ở vế phải rồi gắn nó với tên ở vế trái.

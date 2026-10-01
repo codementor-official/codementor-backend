@@ -11,6 +11,8 @@ preview: true
 
 Lập trình, nói gọn, là viết ra một danh sách chỉ dẫn đủ rõ ràng để máy tính làm theo mà không cần hỏi lại. Máy tính rất nhanh nhưng không biết đoán ý: nó làm **chính xác** những gì bạn viết, kể cả khi bạn viết sai. Vì vậy học lập trình thực chất là học cách diễn đạt suy nghĩ của mình một cách chặt chẽ.
 
+![Người ngồi trước máy tính giơ tay chào: chương trình đầu tiên in ra một lời chào](illustration:hello)
+
 Python là ngôn ngữ rất hợp để bắt đầu việc đó. Cú pháp của Python gần với tiếng Anh, ít ký hiệu thừa, nên bạn dành sức cho **cách giải quyết vấn đề** thay vì cho dấu chấm phẩy. Đồng thời Python không phải ngôn ngữ "đồ chơi": nó được dùng để xây dựng web, phân tích dữ liệu, trí tuệ nhân tạo và tự động hóa ở rất nhiều công ty lớn.
 
 ## Chương trình được chạy như thế nào

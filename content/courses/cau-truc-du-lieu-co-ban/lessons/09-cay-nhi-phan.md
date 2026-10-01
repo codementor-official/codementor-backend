@@ -10,6 +10,8 @@ minutes: 30
 
 Mảng và danh sách liên kết sắp dữ liệu thành một hàng. Nhưng nhiều dữ liệu tự nhiên có cấu trúc **phân cấp**: thư mục chứa thư mục con, một trang web chứa các thẻ HTML lồng nhau, sơ đồ tổ chức của công ty. **Cây** là cấu trúc dữ liệu cho những thứ như vậy.
 
+![Người trình bày một sơ đồ tổ chức phân cấp hình cây](illustration:hr-presentation)
+
 ## Thuật ngữ
 
 - Cây gồm các **nút**; nút trên cùng là **gốc** (root).

@@ -10,6 +10,8 @@ minutes: 30
 
 Sắp xếp là một trong những việc máy tính làm nhiều nhất: xếp hạng kết quả tìm kiếm, sắp đơn hàng theo thời gian, chuẩn bị dữ liệu cho tìm kiếm nhị phân. Trong công việc thật, bạn gần như luôn gọi `sorted`. Nhưng học cách các thuật toán sắp xếp hoạt động dạy bạn hai tư duy quan trọng: đánh giá độ phức tạp, và **chia để trị**.
 
+![Bảng ghi chú đang được sắp xếp lại theo thứ tự](illustration:sorting-thoughts)
+
 ## Sắp xếp chèn: cách bạn xếp bài trên tay
 
 Khi xếp bài, bạn cầm từng lá mới và **chèn** nó vào đúng vị trí giữa các lá đã xếp. Sắp xếp chèn làm y như vậy:

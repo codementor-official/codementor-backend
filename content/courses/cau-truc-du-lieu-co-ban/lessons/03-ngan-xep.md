@@ -10,6 +10,8 @@ minutes: 25
 
 Hãy nghĩ tới chồng đĩa trong bếp: bạn đặt đĩa mới lên **trên cùng**, và cũng lấy đĩa từ **trên cùng**. Chiếc đĩa đặt vào sau cùng được lấy ra đầu tiên. Đó chính là **ngăn xếp** (stack), với nguyên tắc *vào sau, ra trước* (LIFO: Last In, First Out).
 
+![Chồng tài liệu xếp lên nhau: tờ đặt vào sau cùng nằm trên đỉnh và được lấy ra trước](illustration:documents)
+
 ## Các thao tác
 
 Một ngăn xếp chỉ cho phép thao tác ở **đỉnh**:

@@ -7,6 +7,7 @@ description: >-
   băm, tìm kiếm nhị phân, sắp xếp và cây nhị phân tìm kiếm. Ví dụ viết bằng Python; mỗi chương
   có bài tập chấm tự động với dữ liệu đủ lớn để phân biệt lời giải tốt và lời giải chậm.
 prerequisiteNote: Viết được chương trình Python có vòng lặp, list, dictionary và hàm (khóa Python cơ bản).
+cover: algorithm-execution
 tags: [mang, ngan-xep, hang-doi, cay, tim-kiem-nhi-phan, sap-xep]
 submitNote: Viết lại toàn bộ nội dung khóa học (đợt 1, plan-content-dashboard).
 chapters:

@@ -12,12 +12,31 @@
 // KEYCLOAK_BFF_CLIENT_ID, KEYCLOAK_BFF_CLIENT_SECRET (cùng bộ với apps/client/.env.local),
 // CONTENT_AUTHOR_USER/PASSWORD (giảng viên đứng tên), CONTENT_ADMIN_USER/PASSWORD (cho approve),
 // CONTENT_API (mặc định production).
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+//
+// Ảnh: `content/illustrations/<tên>.svg` (unDraw, đã đổi màu #ea580c). Bài học chèn bằng dòng
+// `![mô tả](illustration:<tên>)`, khoá học khai `cover: <tên>`. Push render ra WebP bằng
+// `rsvg-convert` + `magick` (phải có trên máy chạy), tải lên S3 qua presign ảnh bìa của khoá,
+// và ghi URL vào `illustrations/uploaded.json` để lần sau không tải lại.
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import * as yaml from 'js-yaml';
 import { markdownToHtml, proseWords, splitFrontmatter } from './content/markdown.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../content');
+const ILLUSTRATIONS = join(ROOT, 'illustrations');
+const UPLOADS = join(ILLUSTRATIONS, 'uploaded.json');
+const ILLUSTRATION_REF = /!\[([^\]]*)\]\(illustration:([a-z0-9-]+)\)/g;
+
+/**
+ * Khung nền cam nhạt quanh hình: ảnh unDraw vẽ nét tối trên nền trong suốt, đặt thẳng lên
+ * nền tối (dark mode) là mất nét. Bìa 16:9 khớp `aspect-video` của trang khoá học.
+ */
+const FRAMES = {
+  cover: { width: 1280, height: 720, art: 520 },
+  lesson: { width: 960, height: 420, art: 340 },
+};
 const API = process.env.CONTENT_API ?? 'https://api.nguyennguyen0.id.vn/api/v1';
 
 /** Ngưỡng chất lượng đã chốt trong plan. `error` chặn push, `warn` chỉ nhắc. */
@@ -122,6 +141,8 @@ function lintCourse(course, tags, exerciseSlugs) {
   if (chapters.length < minCh || chapters.length > maxCh) errors.push(`${chapters.length} chương (cần ${minCh}–${maxCh})`);
   if (lessons.length < minLe || lessons.length > maxLe) errors.push(`${lessons.length} bài (cần ${minLe}–${maxLe})`);
   for (const tag of meta.tags ?? []) if (!tags.has(tag)) errors.push(`tag không tồn tại: ${tag}`);
+  if (!meta.cover) errors.push('thiếu "cover" (ảnh bìa trong content/illustrations)');
+  else if (!hasIllustration(meta.cover)) errors.push(`ảnh bìa không có: illustrations/${meta.cover}.svg`);
   for (const chapter of chapters) {
     if (!chapter.lessons.some((l) => l.kind === 'exercise')) errors.push(`chương "${chapter.title}" không có bài code`);
     for (const lesson of chapter.lessons) {
@@ -137,14 +158,58 @@ function lintCourse(course, tags, exerciseSlugs) {
       else if (words > QUALITY.lessonWords.max) warnings.push(`${where} quá dài, nên tách bài`);
       if (TABLE_ROW.test(lesson.body)) errors.push(`${lesson.file}: có bảng Markdown — studio không có bảng, dùng danh sách`);
       if ((lesson.body.match(/```\w+/g) ?? []).length < 2) errors.push(`${lesson.file}: cần ≥2 ví dụ code`);
+      const refs = [...lesson.body.matchAll(ILLUSTRATION_REF)];
+      if (!refs.length) errors.push(`${lesson.file}: chưa có ảnh minh hoạ (![mô tả](illustration:<tên>))`);
+      for (const [, alt, name] of refs) {
+        if (!alt.trim()) errors.push(`${lesson.file}: ảnh ${name} thiếu mô tả`);
+        if (!hasIllustration(name)) errors.push(`${lesson.file}: không có illustrations/${name}.svg`);
+      }
       try {
-        markdownToHtml(lesson.body);
+        markdownToHtml(lesson.body.replace(ILLUSTRATION_REF, '![$1](https://example.invalid/$2.webp)'));
       } catch (error) {
         errors.push(`${lesson.file}: ${error.message}`);
       }
     }
   }
   return { errors, warnings };
+}
+
+// --- ảnh ---------------------------------------------------------------------
+
+const hasIllustration = (name) => existsSync(join(ILLUSTRATIONS, `${name}.svg`));
+
+// ponytail: gọi công cụ hệ thống thay vì thêm `sharp` vào backend chỉ cho một script soạn nội dung.
+function renderIllustration(svg, frame) {
+  const { width, height, art } = FRAMES[frame];
+  const png = execFileSync('rsvg-convert', ['-h', String(art)], { input: svg });
+  return execFileSync('magick', ['png:-', '-background', '#fff7ed', '-gravity', 'center',
+    '-extent', `${width}x${height}`, '-quality', '85', 'webp:-'], { input: png });
+}
+
+/** URL S3 của một ảnh đã render. Khoá cache là nội dung SVG + khung: sửa SVG là tải bản mới. */
+async function uploadIllustration(call, courseId, name, frame) {
+  const svg = readFileSync(join(ILLUSTRATIONS, `${name}.svg`));
+  const key = `${frame}:${name}:${createHash('sha256').update(svg).update(JSON.stringify(FRAMES[frame])).digest('hex').slice(0, 16)}`;
+  const cache = existsSync(UPLOADS) ? JSON.parse(readFileSync(UPLOADS, 'utf8')) : {};
+  if (cache[key]) return cache[key];
+  const body = renderIllustration(svg, frame);
+  // Presign ảnh bìa là đường tải ảnh duy nhất của khoá học; ảnh trong bài cũng đi đường này.
+  const signed = await call('POST', `/courses/${courseId}/cover-upload-url`, {
+    filename: `${name}.webp`, contentType: 'image/webp', sizeBytes: body.length,
+  });
+  const response = await fetch(signed.uploadUrl, { method: 'PUT', headers: signed.headers, body });
+  if (!response.ok) throw new Error(`tải ảnh ${name}: HTTP ${response.status}`);
+  cache[key] = signed.publicUrl;
+  writeFileSync(UPLOADS, `${JSON.stringify(cache, null, 2)}\n`);
+  return signed.publicUrl;
+}
+
+async function withIllustrations(call, courseId, body) {
+  const urls = new Map();
+  for (const [, , name] of body.matchAll(ILLUSTRATION_REF)) {
+    if (!urls.has(name)) urls.set(name, await uploadIllustration(call, courseId, name, 'lesson'));
+  }
+  return body.replace(ILLUSTRATION_REF, (_, alt, name) => `![${alt}](${urls.get(name)})`);
 }
 
 // --- HTTP ------------------------------------------------------------------
@@ -268,7 +333,7 @@ async function pushCourse(call, course, tags, exerciseIds) {
   await call('PATCH', `/courses/${record.id}`, {
     title: meta.title, level: meta.level, description: meta.description,
     prerequisiteNote: meta.prerequisiteNote ?? null, tagIds: meta.tags.map((t) => tags.get(t)),
-    ...(meta.coverImageUrl ? { coverImageUrl: meta.coverImageUrl } : {}),
+    coverImageUrl: await uploadIllustration(call, record.id, meta.cover, 'cover'),
   });
 
   // Giữ id bài học cũ khi trùng (chương, tên bài): xoá bài là xoá luôn tiến độ của học viên.
@@ -301,7 +366,8 @@ async function pushCourse(call, course, tags, exerciseIds) {
       if (lesson.kind !== 'article') continue;
       const target = saved.chapters[ci].lessons[li];
       await call('PUT', `/courses/${record.id}/lessons/${target.id}/content`, {
-        summary: lesson.summary, objectives: lesson.objectives, contentHtml: markdownToHtml(lesson.body),
+        summary: lesson.summary, objectives: lesson.objectives,
+        contentHtml: markdownToHtml(await withIllustrations(call, record.id, lesson.body)),
       });
     }
   }

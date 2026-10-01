@@ -10,6 +10,8 @@ minutes: 25
 
 Ở khóa Python, bạn đã dùng `dict` và `set` và biết rằng kiểm tra `x in tap_hop` rất nhanh. Bài này trả lời câu hỏi **vì sao**. Câu trả lời là bảng băm, một trong những ý tưởng hữu ích nhất của khoa học máy tính.
 
+![Người cất hồ sơ vào đúng ngăn tủ: khoá quyết định ngăn chứa giá trị](illustration:filing-system)
+
 ## Ý tưởng: biến khóa thành chỉ số
 
 Mảng truy cập theo chỉ số trong `O(1)`. Nếu khóa của ta là số nguyên nhỏ, ta có thể dùng thẳng khóa làm chỉ số. Nhưng khóa thường là chuỗi như `"an@gmail.com"`, hoặc số rất lớn như mã giao dịch.

@@ -10,6 +10,8 @@ minutes: 25
 
 Mảng mạnh ở truy cập theo chỉ số nhưng yếu ở chèn và xóa giữa chừng, vì phải dịch các phần tử liền kề. **Danh sách liên kết** đảo ngược đánh đổi đó: các phần tử không cần nằm liền nhau, mỗi phần tử tự biết phần tử kế tiếp nằm ở đâu.
 
+![Các nút nối với nhau bằng đường kẻ: mỗi nút chỉ biết nút kế tiếp của nó](illustration:connected)
+
 ## Nút và con trỏ
 
 Một danh sách liên kết đơn gồm các **nút** (node). Mỗi nút giữ hai thứ: **giá trị** và một **tham chiếu** (con trỏ) tới nút kế tiếp. Nút cuối cùng trỏ tới `None`. Ta chỉ cần giữ tham chiếu tới nút **đầu** (head) là đi được cả danh sách.
