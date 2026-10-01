@@ -17,6 +17,7 @@ import { CurrentUser, Public, Roles, requireHumanId } from '@codementor/platform
 import type { AuthenticatedUser } from '@codementor/platform';
 import { CourseUseCases } from '../application/course.usecases';
 import { EnrollmentUseCases } from '../application/enrollment.usecases';
+import { LecturerInsightsService } from '../application/lecturer-insights.service';
 import {
   CreateCourseDto,
   CourseCoverUploadUrlDto,
@@ -28,6 +29,7 @@ import {
 } from './dto/course.dto';
 import { ArchiveMineDto, ModerateDto, SubmitDto } from './dto/moderate.dto';
 import { EnrollDto, RecordProgressDto } from './dto/enrollment.dto';
+import { InsightsQueryDto } from './dto/insights.dto';
 
 @ApiTags('courses')
 @ApiBearerAuth('access-token')
@@ -36,6 +38,7 @@ export class CourseController {
   constructor(
     private readonly courses: CourseUseCases,
     private readonly enrollments: EnrollmentUseCases,
+    private readonly insights: LecturerInsightsService,
   ) {}
 
   @Get()
@@ -57,6 +60,15 @@ export class CourseController {
   @ApiOperation({ summary: 'Khóa học của tôi, mọi trạng thái' })
   mine(@CurrentUser() user: AuthenticatedUser, @Query() query: ListCoursesQueryDto) {
     return this.courses.list({ createdBy: requireHumanId(user) }, query);
+  }
+
+  // Trước mọi route `:id`. Hai đoạn đường dẫn nên không đụng `:id/references`, nhưng giữ thói
+  // quen đặt route cụ thể lên trên.
+  @Get('mine/insights')
+  @Roles('lecturer')
+  @ApiOperation({ summary: 'Số liệu học viên, bài nộp và doanh thu trên nội dung của chính giảng viên' })
+  mineInsights(@CurrentUser() user: AuthenticatedUser, @Query() query: InsightsQueryDto) {
+    return this.insights.get(requireHumanId(user), query.days);
   }
 
   @Get('moderation')
