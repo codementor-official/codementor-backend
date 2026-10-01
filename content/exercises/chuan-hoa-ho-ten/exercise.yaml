@@ -1,0 +1,29 @@
+title: Chuẩn hóa họ tên
+difficulty: easy
+summary: Xử lý chuỗi — tách từ, bỏ khoảng trắng thừa và viết hoa chữ cái đầu mỗi từ trong họ tên do người dùng nhập.
+tags: [python, chuoi]
+xp: 20
+minutes: 20
+constraints:
+  - "Mỗi họ tên dài tối đa 100 ký tự, chỉ gồm chữ cái Latin không dấu và dấu cách."
+  - "1 ≤ n ≤ 100"
+hints:
+  - "`s.split()` không có tham số sẽ tách theo MỌI khoảng trắng và tự bỏ các phần rỗng."
+  - "Với từng từ: chữ đầu `upper()`, phần còn lại `lower()`."
+  - "Ghép lại bằng `' '.join(...)`."
+examples:
+  - input: "2\n  nGUYEN   van  an \nTRAN thi B\n"
+    output: "Nguyen Van An\nTran Thi B"
+    explanation: "Khoảng trắng thừa ở đầu, cuối và giữa các từ đều bị bỏ."
+  - input: "1\nle\n"
+    output: "Le"
+    explanation: "Tên chỉ có một từ."
+tests:
+  - { input: "1\nhoang minh\n", visibility: public }
+  - { input: "1\n   PHAM    QUANG   HUY   \n", visibility: public }
+  - { input: "3\na b c\nAB CD\nxYz\n", visibility: hidden }
+  - { input: "1\nn\n", visibility: hidden }
+  - { input: "2\ndo   \n   vu\n", visibility: hidden }
+  - { input: "1\nnguyen thi thu ha anh\n", visibility: hidden }
+  - { input: "1\nMcDONALD\n", visibility: hidden }
+  - { input: "2\nl e\nTRUONG\n", visibility: hidden }

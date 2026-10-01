@@ -1,0 +1,40 @@
+slug: python-co-ban
+title: Python cơ bản
+level: none
+description: >-
+  Khóa nhập môn lập trình bằng Python cho người chưa từng viết code. Bạn đi từ chương trình đầu
+  tiên tới biến, điều kiện, vòng lặp, chuỗi, list, dictionary, hàm và module — mỗi chương kết
+  thúc bằng một bài tập được chấm tự động. Học xong, bạn đọc hiểu và tự viết được chương trình
+  Python vài chục dòng, đủ nền tảng để bước sang Cấu trúc dữ liệu và giải thuật.
+prerequisiteNote: Không cần kiến thức lập trình trước. Chỉ cần biết dùng máy tính và trình duyệt.
+tags: [python, nhap-mon]
+submitNote: Viết lại toàn bộ nội dung khóa học (đợt 1, plan-content-dashboard).
+chapters:
+  - title: Làm quen với Python
+    description: Chương trình đầu tiên, biến, kiểu dữ liệu và phép toán.
+    lessons:
+      - md: 01-chuong-trinh-dau-tien.md
+      - md: 02-bien-kieu-du-lieu.md
+      - exercise: doi-giay-sang-gio-phut-giay
+  - title: Điều khiển luồng chương trình
+    description: Ra quyết định với if/elif/else và lặp lại công việc với for, while.
+    lessons:
+      - md: 03-cau-lenh-dieu-kien.md
+      - exercise: xep-loai-hoc-luc
+      - md: 04-vong-lap.md
+      - exercise: tong-va-so-chu-so
+  - title: Chuỗi và cấu trúc dữ liệu có sẵn
+    description: Xử lý văn bản, lưu nhiều giá trị bằng list, tra cứu nhanh bằng dictionary và set.
+    lessons:
+      - md: 05-chuoi.md
+      - exercise: chuan-hoa-ho-ten
+      - md: 06-list-va-tuple.md
+      - md: 07-dictionary-va-set.md
+      - exercise: tu-xuat-hien-nhieu-nhat
+  - title: Hàm và tổ chức chương trình
+    description: Đóng gói code thành hàm, xử lý lỗi, đọc dữ liệu và dùng thư viện chuẩn.
+    lessons:
+      - md: 08-ham.md
+      - md: 09-xu-ly-loi-va-du-lieu-vao.md
+      - md: 10-module-va-thu-vien-chuan.md
+      - exercise: dem-so-nguyen-to-trong-doan

@@ -1,0 +1,29 @@
+title: Những từ xuất hiện nhiều nhất
+difficulty: medium
+summary: Đếm tần suất bằng dictionary rồi sắp xếp theo hai khóa — số lần giảm dần, từ tăng dần — để lấy top k.
+tags: [python, chuoi, sap-xep]
+xp: 30
+minutes: 25
+constraints:
+  - "1 ≤ k ≤ 100"
+  - "Đoạn văn dài tối đa 10^5 ký tự, chỉ gồm chữ cái Latin không dấu, chữ số, dấu cách và các dấu câu . , ! ? ; :"
+hints:
+  - "Chuẩn hóa trước: đổi về chữ thường và thay mọi ký tự không phải chữ/số bằng dấu cách, rồi `split()`."
+  - "`counts[w] = counts.get(w, 0) + 1` đếm tần suất trong một lượt duyệt."
+  - "Sắp xếp bằng `sorted(counts.items(), key=lambda p: (-p[1], p[0]))`: dấu trừ để số lần giảm dần, từ tăng dần khi bằng nhau."
+examples:
+  - input: "2\nHoc, hoc nua, hoc mai! Nua di.\n"
+    output: "hoc 3\nnua 2"
+    explanation: "\"hoc\" xuất hiện 3 lần, \"nua\" 2 lần; \"mai\" và \"di\" chỉ 1 lần."
+  - input: "5\nb a c a\n"
+    output: "a 2\nb 1\nc 1"
+    explanation: "Chỉ có 3 từ khác nhau nên in cả 3. \"b\" và \"c\" cùng 1 lần, xếp theo thứ tự chữ cái."
+tests:
+  - { input: "1\nxin chao\n", visibility: public }
+  - { input: "3\nThe the THE cat. Cat!\n", visibility: public }
+  - { input: "2\nz y x\n", visibility: hidden }
+  - { input: "3\nmot hai ba mot hai mot bon nam nam nam nam\n", visibility: hidden }
+  - { input: "1\nA.a,a;a:a?a!a\n", visibility: hidden }
+  - { input: "4\nabc1 abc2 abc1 2024 2024 2024\n", visibility: hidden }
+  - { input: "10\nmot\n", visibility: hidden }
+  - { input: "2\nbb aa bb aa cc\n", visibility: hidden }

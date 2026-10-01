@@ -1,0 +1,28 @@
+title: Số chữ số và tổng các chữ số
+difficulty: easy
+summary: Dùng vòng lặp while với phép chia 10 để tách từng chữ số của một số nguyên, kể cả số âm và số 0.
+tags: [python, vong-lap]
+xp: 20
+minutes: 20
+constraints:
+  - "-10^18 ≤ n ≤ 10^18"
+hints:
+  - "`n % 10` cho chữ số cuối cùng, `n // 10` bỏ chữ số cuối cùng đi."
+  - "Lấy giá trị tuyệt đối trước: chữ số của -305 cũng là 3, 0, 5."
+  - "Số 0 có MỘT chữ số. Vòng `while n > 0` sẽ không chạy lần nào với n = 0 — xử lý riêng trường hợp này."
+examples:
+  - input: "2024\n"
+    output: "4 8"
+    explanation: "2024 có 4 chữ số, tổng 2 + 0 + 2 + 4 = 8."
+  - input: "-305\n"
+    output: "3 8"
+    explanation: "Bỏ dấu âm: 3 + 0 + 5 = 8."
+tests:
+  - { input: "0\n", visibility: public }
+  - { input: "7\n", visibility: public }
+  - { input: "-9\n", visibility: hidden }
+  - { input: "10\n", visibility: hidden }
+  - { input: "99999\n", visibility: hidden }
+  - { input: "1000000000000000000\n", visibility: hidden }
+  - { input: "-1000000000000000000\n", visibility: hidden }
+  - { input: "123456789012345678\n", visibility: hidden }

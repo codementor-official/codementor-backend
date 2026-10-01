@@ -32,6 +32,10 @@ const QUALITY = {
   lessons: [10, 16],
 };
 
+// Trang giải bài render đề bằng react-markdown KHÔNG có remark-gfm, còn studio là TipTap không có
+// extension bảng: một bảng Markdown ở cả hai chỗ đều hiện thành ký tự "|" thô.
+const TABLE_ROW = /^\s*\|.*\|\s*$/m;
+
 const LANGUAGES = [
   { id: 'python', label: 'Python', monaco: 'python', file: 'solution.py' },
   { id: 'javascript', label: 'JavaScript', monaco: 'javascript', file: 'solution.js' },
@@ -86,6 +90,7 @@ function lintExercise(ex, tags) {
   for (const key of ['title', 'difficulty', 'summary', 'tags', 'tests', 'examples', 'hints']) {
     if (!meta[key]) errors.push(`thiếu "${key}"`);
   }
+  if (TABLE_ROW.test(ex.statement)) errors.push('đề có bảng Markdown — trang giải bài không render bảng, dùng danh sách');
   if (proseWords(ex.statement) < QUALITY.statementWords) errors.push(`đề chỉ ${proseWords(ex.statement)} chữ (< ${QUALITY.statementWords})`);
   const tests = meta.tests ?? [];
   const visible = tests.filter((t) => t.visibility === 'public').length;
@@ -121,6 +126,7 @@ function lintCourse(course, tags, exerciseSlugs) {
       if (words < QUALITY.lessonWords.error) errors.push(`${where} quá mỏng`);
       else if (words < QUALITY.lessonWords.warn) warnings.push(`${where} dưới ${QUALITY.lessonWords.warn}`);
       else if (words > QUALITY.lessonWords.max) warnings.push(`${where} quá dài, nên tách bài`);
+      if (TABLE_ROW.test(lesson.body)) errors.push(`${lesson.file}: có bảng Markdown — studio không có bảng, dùng danh sách`);
       if ((lesson.body.match(/```\w+/g) ?? []).length < 2) errors.push(`${lesson.file}: cần ≥2 ví dụ code`);
       try {
         markdownToHtml(lesson.body);

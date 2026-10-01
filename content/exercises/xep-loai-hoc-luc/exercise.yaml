@@ -1,0 +1,30 @@
+title: Xếp loại học lực
+difficulty: easy
+summary: Dùng chuỗi if/elif/else để xếp loại học lực từ điểm trung bình, và chặn điểm nằm ngoài thang 0–10.
+tags: [python, nhap-mon]
+xp: 15
+minutes: 15
+constraints:
+  - "Điểm là số thực có tối đa hai chữ số thập phân."
+  - "Điểm có thể nằm ngoài khoảng [0, 10] — khi đó phải báo không hợp lệ."
+hints:
+  - "Kiểm tra điểm không hợp lệ TRƯỚC tiên, rồi mới xét các mức từ cao xuống thấp."
+  - "Xét từ mức cao nhất: nếu đã không thỏa `>= 9` thì ở nhánh `elif` sau bạn không cần viết lại điều kiện `< 9`."
+  - "Đọc điểm bằng `float(input())`, không phải `int`."
+examples:
+  - input: "8.5\n"
+    output: "Gioi"
+    explanation: "8.5 ≥ 8 nhưng chưa tới 9."
+  - input: "4.99\n"
+    output: "Yeu"
+    explanation: "Dưới 5 là Yếu."
+tests:
+  - { input: "9\n", visibility: public }
+  - { input: "6.5\n", visibility: public }
+  - { input: "10\n", visibility: hidden }
+  - { input: "0\n", visibility: hidden }
+  - { input: "5\n", visibility: hidden }
+  - { input: "6.49\n", visibility: hidden }
+  - { input: "7.99\n", visibility: hidden }
+  - { input: "10.5\n", visibility: hidden }
+  - { input: "-1\n", visibility: hidden }
