@@ -29,6 +29,8 @@ const QUALITY = {
   hiddenTests: 4,
   examples: 2,
   chapters: [3, 5],
+  // `max_test_case_bytes` của judge-service: test lớn hơn bị từ chối lúc chấm.
+  testBytes: 64_000,
   lessons: [10, 16],
 };
 
@@ -52,6 +54,9 @@ const STARTERS = {
 
 function readExercise(dir) {
   const meta = yaml.load(readFileSync(join(dir, 'exercise.yaml'), 'utf8'));
+  // Test lớn (để chặn lời giải O(n²)) nằm ở `tests/<file>`, sinh bằng `gen.py` của chính bài.
+  meta.tests = (meta.tests ?? []).map((t) =>
+    t.file ? { ...t, input: readFileSync(join(dir, 'tests', t.file), 'utf8') } : t);
   const statement = readFileSync(join(dir, 'statement.md'), 'utf8').trim();
   const solutions = Object.fromEntries(
     LANGUAGES.filter((l) => existsSync(join(dir, l.file))).map((l) => [l.id, readFileSync(join(dir, l.file), 'utf8')]),
@@ -94,6 +99,10 @@ function lintExercise(ex, tags) {
   if (proseWords(ex.statement) < QUALITY.statementWords) errors.push(`đề chỉ ${proseWords(ex.statement)} chữ (< ${QUALITY.statementWords})`);
   const tests = meta.tests ?? [];
   const visible = tests.filter((t) => t.visibility === 'public').length;
+  for (const [i, t] of tests.entries()) {
+    const bytes = Buffer.byteLength(t.input ?? '');
+    if (bytes > QUALITY.testBytes) errors.push(`test ${i + 1} ${bytes} byte (> ${QUALITY.testBytes}, judge sẽ từ chối)`);
+  }
   if (tests.length < QUALITY.tests) errors.push(`${tests.length} test (< ${QUALITY.tests})`);
   if (visible < QUALITY.publicTests) errors.push(`${visible} test công khai (< ${QUALITY.publicTests})`);
   if (tests.length - visible < QUALITY.hiddenTests) errors.push(`${tests.length - visible} test ẩn (< ${QUALITY.hiddenTests})`);
@@ -150,13 +159,20 @@ async function token(user, password) {
   return (await response.json()).access_token;
 }
 
-function client(bearer) {
+/** Token Keycloak sống vài phút, còn một lượt `check` có thể lâu hơn: gặp 401 thì xin lại một lần. */
+async function client(user, password) {
+  let bearer = await token(user, password);
   return async function call(method, path, body) {
-    const response = await fetch(`${API}${path}`, {
+    const send = () => fetch(`${API}${path}`, {
       method,
       headers: { authorization: `Bearer ${bearer}`, ...(body ? { 'content-type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
+    let response = await send();
+    if (response.status === 401) {
+      bearer = await token(user, password);
+      response = await send();
+    }
     const text = await response.text();
     if (!response.ok) throw new Error(`${method} ${path}: HTTP ${response.status} ${text.slice(0, 300)}`);
     return text ? (JSON.parse(text).data ?? JSON.parse(text)) : null;
@@ -298,7 +314,7 @@ async function pushCourse(call, course, tags, exerciseIds) {
 async function main() {
   const [command = 'check', ...paths] = process.argv.slice(2);
   const { exercises, courses } = units(paths);
-  const author = client(await token(process.env.CONTENT_AUTHOR_USER, process.env.CONTENT_AUTHOR_PASSWORD));
+  const author = await client(process.env.CONTENT_AUTHOR_USER, process.env.CONTENT_AUTHOR_PASSWORD);
   const tags = await tagIndex(author);
   const knownExercises = new Set(existsSync(join(ROOT, 'exercises')) ? readdirSync(join(ROOT, 'exercises')) : []);
   let failed = false;
@@ -351,7 +367,7 @@ async function main() {
   }
 
   if (command === 'approve') {
-    const admin = client(await token(process.env.CONTENT_ADMIN_USER, process.env.CONTENT_ADMIN_PASSWORD));
+    const admin = await client(process.env.CONTENT_ADMIN_USER, process.env.CONTENT_ADMIN_PASSWORD);
     const pending = async (kind) => new Map((await all(author, `/${kind}/mine`)).filter((x) => x.status === 'pending_review').map((x) => [x.slug, x.id]));
     for (const [kind, list] of [['exercises', exercises], ['courses', courses]]) {
       const waiting = await pending(kind);

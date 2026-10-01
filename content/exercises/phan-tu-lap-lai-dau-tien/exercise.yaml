@@ -1,0 +1,31 @@
+title: Phần tử lặp lại đầu tiên
+difficulty: easy
+summary: Dùng tập hợp (bảng băm) để tìm phần tử đầu tiên bị lặp lại khi đọc từ trái sang phải trong O(n) thay vì O(n²).
+tags: [mang]
+xp: 25
+minutes: 20
+constraints:
+  - "1 ≤ n ≤ 5000"
+  - "-10^9 ≤ a[i] ≤ 10^9"
+hints:
+  - "Đọc từng phần tử; nếu nó ĐÃ có trong tập các phần tử đã thấy thì đó là đáp án."
+  - "Kiểm tra x in list là O(n) mỗi lần; x in set trung bình là O(1)."
+  - "Không có phần tử nào lặp lại thì in -1 — nhưng -1 cũng có thể là một giá trị trong mảng, nên đề cho in NONE."
+examples:
+  - input: "6\n3 8 5 8 3 1\n"
+    output: "8 4"
+    explanation: "Đọc từ trái sang: 3, 8, 5 đều mới; tới 8 ở vị trí 4 thì gặp lại lần đầu. Số 3 lặp lại sau đó, ở vị trí 5."
+  - input: "3\n1 2 3\n"
+    output: "NONE"
+    explanation: "Không có phần tử nào lặp lại."
+tests:
+  - { input: "1\n7\n", visibility: public }
+  - { input: "2\n5 5\n", visibility: public }
+  - { input: "5\n-1 -2 -3 -2 -1\n", visibility: hidden }
+  - { input: "6\n1000000000 -1000000000 0 1000000000 0 0\n", visibility: hidden }
+  - { input: "4\n2 2 2 2\n", visibility: hidden }
+  - { input: "7\n1 2 3 4 5 6 1\n", visibility: hidden }
+  - { input: "5\n9 8 7 6 5\n", visibility: hidden }
+  - { input: "8\n4 1 3 2 2 3 1 4\n", visibility: hidden }
+  - { file: big-none.txt, visibility: hidden }
+  - { file: big-last.txt, visibility: hidden }

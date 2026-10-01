@@ -13,4 +13,4 @@ Nhắc lại: số nguyên tố là số tự nhiên lớn hơn 1 chỉ chia h�
 
 ## Ghi chú
 
-Hãy bắt đầu bằng một hàm `la_so_nguyen_to(n)` đơn giản để chắc chắn hiểu đúng bài. Sau đó nhận ra rằng có tới `10^5` câu hỏi, mỗi câu trên đoạn dài tới `10^6` phần tử, nên kiểm tra từng số là không đủ nhanh. Bài này là dịp để bạn thấy một **hàm tính trước một lần** (sàng + cộng dồn) có thể thay cho hàng triệu phép tính lặp lại.
+Hãy bắt đầu bằng một hàm `la_so_nguyen_to(n)` đơn giản để chắc chắn hiểu đúng bài. Sau đó nhận ra rằng có tới `4000` câu hỏi, mỗi câu trên đoạn dài gần `10^6` phần tử, nên kiểm tra từng số là không đủ nhanh. Bài này là dịp để bạn thấy một **hàm tính trước một lần** (sàng + cộng dồn) có thể thay cho hàng triệu phép tính lặp lại.

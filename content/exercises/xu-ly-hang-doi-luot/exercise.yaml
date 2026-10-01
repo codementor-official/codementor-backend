@@ -1,0 +1,33 @@
+title: Xử lý tác vụ theo lượt
+difficulty: medium
+summary: Mô phỏng bộ lập lịch round-robin bằng hàng đợi hai đầu — mỗi tác vụ chạy tối đa q đơn vị thời gian rồi xếp lại cuối hàng.
+tags: [hang-doi]
+xp: 35
+minutes: 30
+constraints:
+  - "1 ≤ n ≤ 5000"
+  - "1 ≤ q ≤ 10^4"
+  - "1 ≤ t[i] ≤ 10^4"
+  - "Tổng số lượt chạy không vượt quá 10^6."
+  - "Tên tác vụ gồm chữ cái và chữ số, dài tối đa 20 ký tự, không trùng nhau."
+hints:
+  - "Lấy tác vụ ở ĐẦU hàng đợi, cho chạy min(q, thời gian còn lại), cộng vào đồng hồ chung."
+  - "Còn thời gian thì đẩy lại vào CUỐI hàng đợi; hết thì in tên và thời điểm hoàn thành."
+  - "list.pop(0) dịch chuyển cả list mỗi lần — dùng collections.deque với popleft() cho O(1)."
+examples:
+  - input: "3 2\nA 3\nB 1\nC 4\n"
+    output: "B 3\nA 6\nC 8"
+    explanation: "A chạy 2 (đồng hồ 2), B chạy 1 và xong (3), C chạy 2 (5), A chạy 1 và xong (6), C chạy 2 và xong (8)."
+  - input: "1 5\nX 3\n"
+    output: "X 3"
+    explanation: "Chỉ một tác vụ, chạy xong trong một lượt."
+tests:
+  - { input: "2 1\nA 1\nB 1\n", visibility: public }
+  - { input: "2 10\nA 4\nB 6\n", visibility: public }
+  - { input: "3 1\nA 2\nB 2\nC 2\n", visibility: hidden }
+  - { input: "4 3\nP1 7\nP2 3\nP3 1\nP4 9\n", visibility: hidden }
+  - { input: "1 1\nZ 10000\n", visibility: hidden }
+  - { input: "5 4\nA 4\nB 8\nC 1\nD 5\nE 12\n", visibility: hidden }
+  - { input: "3 2\nX 2\nY 2\nZ 2\n", visibility: hidden }
+  - { input: "2 3\nlong 10\nshort 1\n", visibility: hidden }
+  - { file: big-rounds.txt, visibility: hidden }

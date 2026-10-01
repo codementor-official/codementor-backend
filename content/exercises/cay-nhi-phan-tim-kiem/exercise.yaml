@@ -1,0 +1,31 @@
+title: Dựng cây nhị phân tìm kiếm
+difficulty: medium
+summary: Chèn lần lượt các khóa vào cây nhị phân tìm kiếm, rồi tính chiều cao và in thứ tự duyệt trước (preorder) — thấy cây suy biến khi dữ liệu đã sắp xếp.
+tags: [cay, de-quy]
+xp: 40
+minutes: 35
+constraints:
+  - "1 ≤ n ≤ 2000"
+  - "Các khóa là số nguyên phân biệt trong [-10^9, 10^9]."
+hints:
+  - "Chèn x: bắt đầu từ gốc, x nhỏ hơn nút hiện tại thì đi trái, lớn hơn thì đi phải, gặp chỗ trống thì đặt x vào."
+  - "Chiều cao = số nút trên đường dài nhất từ gốc tới lá; cây chỉ có gốc cao 1."
+  - "Dữ liệu đã sắp xếp tạo cây dạng 'dây xích' cao n. Đệ quy sâu 2000 tầng vượt giới hạn mặc định của Python — dùng vòng lặp và ngăn xếp, hoặc tăng sys.setrecursionlimit."
+examples:
+  - input: "5\n50 30 70 20 40\n"
+    output: "3\n50 30 20 40 70"
+    explanation: "50 là gốc; 30, 70 là con trái/phải; 20, 40 là con của 30. Đường dài nhất 50 → 30 → 20 gồm 3 nút."
+  - input: "3\n1 2 3\n"
+    output: "3\n1 2 3"
+    explanation: "Khóa tăng dần nên mỗi khóa mới đều là con phải của khóa trước: cây suy biến thành danh sách."
+tests:
+  - { input: "1\n42\n", visibility: public }
+  - { input: "3\n2 1 3\n", visibility: public }
+  - { input: "7\n8 4 12 2 6 10 14\n", visibility: hidden }
+  - { input: "5\n5 4 3 2 1\n", visibility: hidden }
+  - { input: "6\n10 -5 20 -10 0 30\n", visibility: hidden }
+  - { input: "6\n1 3 2 5 4 6\n", visibility: hidden }
+  - { input: "4\n1000000000 -1000000000 0 1\n", visibility: hidden }
+  - { input: "8\n6 3 9 1 4 7 10 2\n", visibility: hidden }
+  - { file: big-sorted.txt, visibility: hidden }
+  - { file: big-zigzag.txt, visibility: hidden }

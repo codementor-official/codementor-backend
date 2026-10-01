@@ -1,0 +1,32 @@
+title: Ngoặc cân bằng
+difficulty: easy
+summary: Dùng ngăn xếp để kiểm tra một biểu thức có ba loại ngoặc ( [ { đóng mở đúng thứ tự hay không, và chỉ ra vị trí lỗi đầu tiên.
+tags: [ngan-xep, chuoi]
+xp: 25
+minutes: 20
+constraints:
+  - "Độ dài chuỗi từ 1 tới 6·10^4."
+  - "Chuỗi gồm các ký tự ( ) [ ] { } và chữ cái, chữ số, dấu cách, + - * /."
+hints:
+  - "Gặp ngoặc mở thì đẩy vào ngăn xếp. Gặp ngoặc đóng thì đỉnh ngăn xếp phải là ngoặc mở CÙNG LOẠI."
+  - "Lỗi tại ngoặc đóng: ngăn xếp rỗng, hoặc đỉnh không khớp loại."
+  - "Duyệt hết mà ngăn xếp vẫn còn ngoặc mở thì báo vị trí của ngoặc mở GẦN NHẤT chưa đóng — chính là phần tử ở đỉnh ngăn xếp."
+examples:
+  - input: "a*(b+[c-d])\n"
+    output: "YES"
+    explanation: "Mọi ngoặc đều đóng đúng loại và đúng thứ tự."
+  - input: "(a+b]*c\n"
+    output: "NO 5"
+    explanation: "Ngoặc đóng `]` ở vị trí 5 (đếm từ 1) không khớp với ngoặc mở `(` đang chờ."
+tests:
+  - { input: "{[()]}\n", visibility: public }
+  - { input: "((\n", visibility: public }
+  - { input: ")\n", visibility: hidden }
+  - { input: "x+y\n", visibility: hidden }
+  - { input: "([)]\n", visibility: hidden }
+  - { input: "{a [b (c) d] e}\n", visibility: hidden }
+  - { input: "()(){}[]]\n", visibility: hidden }
+  - { input: "a(b{c[d\n", visibility: hidden }
+  - { input: "[[[[]]]]{{}}\n", visibility: hidden }
+  - { file: big-ok.txt, visibility: hidden }
+  - { file: big-bad-last.txt, visibility: hidden }

@@ -6,7 +6,7 @@ xp: 30
 minutes: 25
 constraints:
   - "1 ≤ k ≤ 100"
-  - "Đoạn văn dài tối đa 10^5 ký tự, chỉ gồm chữ cái Latin không dấu, chữ số, dấu cách và các dấu câu . , ! ? ; :"
+  - "Đoạn văn dài tối đa 6·10^4 ký tự, chỉ gồm chữ cái Latin không dấu, chữ số, dấu cách và các dấu câu . , ! ? ; :"
 hints:
   - "Chuẩn hóa trước: đổi về chữ thường và thay mọi ký tự không phải chữ/số bằng dấu cách, rồi `split()`."
   - "`counts[w] = counts.get(w, 0) + 1` đếm tần suất trong một lượt duyệt."
@@ -27,3 +27,4 @@ tests:
   - { input: "4\nabc1 abc2 abc1 2024 2024 2024\n", visibility: hidden }
   - { input: "10\nmot\n", visibility: hidden }
   - { input: "2\nbb aa bb aa cc\n", visibility: hidden }
+  - { file: big-text.txt, visibility: hidden }

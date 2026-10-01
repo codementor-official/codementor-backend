@@ -1,0 +1,32 @@
+title: Vị trí chèn trong mảng đã sắp xếp
+difficulty: medium
+summary: Cài đặt tìm kiếm nhị phân dạng lower_bound để trả lời nhanh nhiều truy vấn "có bao nhiêu số nhỏ hơn x" trên mảng đã sắp xếp.
+tags: [tim-kiem-nhi-phan, mang]
+xp: 35
+minutes: 30
+timeLimitMs: 1000
+constraints:
+  - "1 ≤ n, q ≤ 3500"
+  - "-10^9 ≤ a[i], x ≤ 10^9"
+  - "Mảng a đã sắp xếp không giảm."
+hints:
+  - "Vị trí chèn của x chính là số phần tử NHỎ HƠN x."
+  - "Giữ khoảng [lo, hi) chứa đáp án. Nếu a[mid] < x thì đáp án ở bên phải mid: lo = mid + 1; ngược lại hi = mid."
+  - "Dừng khi lo == hi. Duyệt tuyến tính mỗi truy vấn là O(n·q) — hơn 12 triệu phép so sánh ở test lớn nhất."
+examples:
+  - input: "5 3\n1 3 3 5 7\n3\n0\n8\n"
+    output: "1\n0\n5"
+    explanation: "Chèn 3 vào trước hai số 3 hiện có (vị trí 1); 0 nhỏ hơn mọi số (vị trí 0); 8 lớn hơn mọi số (vị trí 5)."
+  - input: "3 2\n2 2 2\n2\n3\n"
+    output: "0\n3"
+    explanation: "Không có số nào nhỏ hơn 2; cả ba số đều nhỏ hơn 3."
+tests:
+  - { input: "1 2\n5\n5\n6\n", visibility: public }
+  - { input: "4 1\n-5 -1 4 9\n0\n", visibility: public }
+  - { input: "6 4\n1 2 2 2 3 4\n2\n1\n4\n5\n", visibility: hidden }
+  - { input: "5 3\n-1000000000 0 0 0 1000000000\n-1000000000\n1000000000\n1\n", visibility: hidden }
+  - { input: "3 3\n10 20 30\n15\n25\n35\n", visibility: hidden }
+  - { input: "7 2\n1 1 1 1 1 1 1\n1\n2\n", visibility: hidden }
+  - { input: "2 2\n-3 -3\n-4\n-3\n", visibility: hidden }
+  - { input: "5 5\n2 4 6 8 10\n1\n2\n3\n10\n11\n", visibility: hidden }
+  - { file: big.txt, visibility: hidden }

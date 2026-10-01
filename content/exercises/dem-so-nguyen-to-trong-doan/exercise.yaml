@@ -6,10 +6,10 @@ xp: 35
 minutes: 30
 timeLimitMs: 3000
 constraints:
-  - "1 ≤ q ≤ 10^5"
+  - "1 ≤ q ≤ 4000"
   - "1 ≤ a ≤ b ≤ 10^6"
 hints:
-  - "Thử chia cho mọi số từ 2 tới √n là đủ đúng, nhưng với 10^5 truy vấn trên đoạn dài thì quá chậm."
+  - "Thử chia cho mọi số từ 2 tới √n là đủ đúng, nhưng 4000 truy vấn mỗi truy vấn gần một triệu số thì quá chậm."
   - "Sàng Eratosthenes đánh dấu mọi số nguyên tố ≤ 10^6 trong một lần."
   - "Mảng cộng dồn `prefix[i]` = số nguyên tố ≤ i. Khi đó đáp án mỗi truy vấn là `prefix[b] - prefix[a - 1]`."
 examples:
@@ -28,3 +28,4 @@ tests:
   - { input: "1\n500000 600000\n", visibility: hidden }
   - { input: "4\n1 100\n1 1000\n1 10000\n1 100000\n", visibility: hidden }
   - { input: "1\n4 4\n", visibility: hidden }
+  - { file: big-wide.txt, visibility: hidden }
