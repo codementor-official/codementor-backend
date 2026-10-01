@@ -582,6 +582,10 @@ export class CourseUseCases {
 
     await this.courses.save(entity);
 
+    if (decision === 'approve') {
+      await this.access.applyApprovedPrice(id, requireHumanId(user));
+    }
+
     // Phát SAU khi ghi thành công, và chỉ khi khoá học thực sự vừa mở cho người học.
     // `announcePublished` là báo cho NGƯỜI HỌC "có khoá mới"; `announceModerated` ngay
     // dưới đây báo riêng cho TÁC GIẢ, ở mọi quyết định trừ `restore`.

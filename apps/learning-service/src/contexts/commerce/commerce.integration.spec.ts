@@ -136,6 +136,9 @@ integration('Commerce transactions (real PostgreSQL)', () => {
   beforeAll(async () => {
     process.env.COMMERCE_MODE = 'mock';
     await db.$connect();
+    await db.$executeRawUnsafe(
+      'ALTER TABLE course_prices ADD COLUMN IF NOT EXISTS pending_price_vnd INTEGER, ADD COLUMN IF NOT EXISTS pending_price_requested_at TIMESTAMPTZ',
+    );
     admin = await user('admin');
   }, 20000);
   beforeEach(async () => {
@@ -564,13 +567,24 @@ integration('Commerce transactions (real PostgreSQL)', () => {
       }),
     ).rejects.toThrow();
   });
-  it('only author/admin can price drafts; published price locked', async () => {
+  it('keeps a published price pending until admin approves the resubmission', async () => {
     const c = await course();
-    await expect(access.setPrice(actor(instructor), c, 1)).rejects.toThrow();
-    await db.$executeRaw`UPDATE courses SET status='draft' WHERE id=${c}::uuid`;
     await expect(access.setPrice(actor(await user('lecturer')), c, 1)).rejects.toThrow();
-    await access.setPrice(actor(instructor), c, 250000);
-    expect((await access.offer(instructor, c)).priceVnd).toBe(250000);
+    await expect(access.setPrice(actor(instructor), c, 250000)).resolves.toMatchObject({
+      priceVnd: 200000,
+      pendingPriceVnd: 250000,
+      requiresReview: true,
+    });
+    expect(await access.offer(instructor, c)).toMatchObject({
+      priceVnd: 200000,
+      pendingPriceVnd: 250000,
+    });
+    expect((await access.offer(await user(), c)).pendingPriceVnd).toBeNull();
+    await access.applyApprovedPrice(c, admin);
+    expect(await access.offer(instructor, c)).toMatchObject({
+      priceVnd: 250000,
+      pendingPriceVnd: null,
+    });
   });
   it('requires admin approval before applying a lecturer promotion', async () => {
     const buyer = await user();
