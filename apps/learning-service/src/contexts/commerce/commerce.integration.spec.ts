@@ -743,16 +743,20 @@ describe('Payment verification', () => {
       process.env = previous;
     }
   });
-  it('production disables all money mutations and mock endpoints', () => {
-    const original = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
+  it('production requires an explicit commerce opt-in', () => {
+    const previous = process.env;
+    process.env = { ...previous, NODE_ENV: 'production', COMMERCE_MODE: 'mock' };
     try {
       const p = new PaymentProviders();
       expect(p.methods()).toEqual([]);
       expect(() => p.assertMock()).toThrow();
       expect(() => p.assertEnabled()).toThrow();
+      process.env.COMMERCE_ENABLED = 'true';
+      expect(p.methods()).toEqual(['mock']);
+      expect(() => p.assertMock()).not.toThrow();
+      expect(() => p.assertEnabled()).not.toThrow();
     } finally {
-      process.env.NODE_ENV = original;
+      process.env = previous;
     }
   });
 });

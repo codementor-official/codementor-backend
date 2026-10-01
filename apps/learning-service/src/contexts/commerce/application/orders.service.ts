@@ -241,8 +241,8 @@ export class OrdersService {
           order.id,
           review ? 'Thanh toán cần kiểm tra' : 'Đã mua khóa học',
           review
-            ? 'Khoản thanh toán thử nghiệm đến muộn hoặc quyền học đã tồn tại. Quản trị viên sẽ kiểm tra.'
-            : `Bạn đã được cấp quyền học “${order.course_title.slice(0, 200)}”. Đây là giao dịch thử nghiệm.`,
+            ? 'Khoản thanh toán đến muộn hoặc quyền học đã tồn tại. Quản trị viên sẽ kiểm tra.'
+            : `Bạn đã được cấp quyền học “${order.course_title.slice(0, 200)}”.`,
           `/purchases/${order.id}`,
         );
         if (!review) {

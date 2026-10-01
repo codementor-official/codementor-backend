@@ -62,26 +62,24 @@ export class PaymentProviders {
   get mode(): 'mock' | 'sandbox' {
     return process.env.COMMERCE_MODE === 'sandbox' ? 'sandbox' : 'mock';
   }
+  private enabled() {
+    const configured = ['mock', 'sandbox'].includes(process.env.COMMERCE_MODE ?? 'mock');
+    if (!configured) return false;
+    // Production must opt in explicitly. This lets a deployed environment exercise the
+    // complete order/access flow before external merchant credentials are available,
+    // without accidentally enabling the internal checkout on a fresh deployment.
+    return process.env.NODE_ENV !== 'production' || process.env.COMMERCE_ENABLED === 'true';
+  }
   assertEnabled() {
-    if (
-      process.env.NODE_ENV === 'production' ||
-      !['mock', 'sandbox'].includes(process.env.COMMERCE_MODE ?? 'mock')
-    ) {
-      throw new ServiceUnavailableException(
-        'Thương mại thử nghiệm không hoạt động trong production.',
-      );
-    }
+    if (!this.enabled())
+      throw new ServiceUnavailableException('Thanh toán trực tuyến chưa được kích hoạt.');
   }
   assertMock() {
     this.assertEnabled();
     if (this.mode !== 'mock') throw new BadRequestException('Chỉ dành cho mock');
   }
   methods(): PaymentProvider[] {
-    if (
-      process.env.NODE_ENV === 'production' ||
-      !['mock', 'sandbox'].includes(process.env.COMMERCE_MODE ?? 'mock')
-    )
-      return [];
+    if (!this.enabled()) return [];
     if (this.mode === 'mock') return ['mock'];
     const methods: PaymentProvider[] = [];
     if (

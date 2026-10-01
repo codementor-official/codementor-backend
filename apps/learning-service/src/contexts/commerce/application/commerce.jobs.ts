@@ -13,8 +13,10 @@ export class CommerceJobs implements OnModuleInit, OnModuleDestroy {
     private readonly wallet: WalletService,
   ) {}
   onModuleInit() {
-    if (process.env.NODE_ENV === 'production' || process.env.COMMERCE_JOBS_ENABLED === 'false')
-      return;
+    if (
+      process.env.COMMERCE_JOBS_ENABLED === 'false' ||
+      (process.env.NODE_ENV === 'production' && process.env.COMMERCE_JOBS_ENABLED !== 'true')
+    ) return;
     this.timer = setInterval(() => {
       void this.tick().catch(() =>
         this.logger.warn('Commerce job failed; inspect database/provider availability'),
@@ -26,7 +28,7 @@ export class CommerceJobs implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
   async tick() {
-    if (this.busy || process.env.NODE_ENV === 'production') return;
+    if (this.busy) return;
     this.busy = true;
     try {
       // Reconciliation is bounded. Pending/unknown requests keep the original provider reference.
