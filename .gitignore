@@ -18,3 +18,4 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 kong/kong.ec2.yml
+content-cleanup-plan.*.json
