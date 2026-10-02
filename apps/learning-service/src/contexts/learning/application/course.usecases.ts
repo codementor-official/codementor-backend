@@ -446,11 +446,20 @@ export class CourseUseCases {
 
     const lessons = curriculum.flatMap((chapter) => chapter.lessons);
     if ((await this.access.offer(requireHumanId(user), id)).priceVnd > 0) {
-      for (const lesson of lessons.filter(row => !row.isPreview)) {
+      // Chỉ bài VIDEO: studio lưu bài lý thuyết mà không gửi `media`, và `upsert` là `$set`,
+      // nên một bài từng là video (hoặc dữ liệu thử) giữ `media` cũ mãi mà giảng viên không
+      // thấy ô nào để gỡ. Bài lý thuyết cũng không bao giờ phát video cho học viên.
+      const blocked: string[] = [];
+      for (const lesson of lessons.filter(row => !row.isPreview && row.type === 'video')) {
         const content = await this.contents.findByLessonId(lesson.id);
         if (content?.media?.url && (process.env.COMMERCE_PRIVATE_MEDIA_READY !== 'true' || !this.privateLessonKey(content.media.url, id, lesson.id) || content.media.captionsUrl)) {
-          throw new BusinessRuleViolation('Video trả phí phải tải lên vùng lưu trữ riêng đã cấu hình. Thay video công khai cũ và bỏ phụ đề URL công khai trước khi gửi duyệt.');
+          blocked.push(`"${lesson.title}"`);
         }
+      }
+      if (blocked.length) {
+        throw new BusinessRuleViolation(
+          `Khóa trả phí chỉ nhận video tải lên vùng lưu trữ riêng, không nhận video hay phụ đề dạng URL công khai. Sửa video của: ${blocked.join(', ')}.`,
+        );
       }
     }
     // Bài lý thuyết chưa có `content_ref` là ô rỗng với học viên.
