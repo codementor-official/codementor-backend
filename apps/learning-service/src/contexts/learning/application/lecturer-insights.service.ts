@@ -15,7 +15,7 @@ export interface LecturerInsights {
   /** Lượt nộp và lượt đạt trên bài code giảng viên là tác giả, trong cửa sổ. */
   submissions: number;
   acceptedSubmissions: number;
-  /** Tổng phần giảng viên nhận từ đơn đã thanh toán trong cửa sổ (VND). */
+  /** Tổng phần giảng viên nhận từ đơn thanh toán xong trong cửa sổ (VND). */
   revenue: number;
   daily: { date: string; completions: number; enrollments: number }[];
   topCourses: { id: string; title: string; learners: number; completed: number; avgProgress: number }[];
@@ -37,7 +37,7 @@ export class LecturerInsightsService {
       this.prisma.$queryRaw<
         {
           active: number; completed: number; recent: number; rating: string | null; reviews: number;
-          submissions: number; accepted: number; revenue: number;
+          submissions: number; accepted: number; revenue: bigint;
         }[]
       >`
         WITH mine AS (SELECT id FROM courses WHERE created_by = ${lecturerId}::uuid)
@@ -55,8 +55,10 @@ export class LecturerInsightsService {
           (SELECT count(*)::int FROM submissions s JOIN exercises x ON x.id = s.exercise_id
              WHERE x.author_id = ${lecturerId}::uuid AND s.submitted_at >= ${since}
                AND s.verdict = 'accepted') AS accepted,
-          (SELECT coalesce(sum(o.instructor_amount), 0)::int FROM commerce_orders o
-             WHERE o.instructor_id = ${lecturerId}::uuid AND o.status = 'paid' AND o.created_at >= ${since}) AS revenue`,
+          -- bigint: tổng tiền một cửa sổ có thể vượt 2,1 tỷ (trần của int4). Ngày tính theo lúc
+          -- thanh toán xong, không phải lúc tạo đơn.
+          (SELECT coalesce(sum(o.instructor_amount), 0)::bigint FROM commerce_orders o
+             WHERE o.instructor_id = ${lecturerId}::uuid AND o.status = 'paid' AND o.settled_at >= ${since}) AS revenue`,
       this.prisma.$queryRaw<{ date: string; completions: number; enrollments: number }[]>`
         WITH mine AS (SELECT id FROM courses WHERE created_by = ${lecturerId}::uuid),
         days AS (
@@ -91,7 +93,7 @@ export class LecturerInsightsService {
       reviews: totals.reviews,
       submissions: totals.submissions,
       acceptedSubmissions: totals.accepted,
-      revenue: totals.revenue,
+      revenue: Number(totals.revenue),
       daily,
       topCourses: topCourses.map(({ progress, ...row }) => ({ ...row, avgProgress: Number(progress) })),
     };
