@@ -1,4 +1,6 @@
-import { Injectable, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, BadRequestException, ServiceUnavailableException, Optional, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { CommerceStore } from './commerce.store';
+import { acquireVnpayQueryLease } from './vnpay-query-throttle';
 import { createHash, createHmac, timingSafeEqual, randomUUID } from 'node:crypto';
 import type {
   PaymentEvidence,
@@ -8,6 +10,18 @@ import type {
 } from '../domain/money';
 
 type Fields = Record<string, string>;
+export class ProviderQueryMismatch extends ServiceUnavailableException {
+  constructor(readonly kind: string) {
+    super({ message: 'Chưa xác minh được phản hồi VNPAY. Trạng thái thanh toán chưa thay đổi.',
+      code: 'VNPAY_QUERY_UNVERIFIED', reason: kind });
+  }
+}
+function integer(value: unknown, scale = 1) {
+  const raw = String(value ?? '');
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) % scale !== 0)
+    throw new BadRequestException('Số tiền hoặc mã giao dịch không hợp lệ');
+  return Number(raw) / scale;
+}
 export function mac(data: string, secret: string, algorithm = 'sha512') {
   return createHmac(algorithm, secret).update(data).digest('hex');
 }
@@ -28,6 +42,14 @@ export function vnpCanonical(fields: Fields) {
 export function vietnamDate(date: Date) {
   return new Date(date.getTime() + 7 * 3600000).toISOString().replace(/[-:T]/g, '').slice(0, 14);
 }
+export function vnpPaymentDate(value: string | undefined) {
+  if (!value) return undefined;
+  if (!/^\d{14}$/.test(value)) throw new BadRequestException('Thời điểm thanh toán không hợp lệ');
+  const date = new Date(Date.UTC(Number(value.slice(0,4)),Number(value.slice(4,6))-1,
+    Number(value.slice(6,8)),Number(value.slice(8,10))-7,Number(value.slice(10,12)),Number(value.slice(12,14))));
+  if (vietnamDate(date) !== value) throw new BadRequestException('Thời điểm thanh toán không hợp lệ');
+  return date;
+}
 function momoData(fields: Fields) {
   return Object.keys(fields)
     .sort()
@@ -41,6 +63,8 @@ function strings(value: unknown): Fields {
   for (const [k, v] of Object.entries(value)) {
     if (typeof v !== 'string' && typeof v !== 'number')
       throw new BadRequestException('Invalid payment field');
+    if (typeof v === 'number' && !Number.isSafeInteger(v))
+      throw new BadRequestException('Payment number exceeds safe integer range');
     result[k] = String(v);
   }
   return result;
@@ -59,6 +83,8 @@ function fingerprint(fields: Fields) {
 
 @Injectable()
 export class PaymentProviders {
+  private readonly logger = new Logger(PaymentProviders.name);
+  constructor(@Optional() private readonly store?: CommerceStore) {}
   get mode(): 'mock' | 'sandbox' {
     return process.env.COMMERCE_MODE === 'sandbox' ? 'sandbox' : 'mock';
   }
@@ -156,6 +182,11 @@ export class PaymentProviders {
       ...body,
       signature: mac(momoData(signing), process.env.MOMO_SECRET_KEY!, 'sha256'),
     });
+    const responseSignature: Fields = { accessKey: process.env.MOMO_ACCESS_KEY! };
+    for (const key of ['amount', 'orderId', 'partnerCode', 'payUrl', 'requestId', 'responseTime', 'resultCode'])
+      responseSignature[key] = String(result[key] ?? '');
+    if (!signedEquals(String(result.signature ?? ''), mac(momoData(responseSignature), process.env.MOMO_SECRET_KEY!, 'sha256')))
+      throw new Error('MoMo create signature mismatch');
     if (
       String(result.orderId) !== p.id ||
       String(result.requestId) !== p.id ||
@@ -172,7 +203,12 @@ export class PaymentProviders {
   }
   verify(provider: 'vnpay' | 'momo', value: unknown): PaymentEvidence {
     this.ensure(provider);
-    const f = strings(value);
+    // Optional MoMo promotion/metadata objects are not part of signed financial fields.
+    // Never coerce structured values in signed fields, nor fingerprint untrusted extras.
+    const momoFields = new Set(['amount', 'extraData', 'message', 'orderId', 'orderInfo', 'orderType',
+      'partnerCode', 'payType', 'requestId', 'responseTime', 'resultCode', 'transId', 'signature']);
+    const f = strings(provider === 'momo' && value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).filter(([key]) => momoFields.has(key))) : value);
     const paymentId = provider === 'vnpay' ? f.vnp_TxnRef : f.orderId;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(paymentId ?? ''))
       throw new BadRequestException('Mã thanh toán không hợp lệ');
@@ -185,11 +221,12 @@ export class PaymentProviders {
         f.vnp_TmnCode !== process.env.VNPAY_TMN_CODE
       )
         throw new BadRequestException('Chữ ký hoặc merchant không hợp lệ');
-      if (!/^\d+$/.test(f.vnp_Amount) || Number(f.vnp_Amount) % 100 !== 0)
-        throw new BadRequestException('Số tiền không hợp lệ');
+      const amount = integer(f.vnp_Amount, 100);
+      if (f.vnp_CurrCode && f.vnp_CurrCode !== 'VND') throw new BadRequestException('Số tiền không đúng loại tiền');
       return {
         paymentId: f.vnp_TxnRef,
-        amount: Number(f.vnp_Amount) / 100,
+        paidAt: vnpPaymentDate(f.vnp_PayDate),
+        amount,
         reference: f.vnp_TransactionNo,
         result:
           f.vnp_ResponseCode === '00' && f.vnp_TransactionStatus === '00'
@@ -231,7 +268,7 @@ export class PaymentProviders {
       throw new BadRequestException('Chữ ký hoặc merchant không hợp lệ');
     return {
       paymentId: f.orderId,
-      amount: Number(f.amount),
+      amount: integer(f.amount),
       reference: f.transId,
       result: this.momoResult(Number(f.resultCode)),
       fingerprint: fingerprint(f),
@@ -268,10 +305,12 @@ export class PaymentProviders {
       if (
         r.partnerCode !== fields.partnerCode ||
         r.orderId !== p.id ||
-        r.requestId !== requestId ||
-        Number(r.amount) !== p.amount
+        r.requestId !== requestId
       )
-        throw new Error('MoMo query identity mismatch');
+        throw new ProviderQueryMismatch('reference_mismatch');
+      if (integer(r.amount) !== p.amount) throw new ProviderQueryMismatch('amount_mismatch');
+      if (typeof r.transId === 'number' && !Number.isSafeInteger(r.transId))
+        throw new ProviderQueryMismatch('invalid_gateway_reference');
       return {
         paymentId: p.id,
         amount: p.amount,
@@ -286,6 +325,7 @@ export class PaymentProviders {
         ),
       };
     }
+    if (this.store) await acquireVnpayQueryLease(this.store.db, p.id);
     const f: Fields = {
       vnp_RequestId: randomUUID().replace(/-/g, ''),
       vnp_Version: '2.1.0',
@@ -311,11 +351,26 @@ export class PaymentProviders {
       .map((k) => f[k])
       .join('|');
     const r = strings(
-      await this.post('https://sandbox.vnpayment.vn/merchant_webapi/api/transaction', {
+      await this.queryPost('https://sandbox.vnpayment.vn/merchant_webapi/api/transaction', {
         ...f,
         vnp_SecureHash: mac(raw, process.env.VNPAY_HASH_SECRET!),
       }),
     );
+    // Error envelopes can be unsigned. They are diagnostics, never settlement evidence.
+    this.logger.log(JSON.stringify({ event: 'vnpay.query.response', paymentId: p.id,
+      responseCode: r.vnp_ResponseCode ?? 'missing', transactionStatus: r.vnp_TransactionStatus ?? null }));
+    if (r.vnp_ResponseCode !== '00') {
+      const duplicate = r.vnp_ResponseCode === '94';
+      throw new HttpException({
+        statusCode: duplicate ? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.SERVICE_UNAVAILABLE,
+        code: duplicate ? 'VNPAY_QUERY_COOLDOWN' : 'VNPAY_QUERY_UNAVAILABLE',
+        providerCode: /^\d{2}$/.test(r.vnp_ResponseCode ?? '') ? r.vnp_ResponseCode : 'unknown',
+        message: duplicate
+          ? 'VNPAY yêu cầu chờ trước khi tra soát lại. Trạng thái thanh toán chưa thay đổi.'
+          : 'Chưa xác minh được giao dịch với VNPAY. Vui lòng thử lại sau.',
+        ...(duplicate ? { retryAfterSeconds: 360 } : {}),
+      }, duplicate ? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.SERVICE_UNAVAILABLE);
+    }
     const keys = [
       'vnp_ResponseId',
       'vnp_Command',
@@ -333,21 +388,26 @@ export class PaymentProviders {
       'vnp_PromotionCode',
       'vnp_PromotionAmount',
     ];
+    const signatureVerified = signedEquals(r.vnp_SecureHash ?? '',
+      mac(keys.map((k) => r[k] ?? '').join('|'), process.env.VNPAY_HASH_SECRET!));
+    this.logger.log(JSON.stringify({ event: 'vnpay.query.verification', paymentId: p.id,
+      signatureVerified, merchantVerified: r.vnp_TmnCode === f.vnp_TmnCode,
+      referenceVerified: r.vnp_TxnRef === p.id, command: r.vnp_Command ?? null,
+      legacySignatureVerified: signedEquals(r.vnp_SecureHash ?? '',
+        mac(keys.slice(0,13).map(k=>r[k]??'').join('|'),process.env.VNPAY_HASH_SECRET!)) }));
     if (
-      !signedEquals(
-        r.vnp_SecureHash ?? '',
-        mac(keys.map((k) => r[k] ?? '').join('|'), process.env.VNPAY_HASH_SECRET!),
-      ) ||
+      !signatureVerified ||
       r.vnp_TmnCode !== f.vnp_TmnCode ||
       r.vnp_TxnRef !== p.id ||
       r.vnp_Command !== 'querydr'
     )
-      throw new Error('VNPAY query signature/identity mismatch');
+      throw new ProviderQueryMismatch('signature_or_reference_mismatch');
     if (r.vnp_ResponseCode !== '00' || r.vnp_TransactionType !== (refund ? '02' : '01'))
       return null;
     return {
       paymentId: p.id,
-      amount: Number(r.vnp_Amount) / 100,
+      paidAt: vnpPaymentDate(r.vnp_PayDate),
+      amount: integer(r.vnp_Amount, 100),
       reference: r.vnp_TransactionNo,
       result:
         r.vnp_TransactionStatus === '00'
@@ -482,6 +542,15 @@ export class PaymentProviders {
       r.vnp_TransactionType === '02'
       ? 'success'
       : 'unknown';
+  }
+  private async queryPost(url: string, body: unknown): Promise<Record<string, unknown>> {
+    try { return await this.post(url, body); }
+    catch {
+      throw new ServiceUnavailableException({
+        code: 'VNPAY_QUERY_UNAVAILABLE',
+        message: 'Chưa kết nối được VNPAY để xác minh thanh toán. Vui lòng thử lại sau.',
+      });
+    }
   }
   private async post(url: string, body: unknown): Promise<Record<string, unknown>> {
     const response = await fetch(url, {

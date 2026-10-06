@@ -4,11 +4,12 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { notifyCommerce } from '../infrastructure/commerce-notification';
+import { requiresPaymentReview } from '../domain/money';
 import { Prisma } from '@prisma/client';
 import { splitRevenue, type PaymentProvider, type PaymentEvidence } from '../domain/money';
-import { PaymentProviders } from '../infrastructure/payment-providers';
+import { PaymentProviders, ProviderQueryMismatch } from '../infrastructure/payment-providers';
 import {
   CommerceStore,
   lock,
@@ -38,8 +39,11 @@ export class OrdersService {
       >`SELECT id FROM course_access_grants WHERE user_id=${buyerId}::uuid AND course_id=${courseId}::uuid AND revoked_at IS NULL`;
       if (grants.length) throw new ConflictException('Bạn đã có quyền học khóa này.');
       const [course] = await tx.$queryRaw<
-        { title: string; instructor: string; price: number }[]
-      >`SELECT c.title,c.created_by AS instructor,
+        { title: string; instructor: string; price: number; list_price: number; version: number; promotion: unknown }[]
+      >`SELECT c.title,c.created_by AS instructor,p.price_vnd AS list_price,p.version,
+          CASE WHEN pr.is_active AND now() >= pr.starts_at AND now() < pr.ends_at AND pr.sale_price_vnd < p.price_vnd
+            THEN jsonb_build_object('label',pr.label,'salePriceVnd',pr.sale_price_vnd,'startsAt',pr.starts_at,'endsAt',pr.ends_at,'version',pr.updated_at)
+            ELSE NULL END AS promotion,
           CASE WHEN pr.is_active AND now() >= pr.starts_at AND now() < pr.ends_at
             AND pr.sale_price_vnd < p.price_vnd THEN pr.sale_price_vnd ELSE p.price_vnd END AS price
         FROM courses c JOIN course_prices p ON p.course_id=c.id
@@ -55,10 +59,12 @@ export class OrdersService {
       if (open) return open;
       const [policy] = await tx.$queryRaw<PolicyRow[]>`SELECT * FROM commerce_policy`;
       const share = splitRevenue(course.price, policy.instructor_bps);
+      const pricingSnapshot = { originalPriceVnd: course.list_price, discountVnd: course.list_price - course.price,
+        finalAmountVnd: course.price, priceVersion: course.version, promotion: course.promotion };
       const [row] = await tx.$queryRaw<
         OrderRow[]
-      >`INSERT INTO commerce_orders(buyer_id,course_id,instructor_id,course_title,amount,instructor_bps,instructor_amount,platform_amount,hold_days,mode)
-        VALUES (${buyerId}::uuid,${courseId}::uuid,${course.instructor}::uuid,${course.title},${course.price},${policy.instructor_bps},${share.instructor},${share.platform},${policy.hold_days},${this.providers.mode}) RETURNING *`;
+      >`INSERT INTO commerce_orders(buyer_id,course_id,instructor_id,course_title,amount,instructor_bps,instructor_amount,platform_amount,hold_days,mode,pricing_snapshot)
+        VALUES (${buyerId}::uuid,${courseId}::uuid,${course.instructor}::uuid,${course.title},${course.price},${policy.instructor_bps},${share.instructor},${share.platform},${policy.hold_days},${this.providers.mode},${JSON.stringify(pricingSnapshot)}::jsonb) RETURNING *`;
       await tx.$executeRaw`INSERT INTO commerce_payments(order_id,provider) VALUES (${row.id}::uuid,${provider})`;
       await audit(tx, 'order.created', row.id, buyerId);
       return row;
@@ -173,10 +179,17 @@ export class OrdersService {
     const [payment] = await this.store.db.$queryRaw<
       PaymentRow[]
     >`SELECT * FROM commerce_payments WHERE id=${e.paymentId}::uuid AND provider=${provider}`;
-    if (!payment) throw new NotFoundException('Không tìm thấy lần thanh toán');
+    if (!payment) {
+      await this.recordIssue(provider, e, 'unknown_payment', null);
+      throw new NotFoundException('Không tìm thấy lần thanh toán');
+    }
     const [snapshot] = await this.store.db.$queryRaw<
       OrderRow[]
     >`SELECT * FROM commerce_orders WHERE id=${payment.order_id}::uuid`;
+    if (snapshot.amount !== e.amount || (provider === 'mock') !== (snapshot.mode === 'mock')) {
+      await this.recordIssue(provider, e, 'amount_or_environment_mismatch', payment.id, { expectedAmount: snapshot.amount });
+      throw new BadRequestException('Số tiền hoặc môi trường không khớp');
+    }
     return this.store.transaction(async (tx) => {
       await lock(tx, `buyer:${snapshot.buyer_id}:${snapshot.course_id}`);
       await lock(tx, `wallet:${snapshot.instructor_id}`);
@@ -188,11 +201,31 @@ export class OrdersService {
       >`SELECT * FROM commerce_payments WHERE id=${payment.id}::uuid FOR UPDATE`;
       if (order.amount !== e.amount || (provider === 'mock') !== (order.mode === 'mock'))
         throw new BadRequestException('Số tiền hoặc môi trường không khớp');
+      if (e.result === 'success') {
+        await lock(tx, `provider-reference:${provider}:${e.reference}`);
+        const [duplicate] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM commerce_payments
+          WHERE provider=${provider} AND provider_ref=${e.reference} AND id<>${payment.id}::uuid`;
+        if (duplicate || (currentPayment.provider_ref && currentPayment.provider_ref !== e.reference)) {
+          await this.issue(tx, provider, e, duplicate ? 'duplicate_reference' : 'reference_mismatch', payment.id);
+          await tx.$executeRaw`UPDATE commerce_payments SET reconciled_at=NULL WHERE id=${payment.id}::uuid`;
+          return { quarantined: true };
+        }
+      }
+      // A query conflicting with recorded success cannot erase ledger history or unlock income.
+      if (order.income_state !== 'none' && (['failure', 'cancelled'].includes(e.result) || (reconciled && e.result !== 'success'))) {
+        await this.issue(tx, provider, e, 'status_conflict', payment.id, { internal: currentPayment.status, reconciled });
+        await tx.$executeRaw`UPDATE commerce_payments SET reconciled_at=NULL WHERE id=${payment.id}::uuid`;
+        return { quarantined: true };
+      }
       const events = await tx.$queryRaw<
         { id: string }[]
       >`INSERT INTO commerce_provider_events(payment_id,fingerprint,result)
         VALUES (${payment.id}::uuid,${e.fingerprint},${e.result}) ON CONFLICT DO NOTHING RETURNING id`;
-      if (!events.length) return;
+      if (!events.length) {
+        if (reconciled && e.result === 'success' && currentPayment.status === 'succeeded')
+          await tx.$executeRaw`UPDATE commerce_payments SET reconciled_at=now() WHERE id=${payment.id}::uuid`;
+        return { duplicate: true };
+      }
       if (order.income_state !== 'none') {
         if (
           e.result === 'success' &&
@@ -202,15 +235,14 @@ export class OrdersService {
           throw new ConflictException('Mã giao dịch không khớp kết quả đã ghi nhận');
         if (reconciled && e.result === 'success')
           await tx.$executeRaw`UPDATE commerce_payments SET reconciled_at=now() WHERE id=${payment.id}::uuid`;
-        return;
+        return { duplicate: true };
       }
       if (e.result === 'success') {
         // A late success is real money. Keep it for admin review/refund when entitlement already exists.
         const [existing] = await tx.$queryRaw<
           { id: string }[]
         >`SELECT id FROM course_access_grants WHERE user_id=${order.buyer_id}::uuid AND course_id=${order.course_id}::uuid AND revoked_at IS NULL`;
-        const review =
-          !!existing || order.status !== 'pending' || order.expires_at.getTime() < Date.now();
+        const review = requiresPaymentReview(order, !!existing, e);
         await tx.$executeRaw`UPDATE commerce_payments SET status='succeeded',provider_ref=${e.reference},reconciled_at=${reconciled || provider === 'mock' ? new Date() : null} WHERE id=${payment.id}::uuid`;
         // record once, including late/review payments; reviewers can refund them without pretending money never arrived.
         await journal(
@@ -265,6 +297,23 @@ export class OrdersService {
       }
     });
   }
+  private async issue(tx: Prisma.TransactionClient, provider: PaymentProvider, evidence: PaymentEvidence, kind: string, paymentId: string | null, details: unknown = {}) {
+    const [created] = await tx.$queryRaw<{ id: string }[]>`INSERT INTO commerce_reconciliation_issues(payment_id,provider,kind,fingerprint,details)
+      VALUES (${paymentId}::uuid,${provider},${kind},${evidence.fingerprint},${JSON.stringify({ ...evidence, context: details })}::jsonb)
+      ON CONFLICT DO NOTHING RETURNING id`;
+    if (created) await audit(tx, `reconciliation.${kind}`, paymentId, undefined, { evidence, details });
+  }
+  private async recordIssue(provider: PaymentProvider, evidence: PaymentEvidence, kind: string, paymentId: string | null, details: unknown = {}) {
+    await this.store.transaction(async (tx) => {
+      if (paymentId) {
+        const [order] = await tx.$queryRaw<{ instructor_id: string }[]>`SELECT o.instructor_id FROM commerce_orders o
+          JOIN commerce_payments p ON p.order_id=o.id WHERE p.id=${paymentId}::uuid`;
+        if (order) await lock(tx, `wallet:${order.instructor_id}`);
+        await tx.$executeRaw`UPDATE commerce_payments SET reconciled_at=NULL WHERE id=${paymentId}::uuid`;
+      }
+      await this.issue(tx, provider, evidence, kind, paymentId, details);
+    });
+  }
   async mock(
     userId: string,
     id: string,
@@ -294,13 +343,27 @@ export class OrdersService {
       OrderRow[]
     >`SELECT * FROM commerce_orders WHERE id=${id}::uuid`;
     if (!p || !o) throw new NotFoundException();
-    const e = await this.providers.query(p.provider, {
+    let e: PaymentEvidence | null;
+    try { e = await this.providers.query(p.provider, {
       id: p.id,
       orderId: o.id,
       amount: o.amount,
       createdAt: p.created_at,
       expiresAt: o.expires_at,
-    });
-    if (e) await this.apply(p.provider, { ...e, fingerprint: `query:${randomUUID()}` }, true);
+    }); } catch (error) {
+      if (error instanceof ProviderQueryMismatch || error instanceof BadRequestException) {
+        const kind = error instanceof ProviderQueryMismatch ? error.kind : 'invalid_gateway_payload';
+        await this.recordIssue(p.provider, { paymentId: p.id, amount: o.amount, reference: '', result: 'unknown',
+          fingerprint: createHash('sha256').update(`${p.id}:${kind}`).digest('hex') }, kind, p.id);
+      }
+      throw error;
+    }
+    if (e) {
+      if (e.paymentId !== p.id) {
+        await this.recordIssue(p.provider, e, 'reference_mismatch', p.id);
+        throw new ConflictException('Mã thanh toán trả về không khớp yêu cầu đối soát');
+      }
+      await this.apply(p.provider, { ...e, fingerprint: `query:${e.fingerprint}` }, true);
+    }
   }
 }

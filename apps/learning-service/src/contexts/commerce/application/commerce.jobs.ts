@@ -35,8 +35,11 @@ export class CommerceJobs implements OnModuleInit, OnModuleDestroy {
       const pending = await this.store.db.$queryRaw<
         { id: string }[]
       >`SELECT o.id FROM commerce_orders o JOIN commerce_payments p ON p.order_id=o.id
-        WHERE o.status IN ('pending','expired','paid') AND p.provider<>'mock' AND (p.reconciled_at IS NULL OR p.status='pending')
-        AND o.created_at>now()-interval '7 days' ORDER BY o.created_at LIMIT 20`;
+        LEFT JOIN commerce_provider_query_leases ql ON ql.payment_id=p.id
+        WHERE o.status IN ('pending','expired','paid','review','failed','cancelled') AND p.provider<>'mock'
+          AND p.create_started_at IS NOT NULL AND (p.reconciled_at IS NULL OR p.status='pending')
+          AND (p.provider<>'vnpay' OR ql.next_query_at IS NULL OR ql.next_query_at<=now())
+        AND (o.created_at>now()-interval '7 days' OR o.income_state='pending') ORDER BY o.created_at LIMIT 20`;
       for (const p of pending) {
         try {
           await this.orders.reconcile(p.id);
