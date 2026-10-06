@@ -15,6 +15,12 @@ import {
   Max,
   Min,
 } from 'class-validator';
+export class RevenuePeriod {
+  @Type(() => Number) @IsIn([7, 30, 90]) days = 30;
+}
+export class AdminRevenuePeriod extends RevenuePeriod {
+  @IsOptional() @IsUUID() instructorId?: string;
+}
 export class CommercePage {
   @Type(() => Number) @IsInt() @Min(1) @Max(100000) page = 1;
   @IsOptional() @IsIn(['pending', 'paid', 'failed', 'cancelled', 'expired', 'review', 'refunded']) status?: string;

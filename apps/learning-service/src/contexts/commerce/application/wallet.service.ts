@@ -74,6 +74,14 @@ export class WalletService {
     };
   }
   async reconciliation() {
+    // Older deployments lack the optional diagnostics table. Keep the base ledger
+    // summary readable, but report this diagnostic as unknown, never as zero issues.
+    const [schema] = await this.store.db.$queryRaw<{ ready: boolean }[]>`
+      SELECT to_regclass('commerce_reconciliation_issues') IS NOT NULL AS ready`;
+    const gatewayIssues = schema.ready
+      ? Prisma.sql`(SELECT count(*) FROM commerce_reconciliation_issues i LEFT JOIN commerce_payments p ON p.id=i.payment_id
+          WHERE p.reconciled_at IS NULL OR p.reconciled_at<i.created_at)`
+      : Prisma.sql`NULL::bigint`;
     const [result] = await this.store.db.$queryRaw<
       {
         review: bigint;
@@ -84,9 +92,11 @@ export class WalletService {
         unknownFees: bigint;
         liability: bigint;
         platform: bigint;
+        gatewayIssues: bigint | null;
       }[]
     >`
       SELECT
+      ${gatewayIssues} AS "gatewayIssues",
       (SELECT count(*) FROM commerce_orders WHERE status='review') AS review,
       (SELECT count(*) FROM commerce_orders o JOIN commerce_payments p ON p.order_id=o.id WHERE o.status IN ('paid','review') AND p.reconciled_at IS NULL) AS unreconciled,
       (SELECT count(*) FROM commerce_withdrawals WHERE status IN ('processing','pending','unknown')) AS "uncertainPayouts",
@@ -95,7 +105,7 @@ export class WalletService {
       (SELECT count(*) FROM commerce_orders WHERE settled_at IS NOT NULL AND fee_amount IS NULL) AS "unknownFees",
       COALESCE((SELECT sum(amount) FROM commerce_entries WHERE account IN ('pending','available','reserved','refund_held')),0)::bigint AS liability,
       COALESCE((SELECT sum(amount) FROM commerce_entries WHERE account IN ('platform','fees')),0)::bigint AS platform`;
-    return Object.fromEntries(Object.entries(result).map(([key, value]) => [key, Number(value)]));
+    return Object.fromEntries(Object.entries(result).map(([key, value]) => [key, value === null ? null : Number(value)]));
   }
   async recipient(
     userId: string,
@@ -118,6 +128,8 @@ export class WalletService {
   }
   async withdraw(userId: string, amount: number, key: string, scenario: PayoutScenario) {
     this.providers.assertEnabled();
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000)
+      throw new BadRequestException('Số tiền rút không hợp lệ');
     return this.store.transaction(async (tx) => {
       await lock(tx, `wallet:${userId}`);
       const [existing] = await tx.$queryRaw<
@@ -187,8 +199,13 @@ export class WalletService {
     >`UPDATE commerce_withdrawals SET status='processing',processed_at=now() WHERE id=${id}::uuid AND status='approved' RETURNING *`;
     if (!rows[0]) return;
     // A crash leaves 'processing': the worker never submits it again automatically.
-    const result = await this.payout.send(id, rows[0].scenario);
-    await this.finishPayout(id, result.result);
+    try {
+      const result = await this.payout.send(id, rows[0].scenario);
+      await this.finishPayout(id, result.result);
+    } catch {
+      // A timeout/exception is not proof of failure: reserve remains held, never resend.
+      await this.finishPayout(id, 'unknown');
+    }
   }
   async finishPayout(id: string, result: ProviderResult) {
     this.providers.assertEnabled();

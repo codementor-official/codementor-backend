@@ -9,8 +9,10 @@ import {
   ParseUUIDPipe,
   HttpCode,
   Res,
+  BadRequestException,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
+import { confirmVnpayIpn } from './vnpay-ipn';
 import { Prisma } from '@prisma/client';
 import {
   AuthenticatedUser,
@@ -21,12 +23,15 @@ import {
 } from '@codementor/platform';
 import { OrdersService } from '../application/orders.service';
 import { WalletService } from '../application/wallet.service';
+import { RevenueAnalyticsService } from '../application/revenue-analytics.service';
 import { CommerceAccessService } from '../application/commerce-access.service';
 import { CommerceJobs } from '../application/commerce.jobs';
 import { CommerceStore, audit } from '../infrastructure/commerce.store';
 import { PaymentProviders } from '../infrastructure/payment-providers';
 import {
   CommercePage,
+  RevenuePeriod,
+  AdminRevenuePeriod,
   CreateOrderDto,
   DecisionDto,
   ManualGrantDto,
@@ -49,6 +54,7 @@ export class CommerceController {
     private readonly providers: PaymentProviders,
     private readonly store: CommerceStore,
     private readonly jobs: CommerceJobs,
+    private readonly analytics: RevenueAnalyticsService,
   ) {}
   @Get('config') config() {
     const methods = this.providers.methods();
@@ -124,6 +130,17 @@ export class CommerceController {
   }
   @Get('wallet') @Roles('lecturer') wallet(@CurrentUser() u: AuthenticatedUser) {
     return this.wallets.summary(requireHumanId(u));
+  }
+  @Get('wallet/analytics') @Roles('lecturer') revenue(
+    @CurrentUser() u: AuthenticatedUser, @Query() q: RevenuePeriod,
+  ) {
+    return this.analytics.report(q.days, requireHumanId(u));
+  }
+  @Get('admin/analytics') @Roles('admin') adminRevenue(@Query() q: AdminRevenuePeriod) {
+    return this.analytics.report(q.days, q.instructorId, 'admin');
+  }
+  @Get('admin/analytics/instructors') @Roles('admin') revenueInstructors(@Query() q: RevenuePeriod) {
+    return this.analytics.instructors(q.days);
   }
   @Put('wallet/recipient') @Roles('lecturer') recipient(
     @CurrentUser() u: AuthenticatedUser,
@@ -326,11 +343,10 @@ export class CommerceController {
     @Query() q: Record<string, string>,
     @Res() reply: FastifyReply,
   ) {
-    const evidence = this.providers.verify('vnpay', q);
-    await this.orders.apply('vnpay', evidence);
-    reply.send({ RspCode: '00', Message: 'Confirm Success' });
+    return reply.code(200).send(await confirmVnpayIpn(this.providers, this.orders, q));
   }
   @Public() @Post('webhooks/momo') @HttpCode(204) async momo(@Body() b: unknown) {
-    await this.orders.apply('momo', this.providers.verify('momo', b));
+    const result = await this.orders.apply('momo', this.providers.verify('momo', b));
+    if (result?.quarantined) throw new BadRequestException('Payment requires review');
   }
 }

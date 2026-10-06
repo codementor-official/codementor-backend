@@ -6,12 +6,14 @@ import { PaymentProviders, mac, vnpCanonical } from './infrastructure/payment-pr
 import { OrdersService } from './application/orders.service';
 import { WalletService, MockPayoutAdapter } from './application/wallet.service';
 import { CommerceAccessService } from './application/commerce-access.service';
+import { PrismaCourseRepository } from '../learning/infrastructure/prisma-course.repository';
 import { splitRevenue } from './domain/money';
 import { Module, ValidationPipe, VersioningType, UnauthorizedException } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { CommerceController } from './presentation/commerce.controller';
 import { CommerceJobs } from './application/commerce.jobs';
+import { RevenueAnalyticsService } from './application/revenue-analytics.service';
 import { RolesGuard } from '../../../../../libs/platform/src/auth/roles.guard';
 import { ResponseInterceptor } from '../../../../../libs/platform/src/http/interceptors/response.interceptor';
 jest.mock('jwks-rsa', () => ({ passportJwtSecret: jest.fn() }));
@@ -84,6 +86,10 @@ integration('Commerce transactions (real PostgreSQL)', () => {
       await tx.$executeRawUnsafe('ALTER TABLE commerce_entries DISABLE TRIGGER USER');
       await tx.$executeRawUnsafe('ALTER TABLE commerce_journals DISABLE TRIGGER USER');
       await tx.$executeRawUnsafe('ALTER TABLE commerce_audit DISABLE TRIGGER USER');
+      await tx.$executeRawUnsafe('ALTER TABLE commerce_reconciliation_issues DISABLE TRIGGER USER');
+      await tx.$executeRawUnsafe(`DELETE FROM commerce_reconciliation_issues WHERE payment_id IS NULL OR payment_id IN (
+        SELECT p.id FROM commerce_payments p JOIN commerce_orders o ON o.id=p.order_id
+        JOIN users u ON u.id=o.buyer_id WHERE u.email::text LIKE '%@test.invalid')`);
       await tx.$executeRawUnsafe(`DELETE FROM commerce_provider_events WHERE payment_id IN (
         SELECT p.id FROM commerce_payments p JOIN commerce_orders o ON o.id=p.order_id
         WHERE o.buyer_id IN (SELECT id FROM users WHERE email::text LIKE '%@test.invalid')
@@ -131,6 +137,7 @@ integration('Commerce transactions (real PostgreSQL)', () => {
       await tx.$executeRawUnsafe('ALTER TABLE commerce_entries ENABLE TRIGGER USER');
       await tx.$executeRawUnsafe('ALTER TABLE commerce_journals ENABLE TRIGGER USER');
       await tx.$executeRawUnsafe('ALTER TABLE commerce_audit ENABLE TRIGGER USER');
+      await tx.$executeRawUnsafe('ALTER TABLE commerce_reconciliation_issues ENABLE TRIGGER USER');
     });
   }
   beforeAll(async () => {
@@ -170,6 +177,7 @@ integration('Commerce transactions (real PostgreSQL)', () => {
         { provide: CommerceAccessService, useValue: access },
         { provide: PaymentProviders, useValue: providers },
         { provide: CommerceJobs, useValue: jobs },
+        { provide: RevenueAnalyticsService, useValue: new RevenueAnalyticsService(store) },
       ],
     })(Harness);
     const app = await NestFactory.create<NestFastifyApplication>(Harness, new FastifyAdapter(), {
@@ -705,12 +713,137 @@ integration('Commerce transactions (real PostgreSQL)', () => {
     expect(await access.offer(buyer, second)).toMatchObject({ priceVnd: 300000, promotion: null });
     await access.decidePromotionRequest(
       actor(admin, 'admin'),
-      result.requestIds[0],
+      (await access.promotions(instructor, false)).find((item) => item.courseId === first)!.promotionRequest!.id,
       true,
       'Chương trình hợp lệ',
     );
     expect(await access.offer(buyer, first)).toMatchObject({ priceVnd: 90000 });
     expect(await access.offer(buyer, second)).toMatchObject({ priceVnd: 300000 });
+  });
+  function campaign(salePriceVnd = 150000) {
+    return { salePriceVnd, label: 'Ưu đãi consistency', startsAt: new Date(Date.now() - 60000).toISOString(),
+      endsAt: new Date(Date.now() + 86400000).toISOString(), isActive: true };
+  }
+  it('published courses returned for edits keep active pricing unchanged', async () => {
+    const c = await course();
+    await db.$executeRaw`UPDATE courses SET status='changes_requested' WHERE id=${c}::uuid`;
+    await access.setPrice(actor(instructor), c, 300000);
+    const [row] = await db.$queryRaw<{ price_vnd: number; pending_price_vnd: number }[]>`SELECT * FROM course_prices WHERE course_id=${c}::uuid`;
+    expect(row).toMatchObject({ price_vnd: 200000, pending_price_vnd: 300000 });
+  });
+  it('cannot approve an independent promotion against a pending price, or revive it after the price changes', async () => {
+    const c = await course();
+    const proposed = await access.setPromotion(actor(instructor), c, campaign());
+    await access.setPrice(actor(instructor), c, 300000);
+    await expect(access.decidePromotionRequest(actor(admin, 'admin'), proposed.requestId!, true, 'Duyệt')).rejects.toThrow();
+    await access.applyApprovedPrice(c, admin);
+    await expect(access.decidePromotionRequest(actor(admin, 'admin'), proposed.requestId!, true, 'Duyệt')).rejects.toThrow();
+    expect((await access.offer(await user(), c)).priceVnd).toBe(300000);
+  });
+  it('concurrent joint approvals apply one configuration and advance the version once', async () => {
+    const c = await course();
+    await access.setPrice(actor(instructor), c, 300000);
+    await access.setPromotion(actor(instructor), c, campaign(240000));
+    const results = await Promise.all([access.applyApprovedPrice(c, admin), access.applyApprovedPrice(c, admin)]);
+    expect(results.filter((result) => result.applied)).toHaveLength(1);
+    const [price] = await db.$queryRaw<{ version: number }[]>`SELECT version FROM course_prices WHERE course_id=${c}::uuid`;
+    expect(price.version).toBe(2);
+    expect((await access.offer(await user(), c)).priceVnd).toBe(240000);
+  });
+  it.each(['approve', 'reject'] as const)('joint price/promotion %s is atomic with course moderation', async (decision) => {
+    const c = await course();
+    await access.setPromotion(actor(admin, 'admin'), c, campaign(150000));
+    await access.setPrice(actor(instructor), c, 300000);
+    const proposed = await access.setPromotion(actor(instructor), c, campaign(240000));
+    expect((await access.offer(await user(), c)).priceVnd).toBe(150000);
+    await expect(access.decidePromotionRequest(actor(admin, 'admin'), proposed.requestId!, true, 'Duyệt riêng')).rejects.toThrow('Duyệt khóa học');
+    await db.$executeRaw`UPDATE courses SET status='pending_review' WHERE id=${c}::uuid`;
+    const repository = new PrismaCourseRepository(db, access);
+    const entity = (await repository.findById(c))!;
+    const expectedUpdatedAt = entity.updatedAt;
+    expect(entity.moderate(decision, decision === 'reject' ? 'Không hợp lệ' : null).isFail).toBe(false);
+    await repository.save(entity, { approve: decision === 'approve', actorId: admin, reason: 'Kiểm thử cấu hình', expectedUpdatedAt });
+    const [price] = await db.$queryRaw<{ price_vnd: number; pending_price_vnd: number | null }[]>`SELECT * FROM course_prices WHERE course_id=${c}::uuid`;
+    expect(price.price_vnd).toBe(decision === 'approve' ? 300000 : 200000);
+    expect(price.pending_price_vnd).toBeNull();
+    const [promotion] = await db.$queryRaw<{ sale_price_vnd: number }[]>`SELECT * FROM course_promotions WHERE course_id=${c}::uuid`;
+    expect(promotion.sale_price_vnd).toBe(decision === 'approve' ? 240000 : 150000);
+    const [request] = await db.$queryRaw<{ status: string }[]>`SELECT status FROM course_promotion_requests WHERE id=${proposed.requestId}::uuid`;
+    expect(request.status).toBe(decision === 'approve' ? 'approved' : 'rejected');
+  });
+  it('rejecting linked promotion rejects its pending price and preserves public configuration', async () => {
+    const c = await course();
+    await access.setPromotion(actor(admin, 'admin'), c, campaign());
+    await access.setPrice(actor(instructor), c, 300000);
+    const request = await access.setPromotion(actor(instructor), c, campaign(250000));
+    await access.decidePromotionRequest(actor(admin, 'admin'), request.requestId!, false, 'Từ chối cả cấu hình');
+    expect(await access.offer(await user(), c)).toMatchObject({ listPriceVnd: 200000, priceVnd: 150000, pendingPriceVnd: null });
+    await access.applyApprovedPrice(c, admin);
+    expect((await access.offer(await user(), c)).priceVnd).toBe(150000);
+  });
+  it('rollback during course save also rolls back approved price and promotion', async () => {
+    const c = await course();
+    await access.setPrice(actor(instructor), c, 300000);
+    const request = await access.setPromotion(actor(instructor), c, campaign(250000));
+    await db.$executeRaw`UPDATE courses SET status='pending_review' WHERE id=${c}::uuid`;
+    const repository = new PrismaCourseRepository(db, access);
+    const entity = (await repository.findById(c))!;
+    const expectedUpdatedAt = entity.updatedAt;
+    entity.moderate('approve', null);
+    entity.edit({ tagIds: [randomUUID()] });
+    await expect(repository.save(entity, { approve: true, actorId: admin, reason: 'Duyệt', expectedUpdatedAt })).rejects.toThrow();
+    const [row] = await db.$queryRaw<{ status: string; price_vnd: number; pending_price_vnd: number }[]>`SELECT c.status::text,p.* FROM courses c JOIN course_prices p ON p.course_id=c.id WHERE c.id=${c}::uuid`;
+    expect(row).toMatchObject({ status: 'pending_review', price_vnd: 200000, pending_price_vnd: 300000 });
+    const [req] = await db.$queryRaw<{ status: string }[]>`SELECT status FROM course_promotion_requests WHERE id=${request.requestId}::uuid`;
+    expect(req.status).toBe('pending');
+  });
+  it('checkout snapshots approved prices and promotions and rejects order term mutation', async () => {
+    const buyer = await user(); const c = await course();
+    await access.setPromotion(actor(admin, 'admin'), c, campaign());
+    await access.setPrice(actor(instructor), c, 300000);
+    const o = await orders.create(buyer, c, 'mock');
+    expect(o.pricingSnapshot).toMatchObject({ originalPriceVnd: 200000, discountVnd: 50000, finalAmountVnd: 150000, priceVersion: 1, promotion: { salePriceVnd: 150000 } });
+    await access.applyApprovedPrice(c, admin);
+    await access.setPromotion(actor(admin, 'admin'), c, campaign(240000));
+    expect((await orders.mock(buyer, o.id, 'success')).pricingSnapshot).toEqual(o.pricingSnapshot);
+    expect((await orders.detail(buyer, o.id)).amount).toBe(150000);
+    await expect(db.$executeRaw`UPDATE commerce_orders SET amount=1 WHERE id=${o.id}::uuid`).rejects.toThrow();
+  });
+  it('duplicate references and conflicting query results are audited, never credit another order', async () => {
+    const buyer = await user(); const c = await course(); const first = await orders.create(buyer, c, 'mock');
+    const evidence = { paymentId: first.payment.id, amount: first.amount, reference: 'shared-'+randomUUID(), result: 'success' as const, fingerprint: randomUUID() };
+    await orders.apply('mock', evidence, true);
+    const second = await orders.create(await user(), c, 'mock');
+    expect(await orders.apply('mock', { ...evidence, paymentId: second.payment.id, fingerprint: randomUUID() })).toMatchObject({ quarantined: true });
+    expect((await wallet.summary(instructor)).balances.pending).toBe(160000);
+    await orders.apply('mock', { ...evidence, result: 'failure', fingerprint: randomUUID() }, true);
+    await release(first.id);
+    expect((await wallet.summary(instructor)).balances.available).toBe(0);
+    expect((await orders.detail(buyer, first.id)).status).toBe('paid');
+    expect((await wallet.reconciliation()).gatewayIssues).toBeGreaterThanOrEqual(2);
+    await orders.apply('mock', evidence, true);
+    await release(first.id);
+    expect((await wallet.summary(instructor)).balances.available).toBe(160000);
+  });
+  it('wrong references are detected before event deduplication; unknown payment is audited', async () => {
+    const { buyer, order } = await purchase();
+    expect(await orders.apply('mock', { paymentId: order.payment.id, amount: order.amount, reference: 'other-reference', result: 'success', fingerprint: `mock:${order.payment.id}:success` })).toMatchObject({ quarantined: true });
+    await expect(orders.apply('mock', { paymentId: randomUUID(), amount: 1000, reference: 'unknown', result: 'success', fingerprint: randomUUID() })).rejects.toThrow();
+    expect((await orders.detail(buyer, order.id)).status).toBe('paid');
+    expect((await wallet.summary(instructor)).balances.pending).toBe(160000);
+  });
+  it('payout exception reserves balance and never sends the same withdrawal twice', async () => {
+    const { order } = await purchase(); await release(order.id);
+    await wallet.recipient(instructor, recipient('Test', 'TEST-AUDIT'));
+    const w = await wallet.withdraw(instructor, 100000, randomUUID(), 'success');
+    await wallet.decide(admin, w.id, true, 'Duyệt');
+    const failing = { send: jest.fn().mockRejectedValue(new Error('timeout')) };
+    const service = new WalletService(store, providers, failing);
+    await service.processPayout(w.id); await service.processPayout(w.id);
+    expect(failing.send).toHaveBeenCalledTimes(1);
+    expect((await wallet.summary(instructor)).balances).toMatchObject({ available: 60000, reserved: 100000 });
+    await service.finishPayout(w.id, 'failure'); await service.finishPayout(w.id, 'failure');
+    expect((await wallet.summary(instructor)).balances).toMatchObject({ available: 160000, reserved: 0 });
   });
 });
 
