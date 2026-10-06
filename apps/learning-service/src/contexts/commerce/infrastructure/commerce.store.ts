@@ -25,6 +25,7 @@ export interface OrderRow {
   fee_source: string;
   buyer_name?: string;
   buyer_email?: string;
+  pricing_snapshot?: unknown;
 }
 export interface PaymentRow {
   id: string;
@@ -142,5 +143,6 @@ export function orderView(o: OrderRow) {
     feeAmount: o.fee_amount,
     feeSource: o.fee_source,
     buyer: o.buyer_name ? { name: o.buyer_name, email: o.buyer_email ?? '' } : null,
+    pricingSnapshot: o.pricing_snapshot ?? null,
   };
 }

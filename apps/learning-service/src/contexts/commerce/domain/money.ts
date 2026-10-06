@@ -22,6 +22,21 @@ export interface PaymentEvidence {
   reference: string;
   result: ProviderResult;
   fingerprint: string;
+  paidAt?: Date;
+}
+// A delayed IPN/query response is not a late payment. Only authenticated gateway
+// time may recover an expired order; cancelled/failed orders still require review.
+export function requiresPaymentReview(
+  order: { created_at: Date; expires_at: Date; status: string },
+  existingAccess: boolean,
+  evidence: Pick<PaymentEvidence, 'paidAt'>,
+  now = Date.now(),
+) {
+  if (existingAccess || !['pending', 'expired'].includes(order.status)) return true;
+  const paidAt = evidence.paidAt?.getTime();
+  if (paidAt !== undefined) return !Number.isFinite(paidAt)
+    || paidAt < order.created_at.getTime() || paidAt > order.expires_at.getTime() || paidAt > now + 120000;
+  return order.status !== 'pending' || order.expires_at.getTime() < now;
 }
 export interface PaymentInput {
   id: string;

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthenticatedUser, requireHumanId } from '@codementor/platform';
-import { CommerceStore, lock, audit } from '../infrastructure/commerce.store';
+import { CommerceStore, lock, audit, type Tx } from '../infrastructure/commerce.store';
 import { notifyCommerce } from '../infrastructure/commerce-notification';
 
 type PricingRow = {
@@ -33,6 +33,8 @@ type PromotionRequestRow = {
   request_reason: string | null;
   request_created_at: Date | null;
   request_updated_at: Date | null;
+  price_config_id?: string | null;
+  base_price_vnd?: number | null;
 };
 
 function promotionRequest(row: PromotionRequestRow) {
@@ -49,6 +51,8 @@ function promotionRequest(row: PromotionRequestRow) {
     reviewReason: row.request_reason,
     createdAt: row.request_created_at?.toISOString() ?? null,
     updatedAt: row.request_updated_at?.toISOString() ?? null,
+    requiresPriceApproval: Boolean(row.price_config_id),
+    basePriceVnd: row.base_price_vnd ?? null,
   };
 }
 
@@ -116,8 +120,15 @@ export class CommerceAccessService {
       LEFT JOIN course_promotions pr ON pr.course_id=c.id
       WHERE c.id=${courseId}::uuid AND (c.status='published' OR c.created_by=${userId}::uuid OR ${admin})`;
     if (!row) throw new NotFoundException('Không tìm thấy khóa học');
+    const [proposal] = row.can_manage ? await this.store.db.$queryRaw<PromotionRequestRow[]>`
+      SELECT r.id AS request_id,r.action AS request_action,r.sale_price_vnd AS request_sale_price,
+        r.label AS request_label,r.starts_at AS request_starts_at,r.ends_at AS request_ends_at,
+        r.requested_active AS request_active,r.status AS request_status,r.review_reason AS request_reason,
+        r.created_at AS request_created_at,r.updated_at AS request_updated_at,r.price_config_id,r.base_price_vnd
+      FROM course_promotion_requests r WHERE r.course_id=${courseId}::uuid AND r.status='pending'` : [];
     return {
       ...pricing(row),
+      promotionRequest: proposal ? promotionRequest(proposal) : null,
       pendingPriceVnd: row.can_manage ? row.pending_price : null,
       pricingType: row.effective_price ? 'paid' : 'free',
       owned: row.owned,
@@ -128,8 +139,8 @@ export class CommerceAccessService {
     return this.store.transaction(async (tx) => {
       await lock(tx, `course:${courseId}`);
       const [course] = await tx.$queryRaw<
-        { created_by: string; status: string }[]
-      >`SELECT created_by,status::text FROM courses WHERE id=${courseId}::uuid FOR UPDATE`;
+        { created_by: string; status: string; published_at: Date | null }[]
+      >`SELECT created_by,status::text,published_at FROM courses WHERE id=${courseId}::uuid FOR UPDATE`;
       if (!course) throw new NotFoundException('Không tìm thấy khóa học');
       if (course.created_by !== requireHumanId(user) && user.role !== 'admin')
         throw new ForbiddenException();
@@ -137,14 +148,18 @@ export class CommerceAccessService {
         throw new ConflictException(
           'Khóa học đang chờ duyệt nên chưa thể sửa giá. Hủy gửi duyệt trước khi chỉnh sửa.',
         );
-      if (course.status === 'published') {
+      await tx.$executeRaw`UPDATE courses SET updated_at=now() WHERE id=${courseId}::uuid`;
+      if (course.published_at || course.status === 'published') {
         const [current] = await tx.$queryRaw<{ price_vnd: number }[]>`
           SELECT price_vnd FROM course_prices WHERE course_id=${courseId}::uuid`;
         await tx.$executeRaw`
-          INSERT INTO course_prices(course_id,price_vnd,pending_price_vnd,pending_price_requested_at)
-          VALUES (${courseId}::uuid,0,${price},now())
+          INSERT INTO course_prices(course_id,price_vnd,pending_price_vnd,pending_price_requested_at,pending_config_id)
+          VALUES (${courseId}::uuid,0,${price},now(),gen_random_uuid())
           ON CONFLICT(course_id) DO UPDATE SET pending_price_vnd=EXCLUDED.pending_price_vnd,
-            pending_price_requested_at=now(),updated_at=now()`;
+            pending_price_requested_at=now(),pending_config_id=gen_random_uuid(),updated_at=now()`;
+        await tx.$executeRaw`UPDATE course_promotion_requests SET status='cancelled',
+          review_reason='Bản đề xuất giá đã thay đổi; vui lòng gửi lại khuyến mãi.',updated_at=now()
+          WHERE course_id=${courseId}::uuid AND status='pending' AND price_config_id IS NOT NULL`;
         await audit(tx, 'course.price.requested', courseId, requireHumanId(user), {
           currentPriceVnd: current?.price_vnd ?? 0,
           requestedPriceVnd: price,
@@ -157,13 +172,13 @@ export class CommerceAccessService {
       }
       await tx.$executeRaw`INSERT INTO course_prices(course_id,price_vnd) VALUES (${courseId}::uuid,${price})
         ON CONFLICT(course_id) DO UPDATE SET price_vnd=EXCLUDED.price_vnd,
-          pending_price_vnd=NULL,pending_price_requested_at=NULL,updated_at=now()`;
+          pending_price_vnd=NULL,pending_price_requested_at=NULL,pending_config_id=NULL,version=course_prices.version+1,updated_at=now()`;
       await tx.$executeRaw`DELETE FROM course_promotions WHERE course_id=${courseId}::uuid
         AND (${price}=0 OR sale_price_vnd>=${price})`;
       await tx.$executeRaw`UPDATE course_promotion_requests
         SET status='cancelled',review_reason='Giá niêm yết đã thay đổi; vui lòng gửi lại đề xuất.',updated_at=now()
         WHERE course_id=${courseId}::uuid AND status='pending'
-          AND (${price}=0 OR action='upsert' AND sale_price_vnd>=${price})`;
+          `;
       await audit(tx, 'course.price', courseId, requireHumanId(user), { priceVnd: price });
       return { priceVnd: price, pendingPriceVnd: null, requiresReview: false };
     });
@@ -172,26 +187,45 @@ export class CommerceAccessService {
   async applyApprovedPrice(courseId: string, adminId: string) {
     return this.store.transaction(async (tx) => {
       await lock(tx, `course:${courseId}`);
-      const [row] = await tx.$queryRaw<
-        { price_vnd: number; pending_price_vnd: number | null }[]
-      >`SELECT price_vnd,pending_price_vnd FROM course_prices
-        WHERE course_id=${courseId}::uuid FOR UPDATE`;
-      if (!row || row.pending_price_vnd === null) return { applied: false };
-      const next = row.pending_price_vnd;
-      await tx.$executeRaw`UPDATE course_prices SET price_vnd=${next},pending_price_vnd=NULL,
-        pending_price_requested_at=NULL,updated_at=now() WHERE course_id=${courseId}::uuid`;
-      await tx.$executeRaw`DELETE FROM course_promotions WHERE course_id=${courseId}::uuid
-        AND (${next}=0 OR sale_price_vnd>=${next})`;
-      await tx.$executeRaw`UPDATE course_promotion_requests
-        SET status='cancelled',review_reason='Giá niêm yết đã được duyệt; vui lòng gửi lại đề xuất.',updated_at=now()
-        WHERE course_id=${courseId}::uuid AND status='pending'
-          AND (${next}=0 OR action='upsert' AND sale_price_vnd>=${next})`;
-      await audit(tx, 'course.price.approved', courseId, adminId, {
-        previousPriceVnd: row.price_vnd,
-        priceVnd: next,
-      });
-      return { applied: true, priceVnd: next };
+      return this.reviewPrice(tx, courseId, adminId, true, 'Đã duyệt cấu hình giá');
     });
+  }
+
+  /** Called inside the SAME transaction as course moderation. */
+  async reviewPrice(tx: Tx, courseId: string, adminId: string, approve: boolean, reason: string) {
+    const [row] = await tx.$queryRaw<{ price_vnd: number; version: number; pending_price_vnd: number | null; pending_config_id: string | null }[]>`
+      SELECT * FROM course_prices WHERE course_id=${courseId}::uuid FOR UPDATE`;
+    if (!row || row.pending_price_vnd === null) return { applied: false };
+    const next = row.pending_price_vnd;
+    const [request] = await tx.$queryRaw<{ id: string; base_price_version: number; base_price_vnd: number; action: string; sale_price_vnd: number | null }[]>`SELECT id,base_price_version,base_price_vnd,action,sale_price_vnd FROM course_promotion_requests
+      WHERE course_id=${courseId}::uuid AND status='pending' AND price_config_id=${row.pending_config_id}::uuid FOR UPDATE`;
+    if (approve) {
+      if (request && (request.base_price_version !== row.version || request.base_price_vnd !== next ||
+        (request.action === 'upsert' && (request.sale_price_vnd === null || request.sale_price_vnd >= next))))
+        throw new ConflictException('Cấu hình giá và khuyến mãi đã thay đổi; vui lòng kiểm tra lại trước khi duyệt.');
+      await tx.$executeRaw`UPDATE course_prices SET price_vnd=${next},version=version+1 WHERE course_id=${courseId}::uuid`;
+      if (request) {
+        await tx.$executeRaw`INSERT INTO course_promotions(course_id,sale_price_vnd,label,starts_at,ends_at,is_active,created_by)
+          SELECT course_id,sale_price_vnd,label,starts_at,ends_at,requested_active,requested_by
+          FROM course_promotion_requests WHERE id=${request.id}::uuid AND action='upsert'
+          ON CONFLICT(course_id) DO UPDATE SET sale_price_vnd=EXCLUDED.sale_price_vnd,label=EXCLUDED.label,
+            starts_at=EXCLUDED.starts_at,ends_at=EXCLUDED.ends_at,is_active=EXCLUDED.is_active,updated_at=now()`;
+        await tx.$executeRaw`DELETE FROM course_promotions WHERE course_id=${courseId}::uuid
+          AND EXISTS(SELECT 1 FROM course_promotion_requests WHERE id=${request.id}::uuid AND action='remove')`;
+      }
+      await tx.$executeRaw`DELETE FROM course_promotions WHERE course_id=${courseId}::uuid AND (${next}=0 OR sale_price_vnd>=${next})`;
+    }
+    await tx.$executeRaw`UPDATE course_prices SET pending_price_vnd=NULL,pending_price_requested_at=NULL,
+      pending_config_id=NULL,updated_at=now() WHERE course_id=${courseId}::uuid`;
+    await tx.$executeRaw`UPDATE course_promotion_requests SET status=${approve ? 'approved' : 'rejected'},
+      reviewed_by=${adminId}::uuid,review_reason=${reason},reviewed_at=now(),updated_at=now()
+      WHERE course_id=${courseId}::uuid AND status='pending' AND price_config_id=${row.pending_config_id}::uuid`;
+    if (approve) await tx.$executeRaw`UPDATE course_promotion_requests SET status='cancelled',
+      review_reason='Giá niêm yết đã đổi; vui lòng gửi lại đề xuất.',updated_at=now()
+      WHERE course_id=${courseId}::uuid AND status='pending'`;
+    await audit(tx, approve ? 'course.price.approved' : 'course.price.rejected', courseId, adminId,
+      { previousPriceVnd: row.price_vnd, requestedPriceVnd: next, configId: row.pending_config_id, promotionRequestId: request?.id ?? null, reason });
+    return { applied: approve, priceVnd: approve ? next : row.price_vnd };
   }
   async promotions(userId: string, admin: boolean) {
     const rows = await this.store.db.$queryRaw<
@@ -203,7 +237,7 @@ export class CommerceAccessService {
       })[]
     >`
       SELECT c.id AS course_id,c.title,c.cover_image_url,c.status::text,
-        u.display_name AS author_name,p.price_vnd AS list_price,
+        u.display_name AS author_name,p.price_vnd AS list_price,p.pending_price_vnd AS pending_price,
         pr.sale_price_vnd AS sale_price,pr.label AS promotion_label,
         pr.starts_at AS promotion_starts_at,pr.ends_at AS promotion_ends_at,
         pr.is_active AS promotion_active,
@@ -212,7 +246,7 @@ export class CommerceAccessService {
         req.starts_at AS request_starts_at,req.ends_at AS request_ends_at,
         req.requested_active AS request_active,req.status AS request_status,
         req.review_reason AS request_reason,req.created_at AS request_created_at,
-        req.updated_at AS request_updated_at,
+        req.updated_at AS request_updated_at,req.price_config_id,req.base_price_vnd,
         CASE WHEN pr.is_active AND now() >= pr.starts_at AND now() < pr.ends_at
           AND pr.sale_price_vnd < p.price_vnd THEN pr.sale_price_vnd ELSE p.price_vnd END AS effective_price
       FROM courses c JOIN course_prices p ON p.course_id=c.id
@@ -224,7 +258,7 @@ export class CommerceAccessService {
         LIMIT 1
       ) req ON true
       LEFT JOIN users u ON u.id=c.created_by
-      WHERE p.price_vnd>0 AND (${admin} OR c.created_by=${userId}::uuid)
+      WHERE (p.price_vnd>0 OR p.pending_price_vnd>0) AND (${admin} OR c.created_by=${userId}::uuid)
       ORDER BY (pr.course_id IS NOT NULL) DESC,c.updated_at DESC,c.id DESC
       LIMIT 200`;
     return rows.map((row) => ({
@@ -234,6 +268,7 @@ export class CommerceAccessService {
       status: row.status,
       authorName: row.author_name,
       ...pricing(row),
+      pendingPriceVnd: row.pending_price,
       promotionRequest: promotionRequest(row),
     }));
   }
@@ -255,18 +290,23 @@ export class CommerceAccessService {
     return this.store.transaction(async (tx) => {
       await lock(tx, `course:${courseId}`);
       const [course] = await tx.$queryRaw<
-        { created_by: string; price_vnd: number }[]
-      >`SELECT c.created_by,p.price_vnd FROM courses c JOIN course_prices p ON p.course_id=c.id
+        { created_by: string; price_vnd: number; pending_price_vnd: number | null; pending_config_id: string | null; version: number; status: string }[]
+      >`SELECT c.created_by,c.status::text,p.price_vnd,p.pending_price_vnd,p.pending_config_id,p.version FROM courses c JOIN course_prices p ON p.course_id=c.id
         WHERE c.id=${courseId}::uuid FOR UPDATE`;
       if (!course) throw new NotFoundException('Khóa học chưa có giá bán');
       if (course.created_by !== requireHumanId(user) && user.role !== 'admin')
         throw new ForbiddenException();
-      if (course.price_vnd <= 0)
+      if (course.status === 'pending_review' && course.pending_config_id)
+        throw new ConflictException('Cấu hình giá đang chờ duyệt; hủy gửi duyệt trước khi sửa khuyến mãi.');
+      const basePrice = course.pending_price_vnd ?? course.price_vnd;
+      if (course.pending_config_id)
+        await tx.$executeRaw`UPDATE courses SET updated_at=now() WHERE id=${courseId}::uuid`;
+      if (basePrice <= 0)
         throw new ConflictException('Khóa học miễn phí không cần tạo khuyến mãi.');
-      if (input.salePriceVnd >= course.price_vnd)
+      if (input.salePriceVnd >= basePrice)
         throw new ConflictException('Giá ưu đãi phải thấp hơn giá niêm yết.');
       const actorId = requireHumanId(user);
-      if (user.role === 'admin') {
+      if (user.role === 'admin' && !course.pending_config_id) {
         await tx.$executeRaw`
           INSERT INTO course_promotions(course_id,sale_price_vnd,label,starts_at,ends_at,is_active,created_by)
           VALUES (${courseId}::uuid,${input.salePriceVnd},${input.label.trim()},${startsAt},${endsAt},${input.isActive},${actorId}::uuid)
@@ -282,14 +322,15 @@ export class CommerceAccessService {
       }
       const [request] = await tx.$queryRaw<{ id: string }[]>`
         INSERT INTO course_promotion_requests(
-          course_id,action,sale_price_vnd,label,starts_at,ends_at,requested_active,status,requested_by
+          course_id,action,sale_price_vnd,label,starts_at,ends_at,requested_active,status,requested_by,base_price_version,base_price_vnd,price_config_id
         ) VALUES (
-          ${courseId}::uuid,'upsert',${input.salePriceVnd},${input.label.trim()},${startsAt},${endsAt},${input.isActive},'pending',${actorId}::uuid
+          ${courseId}::uuid,'upsert',${input.salePriceVnd},${input.label.trim()},${startsAt},${endsAt},${input.isActive},'pending',${actorId}::uuid,${course.version},${basePrice},${course.pending_config_id}::uuid
         )
         ON CONFLICT(course_id) WHERE status='pending' DO UPDATE SET
           action='upsert',sale_price_vnd=EXCLUDED.sale_price_vnd,label=EXCLUDED.label,
           starts_at=EXCLUDED.starts_at,ends_at=EXCLUDED.ends_at,
           requested_active=EXCLUDED.requested_active,requested_by=EXCLUDED.requested_by,
+          base_price_version=EXCLUDED.base_price_version,base_price_vnd=EXCLUDED.base_price_vnd,price_config_id=EXCLUDED.price_config_id,
           review_reason=NULL,reviewed_by=NULL,reviewed_at=NULL,updated_at=now()
         RETURNING id`;
       await audit(tx, 'course.promotion.requested', request.id, actorId, { courseId, ...input });
@@ -310,13 +351,16 @@ export class CommerceAccessService {
   async removePromotion(user: AuthenticatedUser, courseId: string) {
     return this.store.transaction(async (tx) => {
       await lock(tx, `course:${courseId}`);
-      const [course] = await tx.$queryRaw<{ created_by: string }[]>`
-        SELECT created_by FROM courses WHERE id=${courseId}::uuid FOR UPDATE`;
+      const [course] = await tx.$queryRaw<{ created_by: string; pending_config_id: string | null; pending_price_vnd: number | null; price_vnd: number; version: number; status: string }[]>`
+        SELECT c.created_by,c.status::text,p.pending_config_id,p.pending_price_vnd,p.price_vnd,p.version
+        FROM courses c LEFT JOIN course_prices p ON p.course_id=c.id WHERE c.id=${courseId}::uuid FOR UPDATE OF c`;
       if (!course) throw new NotFoundException('Không tìm thấy khóa học');
       if (course.created_by !== requireHumanId(user) && user.role !== 'admin')
         throw new ForbiddenException();
       const actorId = requireHumanId(user);
-      if (user.role === 'admin') {
+      if (course.status === 'pending_review' && course.pending_config_id)
+        throw new ConflictException('Cấu hình đang chờ duyệt; hủy gửi duyệt trước khi gỡ khuyến mãi.');
+      if (user.role === 'admin' && !course.pending_config_id) {
         await tx.$executeRaw`DELETE FROM course_promotions WHERE course_id=${courseId}::uuid`;
         await tx.$executeRaw`UPDATE course_promotion_requests
           SET status='cancelled',review_reason='Admin đã gỡ trực tiếp khuyến mãi.',
@@ -334,11 +378,12 @@ export class CommerceAccessService {
         return { cancelled: true };
       }
       const [request] = await tx.$queryRaw<{ id: string }[]>`
-        INSERT INTO course_promotion_requests(course_id,action,status,requested_by)
-        VALUES (${courseId}::uuid,'remove','pending',${actorId}::uuid)
+        INSERT INTO course_promotion_requests(course_id,action,status,requested_by,base_price_version,base_price_vnd,price_config_id)
+        VALUES (${courseId}::uuid,'remove','pending',${actorId}::uuid,${course.version},${course.pending_price_vnd ?? course.price_vnd},${course.pending_config_id}::uuid)
         ON CONFLICT(course_id) WHERE status='pending' DO UPDATE SET
           action='remove',sale_price_vnd=NULL,label=NULL,starts_at=NULL,ends_at=NULL,
           requested_active=NULL,requested_by=EXCLUDED.requested_by,
+          base_price_version=EXCLUDED.base_price_version,base_price_vnd=EXCLUDED.base_price_vnd,price_config_id=EXCLUDED.price_config_id,
           review_reason=NULL,reviewed_by=NULL,reviewed_at=NULL,updated_at=now()
         RETURNING id`;
       await audit(tx, 'course.promotion.removal.requested', request.id, actorId, { courseId });
@@ -376,13 +421,16 @@ export class CommerceAccessService {
       throw new ConflictException('Thời gian kết thúc phải sau thời gian bắt đầu.');
     const actorId = requireHumanId(user);
     return this.store.transaction(async (tx) => {
-      const courses = await tx.$queryRaw<{ id: string; price_vnd: number }[]>(Prisma.sql`
-        SELECT c.id,p.price_vnd FROM courses c
+      for (const id of [...courseIds].sort()) await lock(tx, `course:${id}`);
+      const courses = await tx.$queryRaw<{ id: string; price_vnd: number; pending_price_vnd: number | null }[]>(Prisma.sql`
+        SELECT c.id,p.price_vnd,p.pending_price_vnd FROM courses c
         JOIN course_prices p ON p.course_id=c.id
         WHERE c.id IN (${Prisma.join(courseIds.map((id) => Prisma.sql`${id}::uuid`))})
         ORDER BY c.id FOR UPDATE`);
       if (courses.length !== courseIds.length)
         throw new NotFoundException('Một hoặc nhiều khóa học không tồn tại hoặc chưa có giá bán.');
+      if (courses.some((course) => course.pending_price_vnd !== null))
+        throw new ConflictException('Có khóa học đang đề xuất đổi giá. Duyệt cấu hình riêng trước khi áp dụng khuyến mãi theo lô.');
       if (courses.some((course) => course.price_vnd <= 1000))
         throw new ConflictException('Chỉ có thể áp dụng theo lô cho khóa học trả phí trên 1.000 ₫.');
       for (const course of courses) {
@@ -434,14 +482,17 @@ export class CommerceAccessService {
       throw new ConflictException('Thời gian kết thúc phải sau thời gian bắt đầu.');
     const actorId = requireHumanId(user);
     return this.store.transaction(async (tx) => {
-      const courses = await tx.$queryRaw<{ id: string; price_vnd: number }[]>(Prisma.sql`
-        SELECT c.id,p.price_vnd FROM courses c
+      for (const id of [...courseIds].sort()) await lock(tx, `course:${id}`);
+      const courses = await tx.$queryRaw<{ id: string; price_vnd: number; pending_price_vnd: number | null; version: number }[]>(Prisma.sql`
+        SELECT c.id,p.price_vnd,p.pending_price_vnd,p.version FROM courses c
         JOIN course_prices p ON p.course_id=c.id
         WHERE c.created_by=${actorId}::uuid
           AND c.id IN (${Prisma.join(courseIds.map((id) => Prisma.sql`${id}::uuid`))})
         ORDER BY c.id FOR UPDATE`);
       if (courses.length !== courseIds.length)
         throw new ForbiddenException('Chỉ có thể tạo khuyến mãi cho khóa học do bạn sở hữu.');
+      if (courses.some((course) => course.pending_price_vnd !== null))
+        throw new ConflictException('Có khóa học đang đề xuất đổi giá. Thiết lập khuyến mãi riêng để duyệt cùng giá mới.');
       if (courses.some((course) => course.price_vnd <= 1_000))
         throw new ConflictException('Chỉ có thể gửi đề xuất cho khóa học trả phí trên 1.000 ₫.');
       const requests: string[] = [];
@@ -454,14 +505,15 @@ export class CommerceAccessService {
           throw new ConflictException('Mức giảm không tạo được giá ưu đãi hợp lệ.');
         const [request] = await tx.$queryRaw<{ id: string }[]>`
           INSERT INTO course_promotion_requests(
-            course_id,action,sale_price_vnd,label,starts_at,ends_at,requested_active,status,requested_by
+            course_id,action,sale_price_vnd,label,starts_at,ends_at,requested_active,status,requested_by,base_price_version,base_price_vnd
           ) VALUES (
-            ${course.id}::uuid,'upsert',${salePrice},${input.label.trim()},${startsAt},${endsAt},${input.isActive},'pending',${actorId}::uuid
+            ${course.id}::uuid,'upsert',${salePrice},${input.label.trim()},${startsAt},${endsAt},${input.isActive},'pending',${actorId}::uuid,${course.version},${course.price_vnd}
           )
           ON CONFLICT(course_id) WHERE status='pending' DO UPDATE SET
             action='upsert',sale_price_vnd=EXCLUDED.sale_price_vnd,label=EXCLUDED.label,
             starts_at=EXCLUDED.starts_at,ends_at=EXCLUDED.ends_at,
             requested_active=EXCLUDED.requested_active,requested_by=EXCLUDED.requested_by,
+            base_price_version=EXCLUDED.base_price_version,base_price_vnd=EXCLUDED.base_price_vnd,price_config_id=NULL,
             review_reason=NULL,reviewed_by=NULL,reviewed_at=NULL,updated_at=now()
           RETURNING id`;
         requests.push(request.id);
@@ -496,9 +548,12 @@ export class CommerceAccessService {
     approve: boolean,
     reason: string,
   ) {
+    if (user.role !== 'admin') throw new ForbiddenException();
     const adminId = requireHumanId(user);
     return this.store.transaction(async (tx) => {
-      await lock(tx, `promotion-request:${requestId}`);
+      const [identity] = await tx.$queryRaw<{ course_id: string }[]>`SELECT course_id FROM course_promotion_requests WHERE id=${requestId}::uuid`;
+      if (!identity) throw new NotFoundException('Không tìm thấy đề xuất khuyến mãi');
+      await lock(tx, `course:${identity.course_id}`);
       const [request] = await tx.$queryRaw<{
         id: string;
         course_id: string;
@@ -510,10 +565,21 @@ export class CommerceAccessService {
         requested_active: boolean | null;
         requested_by: string;
         status: string;
+        price_config_id: string | null;
+        base_price_version: number;
       }[]>`SELECT * FROM course_promotion_requests WHERE id=${requestId}::uuid FOR UPDATE`;
       if (!request) throw new NotFoundException('Không tìm thấy đề xuất khuyến mãi');
       if (request.status !== 'pending')
         throw new ConflictException('Đề xuất này đã được xử lý.');
+      if (request.price_config_id) {
+        if (approve) throw new ConflictException('Khuyến mãi thuộc đề xuất đổi giá. Duyệt khóa học để áp dụng cả giá và khuyến mãi cùng lúc.');
+        await this.reviewPrice(tx, request.course_id, adminId, false, reason);
+        return { id: request.id, status: 'rejected' };
+      }
+      const [current] = await tx.$queryRaw<{ version: number; pending_price_vnd: number | null }[]>`
+        SELECT version,pending_price_vnd FROM course_prices WHERE course_id=${request.course_id}::uuid FOR UPDATE`;
+      if (approve && (!current || current.version !== request.base_price_version || current.pending_price_vnd !== null))
+        throw new ConflictException('Giá đã đổi hoặc đang chờ duyệt; vui lòng gửi lại đề xuất khuyến mãi.');
       if (approve && request.action === 'upsert') {
         const [price] = await tx.$queryRaw<{ price_vnd: number }[]>`
           SELECT price_vnd FROM course_prices WHERE course_id=${request.course_id}::uuid`;

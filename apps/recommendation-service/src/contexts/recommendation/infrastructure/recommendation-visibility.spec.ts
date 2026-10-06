@@ -20,7 +20,7 @@ describe('recommendation visibility and targeted metadata', () => {
   });
 
   it('keeps published-only restrictions when hydrating exact course IDs', async () => {
-    await new PrismaCourseRepository(db).list({ createdBy: null, publishedOnly: true, ids, limit: 20 });
+    await new PrismaCourseRepository(db, {} as never).list({ createdBy: null, publishedOnly: true, ids, limit: 20 });
     expect(queries[0].sql).toContain("c.status = 'published'");
     expect(queries[0].sql).toContain('c.id = ANY(');
     expect(queries[0].values).toContainEqual(ids);

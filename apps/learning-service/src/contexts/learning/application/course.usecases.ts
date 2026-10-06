@@ -612,14 +612,13 @@ export class CourseUseCases {
     if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');
 
     const entity = await this.mustFind(id);
+    const expectedUpdatedAt = entity.updatedAt;
     const moderated = entity.moderate(decision, reason);
     if (moderated.isFail) throw moderated.error;
 
-    await this.courses.save(entity);
-
-    if (decision === 'approve') {
-      await this.access.applyApprovedPrice(id, requireHumanId(user));
-    }
+    await this.courses.save(entity, ['approve', 'request_changes', 'reject'].includes(decision)
+      ? { approve: decision === 'approve', actorId: requireHumanId(user), reason: reason ?? 'Đã duyệt cấu hình', expectedUpdatedAt }
+      : undefined);
 
     // Phát SAU khi ghi thành công, và chỉ khi khoá học thực sự vừa mở cho người học.
     // `announcePublished` là báo cho NGƯỜI HỌC "có khoá mới"; `announceModerated` ngay

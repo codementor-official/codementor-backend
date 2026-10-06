@@ -120,7 +120,7 @@ export interface CourseRepository extends AuthorNameLookup {
    * kiểm điều kiện gửi duyệt.
    */
   setLessonContentRef(lessonId: string, contentRef: string): Promise<void>;
-  save(course: Course): Promise<void>;
+  save(course: Course, pricingReview?: { approve: boolean; actorId: string; reason: string; expectedUpdatedAt: Date }): Promise<void>;
   delete(id: string): Promise<void>;
   findReferencingRoadmaps(courseId: string): Promise<{ id: string; title: string; slug: string }[]>;
 }

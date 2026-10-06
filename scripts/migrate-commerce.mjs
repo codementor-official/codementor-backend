@@ -17,6 +17,9 @@ const migrations = [
   ['0033_commerce_recipient_details.sql', null],
   ['0034_course_promotions.sql', 'course_promotions'],
   ['0035_course_promotion_approval.sql', 'course_promotion_requests'],
+  ['0036_course_price_review.sql', null],
+  ['0037_commerce_consistency.sql', 'commerce_reconciliation_issues'],
+  ['0038_vnpay_query_throttle.sql', 'commerce_provider_query_leases'],
 ].map(([name, guard]) => ({
   guard,
   file: fileURLToPath(new URL(`../../codementor-infra/database/postgres/migrations/${name}`, import.meta.url)),

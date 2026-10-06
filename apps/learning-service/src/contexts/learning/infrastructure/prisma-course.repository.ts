@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ConflictException } from '@nestjs/common';
+import { CommerceAccessService } from '../../commerce/application/commerce-access.service';
+import { lock } from '../../commerce/infrastructure/commerce.store';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService, mapDatabaseError } from '@codementor/platform';
@@ -55,7 +57,7 @@ interface LessonRow extends StoredLesson {
 
 @Injectable()
 export class PrismaCourseRepository implements CourseRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly access: CommerceAccessService) {}
 
   async findById(id: string): Promise<Course | null> {
     const rows = await this.prisma.$queryRaw<CourseRow[]>`
@@ -340,14 +342,21 @@ export class PrismaCourseRepository implements CourseRepository {
       WHERE id = ${lessonId}::uuid`;
   }
 
-  async save(course: Course): Promise<void> {
+  async save(course: Course, pricingReview?: { approve: boolean; actorId: string; reason: string; expectedUpdatedAt: Date }): Promise<void> {
     try {
       // Một giao dịch: khóa học và chủ đề của nó cùng sống hoặc cùng chết. Ghi hàng xong
       // mà chèn chủ đề hỏng thì bản ghi còn lại mang chủ đề của lần lưu TRƯỚC, và không
       // màn hình nào nói cho ai biết.
       // total_chapters và total_lessons CỐ Ý vắng mặt: trigger giữ chúng.
-      await this.prisma.$transaction([
-        this.prisma.$executeRaw`
+      await this.prisma.$transaction(async (tx) => {
+        await lock(tx, `course:${course.id}`);
+        if (pricingReview) {
+          const [current] = await tx.$queryRaw<{ updated_at: Date }[]>`SELECT updated_at FROM courses WHERE id=${course.id}::uuid FOR UPDATE`;
+          if (!current || current.updated_at.getTime() !== pricingReview.expectedUpdatedAt.getTime())
+            throw new ConflictException('Khóa học đã thay đổi trong lúc duyệt. Vui lòng tải lại.');
+          await this.access.reviewPrice(tx, course.id, pricingReview.actorId, pricingReview.approve, pricingReview.reason);
+        }
+        await tx.$executeRaw`
         INSERT INTO courses (id, slug, title, description, cover_image_url, level, duration_hours,
                              instructor_id, prerequisite_note, progression_mode, status,
                              created_by, rejection_reason, published_at)
@@ -369,17 +378,17 @@ export class PrismaCourseRepository implements CourseRepository {
           status            = EXCLUDED.status,
           rejection_reason  = EXCLUDED.rejection_reason,
           published_at      = EXCLUDED.published_at,
-          updated_at        = now()`,
-        this.prisma.$executeRaw`
+          updated_at        = now()`;
+        await tx.$executeRaw`
           DELETE FROM course_tags
           WHERE course_id = ${course.id}::uuid
-            AND tag_id <> ALL (${course.tagIds}::uuid[])`,
-        this.prisma.$executeRaw`
+            AND tag_id <> ALL (${course.tagIds}::uuid[])`;
+        await tx.$executeRaw`
           INSERT INTO course_tags (course_id, tag_id)
           SELECT ${course.id}::uuid, tag_id
           FROM unnest(${course.tagIds}::uuid[]) AS tag_id
-          ON CONFLICT DO NOTHING`,
-      ]);
+          ON CONFLICT DO NOTHING`;
+      }, { timeout: 15000 });
     } catch (error) {
       throw mapDatabaseError(error) ?? error;
     }
