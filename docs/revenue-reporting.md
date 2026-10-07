@@ -2,7 +2,11 @@
 
 Read-only endpoints: `GET /api/v1/commerce/admin/analytics` (admin) and
 `GET /api/v1/commerce/wallet/analytics` (lecturer, restricted to authenticated human ID).
-`days` accepts 7, 30 or 90; default 30. No migration required: existing commerce_orders only.
+`days` accepts 7, 30 or 90; default 30. Alternatively pass both `from=YYYY-MM-DD`
+and `to=YYYY-MM-DD` (inclusive, maximum 366 days). A valid calendar pair overrides
+the preset; incomplete, reversed or invalid dates return 400 before querying.
+These parameters also apply to the instructor directory, so its sales and charts
+use the same period. Current ledger balances remain all-time. No migration required.
 
 Periods are inclusive calendar days in Asia/Ho_Chi_Minh. Paid/refunded orders use
 settled_at, other orders use created_at. Missing days have zero values. Aggregation covers
@@ -12,7 +16,7 @@ Gross includes paid and fully refunded orders. Revenue is the captured instructo
 or platform_amount of currently paid orders, before gateway fees. Refunded amounts refer
 to this settlement cohort, not refunds executed during this period. This is a current
 cohort report, not a cash-flow, bank balance, tax invoice, or available-wallet calculation.
-Course ranking is the top 10 by captured revenue; status counts retain unpaid orders
+Course reporting includes every course in the period; status counts retain unpaid orders
 without adding their amounts to revenue. Changing the policy does not recalculate old splits.
 
 The admin guide and confirmation describe the existing jobs/run workflow: bounded payment
@@ -51,3 +55,11 @@ pending/available/reserved/paid are all-time ledger balances, not bank balances.
 without purchases remain selectable. This endpoint reads existing tables and requires no
 schema migration. Daily and course tables use 10-row pagination; course reporting no longer
 silently drops records after the top ten. Directory CSV exports all matched rows.
+
+## Calendar and combined views
+
+Admin and Lecturer share a native calendar picker. Editing a date is a draft until
+Apply dates is pressed; CSV continues exporting the applied report. Presets and Reset
+clear the custom range. Charts, course totals, instructor totals, printed summaries and
+daily CSV all use the returned report bounds. The All view renders every report section
+with one summary and one filter bar. Operational history tabs remain separate.

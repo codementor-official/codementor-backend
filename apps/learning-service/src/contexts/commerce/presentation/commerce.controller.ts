@@ -134,13 +134,13 @@ export class CommerceController {
   @Get('wallet/analytics') @Roles('lecturer') revenue(
     @CurrentUser() u: AuthenticatedUser, @Query() q: RevenuePeriod,
   ) {
-    return this.analytics.report(q.days, requireHumanId(u));
+    return this.analytics.report(q.days, requireHumanId(u), undefined, { from: q.from, to: q.to });
   }
   @Get('admin/analytics') @Roles('admin') adminRevenue(@Query() q: AdminRevenuePeriod) {
-    return this.analytics.report(q.days, q.instructorId, 'admin');
+    return this.analytics.report(q.days, q.instructorId, 'admin', { from: q.from, to: q.to });
   }
   @Get('admin/analytics/instructors') @Roles('admin') revenueInstructors(@Query() q: RevenuePeriod) {
-    return this.analytics.instructors(q.days);
+    return this.analytics.instructors(q.days, { from: q.from, to: q.to });
   }
   @Put('wallet/recipient') @Roles('lecturer') recipient(
     @CurrentUser() u: AuthenticatedUser,

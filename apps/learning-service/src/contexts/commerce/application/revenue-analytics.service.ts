@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { CommerceStore } from '../infrastructure/commerce.store';
+import { revenuePeriod, type RevenueDateRange } from './revenue-period';
 
 interface Aggregate {
   date: string; courseId: string; courseTitle: string; status: string;
@@ -40,16 +41,15 @@ export function revenueReport(rows: Aggregate[], dates: string[], scope: 'admin'
 @Injectable()
 export class RevenueAnalyticsService {
   constructor(private readonly store: CommerceStore) {}
-  async report(days: number, instructorId?: string, requestedScope?: 'admin') {
-    if (![7, 30, 90].includes(days)) throw new BadRequestException('Chọn khoảng thời gian 7, 30 hoặc 90 ngày');
+  async report(days: number, instructorId?: string, requestedScope?: 'admin', range?: RevenueDateRange) {
+    const period = revenuePeriod(days, range);
     // One row per order, no payment/refund joins that could multiply amounts.
     // Paid cohorts use settlement day; unpaid orders use creation day.
     const scope = instructorId ? Prisma.sql`AND instructor_id=${instructorId}::uuid` : Prisma.empty;
     const share = instructorId && requestedScope !== 'admin' ? Prisma.sql`instructor_amount` : Prisma.sql`platform_amount`;
     return this.store.transaction(async (tx) => {
       const dates = await tx.$queryRaw<{ date: string }[]>`SELECT to_char(d,'YYYY-MM-DD') AS date
-        FROM generate_series((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date-(${days}::int-1),
-          (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date, interval '1 day') d`;
+        FROM generate_series(${period.start}, ${period.end}, interval '1 day') d`;
       const rows = await tx.$queryRaw<Aggregate[]>`SELECT
         to_char(COALESCE(settled_at,created_at) AT TIME ZONE 'Asia/Ho_Chi_Minh','YYYY-MM-DD') AS date,
         course_id AS "courseId", max(course_title) AS "courseTitle", status,
@@ -60,8 +60,8 @@ export class RevenueAnalyticsService {
       return revenueReport(rows, dates.map((d) => d.date), requestedScope ?? (instructorId ? 'lecturer' : 'admin'));
     });
   }
-  async instructors(days: number) {
-    if (![7, 30, 90].includes(days)) throw new BadRequestException('Chọn khoảng thời gian 7, 30 hoặc 90 ngày');
+  async instructors(days: number, range?: RevenueDateRange) {
+    const period = revenuePeriod(days, range);
     // Independent aggregates avoid multiplying orders by ledger entries. Balances
     // are all-time ledger values, while revenue is the explicitly selected cohort.
     const rows = await this.store.db.$queryRaw<Array<{
@@ -72,8 +72,8 @@ export class RevenueAnalyticsService {
       COALESCE(sum(CASE WHEN status='paid' THEN instructor_amount ELSE 0 END),0)::bigint AS revenue,
       COALESCE(sum(CASE WHEN status='paid' THEN platform_amount ELSE 0 END),0)::bigint AS platform
       FROM commerce_orders WHERE status IN ('paid','refunded') AND COALESCE(settled_at,created_at)>=
-      ((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date-(${days}::int-1)) AT TIME ZONE 'Asia/Ho_Chi_Minh'
-      AND COALESCE(settled_at,created_at)<((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date+1) AT TIME ZONE 'Asia/Ho_Chi_Minh'
+      (${period.start}) AT TIME ZONE 'Asia/Ho_Chi_Minh'
+      AND COALESCE(settled_at,created_at)<(${period.end}+1) AT TIME ZONE 'Asia/Ho_Chi_Minh'
       GROUP BY instructor_id
     ), balances AS (
       SELECT owner_id,

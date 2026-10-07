@@ -17,6 +17,8 @@ import {
 } from 'class-validator';
 export class RevenuePeriod {
   @Type(() => Number) @IsIn([7, 30, 90]) days = 30;
+  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) @IsDateString({ strict: true }) from?: string;
+  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) @IsDateString({ strict: true }) to?: string;
 }
 export class AdminRevenuePeriod extends RevenuePeriod {
   @IsOptional() @IsUUID() instructorId?: string;
