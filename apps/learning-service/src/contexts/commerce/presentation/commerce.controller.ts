@@ -10,6 +10,8 @@ import {
   HttpCode,
   Res,
   BadRequestException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { confirmVnpayIpn } from './vnpay-ipn';
@@ -336,8 +338,14 @@ export class CommerceController {
   }
   @Post('admin/jobs/run') @Roles('admin') async run() {
     this.providers.assertEnabled();
-    await this.jobs.tick();
-    return { processed: true };
+    return this.jobs.tick();
+  }
+  @Get('admin/jobs/run') @Roles('admin') runMethodInfo(@Res({ passthrough: true }) reply: FastifyReply) {
+    reply.header('Allow', 'POST');
+    throw new HttpException(
+      'Chạy đối soát cần POST từ nút xác nhận trên trang Quản lý giao dịch. GET không khởi chạy tác vụ.',
+      HttpStatus.METHOD_NOT_ALLOWED,
+    );
   }
   @Public() @Get('webhooks/vnpay') async vnpay(
     @Query() q: Record<string, string>,

@@ -293,7 +293,7 @@ export class WalletService {
       OrderRow[]
     >`SELECT * FROM commerce_orders WHERE id=${id}::uuid`;
     if (!order) return;
-    await this.store.transaction(async (tx) => {
+    return this.store.transaction(async (tx) => {
       await lock(tx, `wallet:${order.instructor_id}`);
       const [ready] = await tx.$queryRaw<
         OrderRow[]
@@ -321,6 +321,7 @@ export class WalletService {
       );
       await tx.$executeRaw`UPDATE commerce_orders SET income_state='available' WHERE id=${id}::uuid`;
       await audit(tx, 'income.released', id, undefined, { debtOffset: debt });
+      return { availableAmount: ready.instructor_amount - debt, debtOffset: debt };
     });
   }
   async refund(adminId: string, id: string, reason: string) {
