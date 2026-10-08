@@ -98,8 +98,12 @@ export class OrdersService {
     const [order] = await this.store.db.$queryRaw<
       OrderRow[]
     >`SELECT o.*,u.display_name AS buyer_name,u.email::text AS buyer_email,
-        c.cover_image_url AS course_cover_image_url
+        c.cover_image_url AS course_cover_image_url,
+        p.reconciled_at AS payment_reconciled_at, q.next_query_at, o.available_at<=now() AS hold_expired,
+        EXISTS(SELECT 1 FROM commerce_refunds r WHERE r.order_id=o.id AND r.status IN ('pending','unknown','succeeded')) AS refund_blocked
       FROM commerce_orders o JOIN users u ON u.id=o.buyer_id JOIN courses c ON c.id=o.course_id
+      LEFT JOIN commerce_payments p ON p.order_id=o.id
+      LEFT JOIN commerce_provider_query_leases q ON q.payment_id=p.id
       WHERE o.id=${id}::uuid AND (${admin} OR o.buyer_id=${userId}::uuid)`;
     if (!order) throw new NotFoundException('Không tìm thấy giao dịch');
     const [payment] = await this.store.db.$queryRaw<
@@ -142,8 +146,12 @@ export class OrdersService {
     const [rows, count] = await Promise.all([
       this.store.db.$queryRaw<OrderRow[]>(
         Prisma.sql`SELECT o.*,u.display_name AS buyer_name,u.email::text AS buyer_email,
-          c.cover_image_url AS course_cover_image_url
+          c.cover_image_url AS course_cover_image_url,
+          p.reconciled_at AS payment_reconciled_at, q.next_query_at, o.available_at<=now() AS hold_expired,
+          EXISTS(SELECT 1 FROM commerce_refunds r WHERE r.order_id=o.id AND r.status IN ('pending','unknown','succeeded')) AS refund_blocked
           FROM commerce_orders o JOIN users u ON u.id=o.buyer_id JOIN courses c ON c.id=o.course_id
+          LEFT JOIN commerce_payments p ON p.order_id=o.id
+          LEFT JOIN commerce_provider_query_leases q ON q.payment_id=p.id
           WHERE ${where} ${status} ${course} ${search} ORDER BY ${orderBy} LIMIT 20 OFFSET ${(page - 1) * 20}`,
       ),
       this.store.db.$queryRaw<{ total: bigint }[]>(

@@ -27,6 +27,10 @@ export interface OrderRow {
   buyer_name?: string;
   buyer_email?: string;
   pricing_snapshot?: unknown;
+  payment_reconciled_at?: Date | null;
+  next_query_at?: Date | null;
+  refund_blocked?: boolean;
+  hold_expired?: boolean | null;
 }
 export interface PaymentRow {
   id: string;
@@ -142,6 +146,10 @@ export function orderView(o: OrderRow) {
     createdAt: o.created_at,
     availableAt: o.available_at,
     holdMinutes: o.hold_minutes ?? o.hold_days * 1440,
+    paymentVerified: o.payment_reconciled_at === undefined ? undefined : o.payment_reconciled_at !== null,
+    nextVerificationAt: o.next_query_at ?? null,
+    refundBlocked: o.refund_blocked,
+    holdExpired: o.hold_expired,
     settledAt: o.settled_at,
     feeAmount: o.fee_amount,
     feeSource: o.fee_source,

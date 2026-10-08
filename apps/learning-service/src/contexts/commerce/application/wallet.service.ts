@@ -54,13 +54,15 @@ export class WalletService {
     const [policy] = await this.store.db.$queryRaw<PolicyRow[]>`SELECT * FROM commerce_policy`;
     // These are holding deadlines, not promises of withdrawal availability.
     const [waiting] = await this.store.db.$queryRaw<{
-      next_at: Date | null; awaiting_release: bigint; unverified: bigint; refund_blocked: bigint;
+      next_at: Date | null; next_query_at: Date | null; awaiting_release: bigint; unverified: bigint; refund_blocked: bigint;
     }[]>`SELECT min(o.available_at) FILTER(WHERE o.available_at>now()) AS next_at,
+      min(q.next_query_at) FILTER(WHERE p.reconciled_at IS NULL AND q.next_query_at>now()) AS next_query_at,
       count(*) FILTER(WHERE o.available_at<=now() AND p.reconciled_at IS NOT NULL
         AND NOT EXISTS(SELECT 1 FROM commerce_refunds r WHERE r.order_id=o.id AND r.status IN ('pending','unknown','succeeded'))) AS awaiting_release,
       count(*) FILTER(WHERE p.reconciled_at IS NULL) AS unverified,
       count(*) FILTER(WHERE EXISTS(SELECT 1 FROM commerce_refunds r WHERE r.order_id=o.id AND r.status IN ('pending','unknown','succeeded'))) AS refund_blocked
       FROM commerce_orders o JOIN commerce_payments p ON p.order_id=o.id
+      LEFT JOIN commerce_provider_query_leases q ON q.payment_id=p.id
       WHERE o.instructor_id=${userId}::uuid AND o.status='paid' AND o.income_state='pending'`;
     return {
       balances,
@@ -84,6 +86,7 @@ export class WalletService {
       mode: this.providers.mode,
       holding: {
         nextDeadlineAt: waiting?.next_at ?? null,
+        nextVerificationAt: waiting?.next_query_at ?? null,
         awaitingRelease: Number(waiting?.awaiting_release ?? 0),
         unverified: Number(waiting?.unverified ?? 0),
         refundBlocked: Number(waiting?.refund_blocked ?? 0),
