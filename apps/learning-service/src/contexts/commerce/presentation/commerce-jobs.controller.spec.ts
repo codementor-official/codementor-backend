@@ -55,4 +55,16 @@ describe('Admin jobs and holding policy controller (no real database)', () => {
     expect(execute.mock.calls.map(([strings]) => strings.join('')).join('')).not.toContain('UPDATE commerce_orders');
     expect(execute.mock.calls[1]).toContain('policy.updated');
   });
+  it('saves a one-minute policy, without rewriting historical orders or releasing money', async () => {
+    const policy = { instructorBps: 8000, holdDays: 1, holdMinutes: 1, minimumWithdrawal: 100000, approvalRequired: true };
+    await expect(controller.setPolicy({} as never, policy)).resolves.toEqual(policy);
+    expect(execute.mock.calls[0][0].join('')).toContain('hold_minutes=');
+    expect(execute.mock.calls[0]).toContain(1);
+    expect(execute.mock.calls.map(([s]) => s.join('')).join('')).not.toContain('UPDATE commerce_orders');
+    expect(jobs.tick).not.toHaveBeenCalled();
+  });
+  it('rejects inconsistent units before any database mutation', async () => {
+    await expect(controller.setPolicy({} as never, { instructorBps: 8000, holdDays: 7, holdMinutes: 1, minimumWithdrawal: 100000, approvalRequired: true })).rejects.toThrow('không nhất quán');
+    expect(execute).not.toHaveBeenCalled();
+  });
 });

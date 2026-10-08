@@ -79,6 +79,7 @@ export class MockResultDto {
 export class PolicyDto {
   @IsInt() @Min(0) @Max(10000) instructorBps!: number;
   @IsInt() @Min(0) @Max(90) holdDays!: number;
+  @IsOptional() @IsInt() @Min(0) @Max(129600) holdMinutes?: number;
   @IsInt() @Min(1000) @Max(1000000000) minimumWithdrawal!: number;
   @IsBoolean() approvalRequired!: boolean;
 }

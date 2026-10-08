@@ -63,8 +63,8 @@ export class OrdersService {
         finalAmountVnd: course.price, priceVersion: course.version, promotion: course.promotion };
       const [row] = await tx.$queryRaw<
         OrderRow[]
-      >`INSERT INTO commerce_orders(buyer_id,course_id,instructor_id,course_title,amount,instructor_bps,instructor_amount,platform_amount,hold_days,mode,pricing_snapshot)
-        VALUES (${buyerId}::uuid,${courseId}::uuid,${course.instructor}::uuid,${course.title},${course.price},${policy.instructor_bps},${share.instructor},${share.platform},${policy.hold_days},${this.providers.mode},${JSON.stringify(pricingSnapshot)}::jsonb) RETURNING *`;
+      >`INSERT INTO commerce_orders(buyer_id,course_id,instructor_id,course_title,amount,instructor_bps,instructor_amount,platform_amount,hold_days,hold_minutes,mode,pricing_snapshot)
+        VALUES (${buyerId}::uuid,${courseId}::uuid,${course.instructor}::uuid,${course.title},${course.price},${policy.instructor_bps},${share.instructor},${share.platform},${policy.hold_days},${policy.hold_minutes ?? policy.hold_days * 1440},${this.providers.mode},${JSON.stringify(pricingSnapshot)}::jsonb) RETURNING *`;
       await tx.$executeRaw`INSERT INTO commerce_payments(order_id,provider) VALUES (${row.id}::uuid,${provider})`;
       await audit(tx, 'order.created', row.id, buyerId);
       return row;
@@ -256,7 +256,7 @@ export class OrdersService {
           { order: order.id },
         );
         await tx.$executeRaw`UPDATE commerce_orders SET status=${review ? 'review' : 'paid'},income_state='pending',
-          available_at=now()+make_interval(days=>hold_days),settled_at=now(),fee_amount=${provider === 'mock' ? 0 : null},fee_source=${provider === 'mock' ? 'simulated' : 'unknown'} WHERE id=${order.id}::uuid`;
+          available_at=now()+make_interval(mins=>COALESCE(hold_minutes,hold_days*1440)),settled_at=now(),fee_amount=${provider === 'mock' ? 0 : null},fee_source=${provider === 'mock' ? 'simulated' : 'unknown'} WHERE id=${order.id}::uuid`;
         if (!review) {
           await tx.$executeRaw`INSERT INTO course_access_grants(user_id,course_id,source,order_id) VALUES (${order.buyer_id}::uuid,${order.course_id}::uuid,'purchase',${order.id}::uuid) ON CONFLICT DO NOTHING`;
           await tx.$executeRaw`INSERT INTO course_enrollments(user_id,course_id) VALUES (${order.buyer_id}::uuid,${order.course_id}::uuid)

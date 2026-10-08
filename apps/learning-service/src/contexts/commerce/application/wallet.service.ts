@@ -52,6 +52,16 @@ export class WalletService {
       { label: string; test_reference: string; method: string; institution_code: string; account_name: string; account_number: string }[]
     >`SELECT label,test_reference,method,institution_code,account_name,account_number FROM commerce_recipients WHERE user_id=${userId}::uuid`;
     const [policy] = await this.store.db.$queryRaw<PolicyRow[]>`SELECT * FROM commerce_policy`;
+    // These are holding deadlines, not promises of withdrawal availability.
+    const [waiting] = await this.store.db.$queryRaw<{
+      next_at: Date | null; awaiting_release: bigint; unverified: bigint; refund_blocked: bigint;
+    }[]>`SELECT min(o.available_at) FILTER(WHERE o.available_at>now()) AS next_at,
+      count(*) FILTER(WHERE o.available_at<=now() AND p.reconciled_at IS NOT NULL
+        AND NOT EXISTS(SELECT 1 FROM commerce_refunds r WHERE r.order_id=o.id AND r.status IN ('pending','unknown','succeeded'))) AS awaiting_release,
+      count(*) FILTER(WHERE p.reconciled_at IS NULL) AS unverified,
+      count(*) FILTER(WHERE EXISTS(SELECT 1 FROM commerce_refunds r WHERE r.order_id=o.id AND r.status IN ('pending','unknown','succeeded'))) AS refund_blocked
+      FROM commerce_orders o JOIN commerce_payments p ON p.order_id=o.id
+      WHERE o.instructor_id=${userId}::uuid AND o.status='paid' AND o.income_state='pending'`;
     return {
       balances,
       recipient: recipient
@@ -67,10 +77,17 @@ export class WalletService {
       policy: {
         minimumWithdrawal: policy.minimum_withdrawal,
         holdDays: policy.hold_days,
+        holdMinutes: policy.hold_minutes ?? policy.hold_days * 1440,
         instructorBps: policy.instructor_bps,
         approvalRequired: policy.approval_required,
       },
       mode: this.providers.mode,
+      holding: {
+        nextDeadlineAt: waiting?.next_at ?? null,
+        awaitingRelease: Number(waiting?.awaiting_release ?? 0),
+        unverified: Number(waiting?.unverified ?? 0),
+        refundBlocked: Number(waiting?.refund_blocked ?? 0),
+      },
     };
   }
   async reconciliation() {

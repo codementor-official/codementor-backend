@@ -18,11 +18,35 @@ The seven-day payment query window is the reconciliation lookback, not the holdi
 period, and is unchanged. Existing batch limits, VNPAY cooldown and financial guards
 are preserved. Jobs already running in this process do not start a duplicate run.
 
-Holding days are already database-backed in commerce_policy.hold_days (0–90).
+Holding days remain database-backed in commerce_policy.hold_days (0–90).
 Admin PUT /commerce/admin/policy validates and audits the updated policy.
 New orders snapshot hold_days at creation; payment confirmation uses the order's
 snapshot to set available_at. Updating policy does not recalculate existing orders,
-re-release funds or bypass reconciliation/refund safeguards. No migration is needed.
+re-release funds or bypass reconciliation/refund safeguards.
+
+Exact minute durations additionally use nullable hold_minutes on commerce_policy and
+commerce_orders (migration 0039). NULL falls back to hold_days * 1440, preserving
+existing policy and orders without backfill. New orders snapshot exact minutes;
+payment confirmation sets the deadline using that snapshot. hold_days retains the
+ceiling in days for conservative rollback compatibility. Inconsistent units are
+rejected. Migration must precede the new learning-service deployment.
+
+The lecturer wallet exposes read-only deadline/eligibility counts, scoped to its owner.
+Current policy is distinct from historical order deadlines. Expiry alone does not
+release funds: verified payment, refund guards, debt offsets and the existing job
+remain required. No GET executes financial jobs.
+
+Demo: Admin confirms a one-minute policy BEFORE creating a new order. After payment
+verification and expiry, the normal reconciliation job can release eligible income.
+Refresh the lecturer wallet, observe ledger-derived available income, and restore the
+normal global holding policy after the demo. Existing orders are never accelerated.
+Withdrawal minimum, recipient and approval requirements still apply.
+
+2026-10-08 verification: 65 tests across seven suites, backend typecheck/build and
+frontend typecheck/lint/build. Exact migration applied twice to temporary PostgreSQL
+shadow tables: constraints, minute interval and unchanged legacy snapshots passed.
+Browser Admin one-minute confirmation was cancelled and fractional minutes rejected;
+lecturer descriptions read real existing data. No policy or financial write was sent.
 
 Admin UI explicitly sends POST after confirmation and opens a detailed results modal.
 It refreshes operational data, supports reopening the latest result within the current

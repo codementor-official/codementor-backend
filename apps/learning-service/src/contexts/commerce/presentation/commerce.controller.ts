@@ -290,6 +290,7 @@ export class CommerceController {
       {
         instructor_bps: number;
         hold_days: number;
+        hold_minutes?: number | null;
         minimum_withdrawal: number;
         approval_required: boolean;
       }[]
@@ -297,6 +298,7 @@ export class CommerceController {
     return {
       instructorBps: p.instructor_bps,
       holdDays: p.hold_days,
+      holdMinutes: p.hold_minutes ?? p.hold_days * 1440,
       minimumWithdrawal: p.minimum_withdrawal,
       approvalRequired: p.approval_required,
     };
@@ -305,8 +307,10 @@ export class CommerceController {
     @CurrentUser() u: AuthenticatedUser,
     @Body() p: PolicyDto,
   ) {
+    if (p.holdMinutes != null && Math.ceil(p.holdMinutes / 1440) !== p.holdDays)
+      throw new BadRequestException('Thời gian giữ theo ngày và phút không nhất quán');
     await this.store.transaction(async (tx) => {
-      await tx.$executeRaw`UPDATE commerce_policy SET instructor_bps=${p.instructorBps},hold_days=${p.holdDays},minimum_withdrawal=${p.minimumWithdrawal},approval_required=${p.approvalRequired},updated_at=now()`;
+      await tx.$executeRaw`UPDATE commerce_policy SET instructor_bps=${p.instructorBps},hold_days=${p.holdDays},hold_minutes=${p.holdMinutes ?? null},minimum_withdrawal=${p.minimumWithdrawal},approval_required=${p.approvalRequired},updated_at=now()`;
       await audit(tx, 'policy.updated', null, requireHumanId(u), p);
     });
     return p;

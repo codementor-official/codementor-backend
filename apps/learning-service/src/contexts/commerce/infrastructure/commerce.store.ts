@@ -17,6 +17,7 @@ export interface OrderRow {
   income_state: string;
   mode: 'mock' | 'sandbox';
   hold_days: number;
+  hold_minutes?: number | null;
   expires_at: Date;
   created_at: Date;
   available_at: Date | null;
@@ -39,6 +40,7 @@ export interface PaymentRow {
 export interface PolicyRow {
   instructor_bps: number;
   hold_days: number;
+  hold_minutes?: number | null;
   minimum_withdrawal: number;
   approval_required: boolean;
 }
@@ -139,6 +141,7 @@ export function orderView(o: OrderRow) {
     expiresAt: o.expires_at,
     createdAt: o.created_at,
     availableAt: o.available_at,
+    holdMinutes: o.hold_minutes ?? o.hold_days * 1440,
     settledAt: o.settled_at,
     feeAmount: o.fee_amount,
     feeSource: o.fee_source,
