@@ -15,7 +15,7 @@ jest.mock('@codementor/platform', () => {
 });
 
 describe('Admin jobs and holding policy controller (no real database)', () => {
-  const jobs = { tick: jest.fn().mockResolvedValue({ runId: 'run', stages: [] }) };
+  const jobs = { tick: jest.fn().mockResolvedValue({ runId: 'run', stages: [] }), inspectOrders: jest.fn().mockResolvedValue({ items: [], total: 0 }) };
   const providers = { assertEnabled: jest.fn() };
   const execute = jest.fn().mockResolvedValue(1);
   const store = { transaction: jest.fn(async (work) => work({ $executeRaw: execute })) };
@@ -42,6 +42,14 @@ describe('Admin jobs and holding policy controller (no real database)', () => {
     expect(header).toHaveBeenCalledWith('Allow', 'POST');
     expect(jobs.tick).not.toHaveBeenCalled();
     expect(Reflect.getMetadata('codementor:roles', controller.runMethodInfo)).toEqual(['admin']);
+  });
+  it('exposes paged order reasons to Admin through a read-only GET', async () => {
+    expect(Reflect.getMetadata(METHOD_METADATA, controller.jobOrders)).toBe(RequestMethod.GET);
+    expect(Reflect.getMetadata('codementor:roles', controller.jobOrders)).toEqual(['admin']);
+    await expect(controller.jobOrders({ page: 2 } as never)).resolves.toEqual({ items: [], total: 0 });
+    expect(jobs.inspectOrders).toHaveBeenCalledWith(2);
+    expect(jobs.tick).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
   });
   it('saves dynamic holding days and audits policy without updating historical orders', async () => {
     const policy = { instructorBps: 8000, holdDays: 3, minimumWithdrawal: 100000, approvalRequired: true };

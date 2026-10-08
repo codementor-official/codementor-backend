@@ -67,3 +67,25 @@ Real read-only GET confirmed the server policy was unchanged and jobs GET return
 Local automatic commerce jobs remained disabled. This does not certify a real payout
 or end-to-end provider reconciliation on EC2. Production deployment and health
 checks are verified separately from these local tests.
+
+## Per-order diagnostics (2026-10-08)
+
+GET /commerce/admin/jobs/orders?page=1 is admin-only and read-only. It returns a
+stable, server-paged list of paid orders with pending income (20/page), using
+server time for hold-expiry and provider-query cooldown checks. It does not call
+providers, release funds, execute jobs or update policy. Errors remain errors,
+not an empty/zero financial result. No migration is needed.
+
+POST job reports additionally include optional orderReport: a bounded post-run
+snapshot of at most 100 orders, touched payment/income orders first, plus held
+orders. Real releasedAmountVnd/debtOffsetVnd values are captured from the existing
+committed release transaction. An already-available snapshot never fabricates a
+credit in this run. Diagnostic-query failure leaves orderReport null and does not
+change a successful financial stage into a failed stage. Existing job selection,
+refund/verification/hold guards, provider cooldown and batch limits are unchanged.
+
+Verification: 105 commerce unit tests passed (integration suite excluded), backend
+typecheck/build and frontend lint/typecheck/build passed. Local authenticated
+browser exercised the read-only preview against existing EC2 data. Automatic
+commerce jobs were disabled locally; no financial command, policy change,
+migration or provider payment/payout was executed for this verification.

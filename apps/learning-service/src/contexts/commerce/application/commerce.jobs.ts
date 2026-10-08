@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { CommerceStore } from '../infrastructure/commerce.store';
 import { OrdersService } from './orders.service';
 import { WalletService } from './wallet.service';
-import { CommerceJobName, CommerceJobRun, CommerceJobStage } from './commerce-job-result';
+import { CommerceJobName, CommerceJobRun, CommerceJobStage, CommerceJobOrderReport } from './commerce-job-result';
+import { inspectJobOrders } from './commerce-job-orders';
 
 @Injectable()
 export class CommerceJobs implements OnModuleInit, OnModuleDestroy {
@@ -27,15 +28,21 @@ export class CommerceJobs implements OnModuleInit, OnModuleDestroy {
   }
   onModuleDestroy() { if (this.timer) clearInterval(this.timer); }
 
+  // This GET-facing diagnostic never starts jobs, queries a gateway, or changes a balance.
+  inspectOrders(page = 1): Promise<CommerceJobOrderReport> {
+    return inspectJobOrders(this.store, page);
+  }
+
   async tick(): Promise<CommerceJobRun> {
     const startedAt = new Date().toISOString();
     const report: CommerceJobRun = {
       runId: randomUUID(), startedAt, finishedAt: startedAt,
       status: this.busy ? 'already_running' : 'completed', processed: !this.busy,
-      stages: [], releasedAmountVnd: 0, debtOffsetVnd: 0, remaining: null,
+      stages: [], releasedAmountVnd: 0, debtOffsetVnd: 0, remaining: null, orderReport: null,
     };
     if (this.busy) return report;
     this.busy = true;
+    const releases = new Map<string, { availableAmount: number; debtOffset: number }>();
     // Preserve partial results: failures must not conceal completed work.
     const stage = async (name: CommerceJobName, execute: (s: CommerceJobStage) => Promise<void>) => {
       const s: CommerceJobStage = { name, selected: 0, completed: 0, waiting: 0, failed: 0, items: [] };
@@ -99,6 +106,7 @@ export class CommerceJobs implements OnModuleInit, OnModuleDestroy {
         await records(s, rows, async (id) => {
           const release = await this.wallet.releaseIncome(id);
           if (release) {
+            releases.set(id, release);
             report.releasedAmountVnd += release.availableAmount;
             report.debtOffsetVnd += release.debtOffset;
           }
@@ -134,6 +142,14 @@ export class CommerceJobs implements OnModuleInit, OnModuleDestroy {
           unverified: Number(remaining.unverified), eligible: Number(remaining.eligible),
         };
       } catch { this.logger.warn(`Commerce job remaining counts unavailable: ${report.runId}`); }
+      try {
+        const ids = report.stages.filter(s => ['payments', 'income'].includes(s.name))
+          .flatMap(s => s.items.map(item => item.id));
+        const errors = new Set(report.stages.filter(s => ['payments', 'income'].includes(s.name))
+          .flatMap(s => s.items.filter(item => item.outcome === 'failed').map(item => item.id)));
+        // Bounded snapshot: touched orders first, then other held orders. No additional financial work.
+        report.orderReport = await inspectJobOrders(this.store, 1, [...new Set(ids)], releases, errors, 100);
+      } catch { this.logger.warn(`Commerce job order diagnostics unavailable: ${report.runId}`); }
       report.status = report.stages.some((s) => s.failed > 0 || s.error) ? 'partial' : 'completed';
       return report;
     } finally {

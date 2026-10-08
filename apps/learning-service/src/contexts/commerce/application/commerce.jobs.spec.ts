@@ -118,4 +118,29 @@ describe('CommerceJobs run reports (isolated mocks, no database writes)', () => 
     expect(r.stages[4]).toMatchObject({ completed: 0, waiting: 1 });
     expect(r.releasedAmountVnd).toBe(0);
   });
+  it('attaches readable per-order results only from actual committed releases', async () => {
+    const { query, wallet, jobs } = setup();
+    query.mockResolvedValueOnce([]).mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'i1' }] as never).mockResolvedValueOnce([])
+      .mockResolvedValueOnce(remaining as never)
+      .mockResolvedValueOnce([{ id: 'i1', course_title: 'Go cơ bản', amount: 100000,
+        instructor_amount: 80000, status: 'paid', income_state: 'available',
+        available_at: new Date(), reconciled_at: new Date() }] as never)
+      .mockResolvedValueOnce([{ total: 1n }] as never);
+    wallet.releaseIncome.mockResolvedValueOnce({ availableAmount: 60000, debtOffset: 20000 });
+    const report = await jobs.tick();
+    expect(report.orderReport?.items[0]).toMatchObject({ courseTitle: 'Go cơ bản', reason: 'released',
+      releasedAmountVnd: 60000, debtOffsetVnd: 20000 });
+    expect(wallet.releaseIncome).toHaveBeenCalledTimes(1);
+  });
+  it('keeps diagnostic failures separate from financial execution failures', async () => {
+    const { query, jobs } = setup();
+    query.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]).mockResolvedValueOnce(remaining as never)
+      .mockRejectedValueOnce(new Error('private database detail'));
+    const report = await jobs.tick();
+    expect(report.status).toBe('completed');
+    expect(report.orderReport).toBeNull();
+    expect(JSON.stringify(report)).not.toContain('private database detail');
+  });
 });

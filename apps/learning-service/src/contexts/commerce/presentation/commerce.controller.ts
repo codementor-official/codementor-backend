@@ -344,6 +344,9 @@ export class CommerceController {
     this.providers.assertEnabled();
     return this.jobs.tick();
   }
+  @Get('admin/jobs/orders') @Roles('admin') jobOrders(@Query() q: CommercePage) {
+    return this.jobs.inspectOrders(q.page);
+  }
   @Get('admin/jobs/run') @Roles('admin') runMethodInfo(@Res({ passthrough: true }) reply: FastifyReply) {
     reply.header('Allow', 'POST');
     throw new HttpException(
