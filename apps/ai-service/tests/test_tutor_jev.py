@@ -166,7 +166,7 @@ class Model:
         self.payloads = []
 
     async def ainvoke(self, messages, _config=None):
-        self.payloads.append(json.loads(messages[-1].content))
+        self.payloads.append(messages[-1].content)
         return AIMessage(self.text, id="answer")
 
 
@@ -208,7 +208,7 @@ async def test_rerank_filters_sorts_and_renumbers(monkeypatch):
     assert index.calls[0][3] == policy.RETRIEVE_K  # có Jev thì lấy rộng
     assert [s["excerpt"] for s in result["sources"]] == ["đoạn 4", "đoạn 1", "đoạn 3"]
     assert [s["sourceId"] for s in result["sources"]] == ["S1", "S2", "S3"]
-    assert "evidenceSufficient" not in model.payloads[0]
+    assert tutor_graph.INSUFFICIENT_NOTE not in model.payloads[0]
     assert result["jev"]["sufficiency"] == 0.9
 
 
@@ -216,7 +216,7 @@ async def test_nothing_relevant_keeps_a_few_for_explanation_and_flags_it(monkeyp
     jev = FakeJev(gate=IN_SCOPE, rerank=lambda questions: {key: {"noul": 0.1} for key in questions})
     result, model, _ = await run(monkeypatch, jev)
     assert len(result["sources"]) == policy.FALLBACK_KEEP
-    assert model.payloads[0]["evidenceSufficient"] is False
+    assert tutor_graph.INSUFFICIENT_NOTE in model.payloads[0]
     # sufficiency không cần hỏi lại khi rerank đã kết luận
     assert [call[0] for call in jev.calls] == ["gate", "rerank"]
 
@@ -228,7 +228,7 @@ async def test_low_sufficiency_tells_the_model(monkeypatch):
         sufficiency={"sufficient": {"noul": 0.4}},
     )
     _, model, _ = await run(monkeypatch, jev)
-    assert model.payloads[0]["evidenceSufficient"] is False
+    assert tutor_graph.INSUFFICIENT_NOTE in model.payloads[0]
 
 
 async def test_every_jev_failure_falls_back_to_the_plain_pipeline(monkeypatch):

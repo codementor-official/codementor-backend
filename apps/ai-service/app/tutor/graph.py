@@ -18,7 +18,6 @@ ag-ui-langgraph: bản state đặt tay ở đó đè lên mọi snapshot còn l
 """
 
 import asyncio
-import json
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -109,6 +108,29 @@ def history(messages: list[BaseMessage], grounding: dict[str, dict]) -> list[Bas
             if text.strip():
                 turns[-1].append(AIMessage(text))
     return [message for turn in turns[-HISTORY_TURNS:] for message in turn]
+
+
+INSUFFICIENT_NOTE = (
+    "BẰNG CHỨNG CHƯA ĐỦ: hệ thống đã xác định các đoạn dưới đây không trực tiếp trả lời câu hỏi."
+)
+
+
+def evidence_message(question: str, sources: list[dict], insufficient: bool) -> str:
+    """Tin nhắn cuối gửi model: câu hỏi và các đoạn nguồn, dạng VĂN BẢN THƯỜNG.
+
+    Không phải JSON. Bản JSON cũ escape mọi dấu nháy trong tài liệu thành `\\"`, model chép
+    nguyên dấu gạch chéo đó vào trích dẫn, và phép đối chiếu chuỗi con loại oan câu chép đúng —
+    đo được trên bộ đánh giá: mọi câu hỏi về `"w"`, `"x"`, `0.1 + 0.2` đều thành "tài liệu chưa
+    có thông tin". Đoạn nguồn giờ đi nguyên văn, đúng thứ model phải chép lại.
+    """
+    blocks = [f"CÂU HỎI: {question}"]
+    if insufficient:
+        blocks.append(INSUFFICIENT_NOTE)
+    blocks.append("NGUỒN:")
+    for source in sources:
+        where = f" — trang/slide {source['page']}" if source.get("page") else ""
+        blocks.append(f"[{source['sourceId']}] {source['title']}{where}\n{source['excerpt']}")
+    return "\n\n".join(blocks)
 
 
 def build(capability: Capability) -> Any:
@@ -277,21 +299,8 @@ def build(capability: Capability) -> Any:
             return {"messages": [AIMessage(f"{QUOTES}\n{EXPLAIN}\n")], "step": ""}
         messages = state["messages"]
         index, question = _last_human(messages)
-        payload = json.dumps(
-            {
-                **({"evidenceSufficient": False} if state.get("sufficient") is False else {}),
-                "question": _text(question) if question else "",
-                "sources": [
-                    {
-                        "id": source["sourceId"],
-                        "title": source["title"],
-                        "page": source["page"],
-                        "text": source["excerpt"],
-                    }
-                    for source in sources
-                ],
-            },
-            ensure_ascii=False,
+        payload = evidence_message(
+            _text(question) if question else "", sources, state.get("sufficient") is False
         )
         model = chat_model(capability, max_tokens=MAX_OUTPUT_TOKENS, verbosity="low", store=False)
         response = await model.ainvoke(

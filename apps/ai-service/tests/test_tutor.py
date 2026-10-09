@@ -89,6 +89,18 @@ def test_correct_source_id_does_not_allow_invented_quote():
     assert "Dijkstra" in turn["supplementalAnswer"]
 
 
+def test_escaped_quotes_from_the_model_still_verify():
+    """Đo được trên bộ đánh giá: model chép `\\"w\\"` khi nguồn đi dạng JSON."""
+    turn = ground(raw('> `\\"w\\"`: ghi, **xoá sạch** nội dung cũ [S1]'), [source('`"w"`: ghi, **xoá sạch** nội dung cũ nếu tệp đã có.')])
+    assert not turn["insufficientEvidence"]
+
+
+def test_evidence_goes_to_the_model_as_plain_text():
+    message = tutor_graph.evidence_message("Chế độ w?", [source('`"w"`: ghi, xoá sạch', page=2)], False)
+    assert '`"w"`' in message and "[S1] Stack — trang/slide 2" in message
+    assert tutor_graph.INSUFFICIENT_NOTE not in message
+
+
 def test_literal_quote_validation_accepts_wrapped_document_text():
     turn = ground(raw("> Stack dùng LIFO. [S1]", "Stack lấy phần tử cuối trước."), [source("Stack dùng\nLIFO.")])
     assert turn["answer"] == "> Stack dùng LIFO. [S1]"

@@ -66,7 +66,9 @@ def split_answer(raw: str) -> tuple[list[dict], str]:
 
 
 def _squash(text: str) -> str:
-    return " ".join(text.split())
+    # `\"` → `"`: model hay chép lại dấu nháy đã escape khi nguồn từng đi dạng JSON. Không có
+    # tài liệu học nào cố ý chứa `\"`, nên gỡ escape không làm câu bịa thành câu thật.
+    return " ".join(text.replace('\\"', '"').split())
 
 
 def ground(raw: str, sources: list[dict]) -> dict:
