@@ -170,6 +170,10 @@ async def ask(graph, config, question, ids_by_key, titles):
         "jevCalls": sum(1 for e in events if e.get("model") == jev_module.MODEL and e.get("ok")),
         "jevErrors": sum(1 for e in events if e.get("model") == jev_module.MODEL and not e.get("ok")),
         "usd": cost(events),
+        # Tách thời gian theo bên gọi: độ trễ cả câu lẫn cả hàng chờ của OpenAI, còn đây là
+        # thời gian thật của từng lời gọi (telemetry đo quanh lời gọi).
+        "jevMs": sum(e.get("latencyMs") or 0 for e in events if e.get("model") == jev_module.MODEL),
+        "llmMs": sum(e.get("latencyMs") or 0 for e in events if e.get("model") == TUTOR.model),
     }
 
 
@@ -323,6 +327,8 @@ def cmd_report() -> None:
         ("Token vào LLM / câu", lambda m: f"{mean(m, 'llmInput'):.0f}"),
         ("Độ trễ p50 (s)", lambda m: f"{statistics.median([r['latency'] for r in m]):.1f}"),
         ("Độ trễ p95 (s)", lambda m: f"{sorted(r['latency'] for r in m)[int(0.95 * (len(m) - 1))]:.1f}"),
+        ("Thời gian Jev / câu, p50 (ms)", lambda m: f"{statistics.median([r.get('jevMs', 0) for r in m]):.0f}"),
+        ("Thời gian LLM / câu, p50 (s)", lambda m: f"{statistics.median([r.get('llmMs', 0) for r in m]) / 1000:.1f}"),
         ("Lỗi Jev (đã fallback)", lambda m: str(sum(r["jevErrors"] for r in m))),
         ("Chi phí / câu (USD)", lambda m: f"{mean(m, 'usd'):.5f}"),
     ]

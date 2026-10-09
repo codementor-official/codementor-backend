@@ -39,6 +39,11 @@ _QUOTE_PREFIX = re.compile(r"^>\s?")
 # Model hay bọc trích dẫn trong dấu nháy. Nháy không có trong nguồn, nên để nguyên là làm hỏng
 # phép so chuỗi con của một câu chép đúng.
 _WRAPPING_QUOTES = "\"'“”‘’«»"
+_LOOSE_QUOTES = re.compile(r"<{2,3}\s*TRICH[ _]?DAN\s*>{1,3}")
+_LOOSE_EXPLAIN = re.compile(r"<{2,3}\s*GIAI[ _]?THICH\s*>{1,3}")
+# Ký hiệu ĐỊNH DẠNG markdown, không phải chữ: model hay bỏ `**đậm**`, backtick, dấu `###` của
+# tiêu đề khi chép. Bỏ chúng ở CẢ HAI phía trước khi so là vẫn so chữ nguyên văn.
+_MARKDOWN = re.compile(r"[*`]+|^\s*#{1,6}\s+", re.MULTILINE)
 
 
 def split_answer(raw: str) -> tuple[list[dict], str]:
@@ -47,7 +52,9 @@ def split_answer(raw: str) -> tuple[list[dict], str]:
     Thiếu cả hai dấu mốc thì coi TOÀN BỘ là phần giải thích: một câu trả lời sai định dạng không
     được phép lọt vào khối "từ tài liệu" chỉ vì nó trông giống trích dẫn.
     """
-    text = raw.replace("\r\n", "\n")
+    # Model hay gõ thiếu một dấu (`<<<TRICH_DAN>>`) hoặc thêm khoảng trắng. Đưa về dấu chuẩn
+    # trước khi tách; không làm vậy thì cả câu trả lời thành "phần giải thích" và mất trích dẫn.
+    text = _LOOSE_EXPLAIN.sub(EXPLAIN, _LOOSE_QUOTES.sub(QUOTES, raw.replace("\r\n", "\n")))
     if QUOTES not in text and EXPLAIN not in text:
         return [], text.strip()
     head, _, explanation = text.partition(EXPLAIN)
@@ -66,9 +73,19 @@ def split_answer(raw: str) -> tuple[list[dict], str]:
 
 
 def _squash(text: str) -> str:
-    # `\"` → `"`: model hay chép lại dấu nháy đã escape khi nguồn từng đi dạng JSON. Không có
-    # tài liệu học nào cố ý chứa `\"`, nên gỡ escape không làm câu bịa thành câu thật.
-    return " ".join(text.replace('\\"', '"').split())
+    """Dạng so sánh của một đoạn chữ: vẫn là CHUỖI CON nguyên văn, chỉ bỏ những khác biệt không
+    phải nội dung.
+
+    - `\\"` → `"`: model chép lại dấu nháy đã escape khi nguồn từng đi dạng JSON.
+    - ký hiệu markdown (`**`, backtick, `###`): định dạng, không phải chữ.
+    - hoa/thường: trích giữa câu thì "Tên hằng…" của model là "tên hằng…" của nguồn.
+    - khoảng trắng, xuống dòng: gộp làm một.
+
+    Đo trên bộ đánh giá, bốn khác biệt này gây ~17/18 lần "tài liệu chưa có" oan cho những câu
+    trích đúng. Không có cái nào biến một câu bịa thành câu thật: từ ngữ vẫn phải trùng khít.
+    """
+    text = _MARKDOWN.sub("", text.replace('\\"', '"'))
+    return " ".join(text.casefold().split())
 
 
 def ground(raw: str, sources: list[dict]) -> dict:

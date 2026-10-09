@@ -95,6 +95,32 @@ def test_escaped_quotes_from_the_model_still_verify():
     assert not turn["insufficientEvidence"]
 
 
+@pytest.mark.parametrize(
+    ("raw_answer", "excerpt"),
+    [
+        # bốn dạng hỏng thật đo được trên bộ đánh giá (eval/tutor), đều là câu chép đúng
+        ("> Tên hằng viết HOA toàn bộ. [S1]", "và tên hằng viết HOA toàn bộ."),
+        ("> giới hạn thời gian mặc định của bài là 1 giây. [S1]", "giới hạn thời gian mặc định của bài là **1 giây**."),
+        ("> Thuật toán Kahn (dựa trên BFS) 1. Tính bậc vào. [S1]", "### Thuật toán Kahn (dựa trên BFS)\n\n1. Tính bậc vào."),
+        ("> dùng `collections.deque` với popleft() [S1]", "dùng collections.deque với `popleft()`"),
+    ],
+)
+def test_formatting_and_case_do_not_reject_a_faithful_quote(raw_answer, excerpt):
+    assert not ground(raw(raw_answer), [source(excerpt)])["insufficientEvidence"]
+
+
+def test_sloppy_markers_still_split():
+    turn = ground("<<<TRICH_DAN>>\n> LIFO [S1]\n<<< GIAI_THICH >>\nGiải thích.", [source("LIFO")])
+    assert not turn["insufficientEvidence"]
+    assert turn["supplementalAnswer"] == "Giải thích."
+
+
+def test_paraphrase_is_still_rejected():
+    """Nới định dạng không được biến câu diễn đạt lại thành "trích nguyên văn"."""
+    turn = ground(raw("> Giới hạn thời gian là một giây. [S1]"), [source("giới hạn thời gian mặc định của bài là **1 giây**.")])
+    assert turn["insufficientEvidence"]
+
+
 def test_evidence_goes_to_the_model_as_plain_text():
     message = tutor_graph.evidence_message("Chế độ w?", [source('`"w"`: ghi, xoá sạch', page=2)], False)
     assert '`"w"`' in message and "[S1] Stack — trang/slide 2" in message
