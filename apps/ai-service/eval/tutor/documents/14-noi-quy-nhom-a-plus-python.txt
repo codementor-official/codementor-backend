@@ -1,0 +1,19 @@
+NỘI QUY NHÓM HỌC A+ PYTHON
+
+1. Lịch học
+Nhóm học trực tuyến qua Google Meet vào tối thứ Ba và thứ Năm hằng tuần, từ 19:30 đến 21:00. Mentor phụ trách là anh Nguyễn Trung Nguyên. Link phòng học được ghim ở kênh thông báo của nhóm.
+
+2. Điểm danh
+Thành viên vắng quá 3 buổi trong một tháng mà không báo trước sẽ bị chuyển sang trạng thái "dự thính" và không được chấm bài tuần đó.
+
+3. Nộp bài tập
+Bài tập tuần được nộp trên hệ thống chấm CodeMentor. Hạn nộp bài tuần 3 là 23:59 thứ Sáu ngày 17/10. Nộp muộn bị trừ 10% điểm cho mỗi ngày trễ, tối đa 3 ngày; sau 3 ngày không nhận bài.
+
+4. Liêm chính học thuật
+Được thảo luận ý tưởng, nhưng mỗi người tự viết mã của mình. Hai bài nộp giống nhau trên 80% theo công cụ kiểm tra đạo văn sẽ cùng nhận 0 điểm cho bài đó.
+
+5. Dùng trợ lý AI
+Được dùng Trợ lý AI và Codey để hỏi khái niệm và gợi ý hướng làm. Không được dán nguyên đề vào công cụ AI bên ngoài để lấy lời giải hoàn chỉnh.
+
+6. Điểm thưởng
+Thành viên trả lời câu hỏi của bạn khác trong kênh hỏi đáp và được mentor đánh dấu "hữu ích" sẽ được cộng 0,25 điểm chuyên cần, tối đa 1 điểm mỗi tháng.
