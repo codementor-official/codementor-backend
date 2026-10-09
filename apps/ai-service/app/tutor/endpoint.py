@@ -131,6 +131,9 @@ async def run(
         "grounding": (stored or {}).get("grounding") or {},
         "sources": [],
         "polls": 0,
+        "refusal": "",
+        "sufficient": None,
+        "jev": {},
         "step": "Đang chuẩn bị tài liệu",
     }
     return await stream_run(
@@ -140,7 +143,8 @@ async def run(
         TUTOR,
         # `workspace_id` đến từ cổng phía trên, KHÔNG từ trình duyệt: nó dựng chuỗi scope
         # `workspace:<id>` mà node `retrieve` dùng để đọc index.
-        {"workspace_slug": slug, "workspace_id": workspace_id},
+        # `jev` có thể là `None` (chưa cấu hình): graph tự rơi về luồng không có Jev.
+        {"workspace_slug": slug, "workspace_id": workspace_id, "jev": request.app.state.jev},
         workspace_id=workspace_id,
         persist_state=PERSISTED,
     )

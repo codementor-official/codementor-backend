@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr = SecretStr("")
     openai_embedding_model: str = "text-embedding-3-small"
     openai_chat_model: str = "gpt-5-nano"
+    # Jev (TypeSafe) — lớp quyết định của Tutor: chặn câu ngoài phạm vi, lọc đoạn, xét đủ bằng
+    # chứng. TUỲ CHỌN: để trống thì Tutor chạy đúng luồng không có Jev, service vẫn khởi động
+    # (chỉ một dòng warning). Khác `openai_api_key` — thiếu cái đó thì không trả lời được gì.
+    typesafe_api_key: SecretStr = SecretStr("")
     ai_request_timeout_ms: int = Field(default=90000, ge=5000, le=180000)
     ai_daily_request_limit: int = Field(default=50, ge=1, le=1000)
     ai_suggest_daily_limit: int = Field(default=100, ge=1, le=2000)

@@ -19,6 +19,7 @@ from app.provider import OpenAIProvider
 from app.rag import DocumentIndex, DocumentLibrary, DocumentStorage, RagService
 from app.rag.endpoint import router as documents_router
 from app.suggest import router as suggest_router
+from app.tutor import jev
 from app.tutor.endpoint import router as tutor_router
 
 
@@ -40,6 +41,8 @@ async def lifespan(app: FastAPI):
     app.state.index = DocumentIndex(database, settings, provider, storage)
     app.state.rag = RagService(database, settings, app.state.index)
     app.state.library = DocumentLibrary(database, settings, app.state.index, storage)
+    # Tuỳ chọn: thiếu key chỉ là một dòng warning, Tutor chạy luồng không có Jev.
+    app.state.jev = jev.from_settings(settings.typesafe_api_key.get_secret_value())
     worker = asyncio.create_task(app.state.index.worker())
     try:
         yield
@@ -48,6 +51,8 @@ async def lifespan(app: FastAPI):
         with suppress(asyncio.CancelledError):
             await worker
         await provider.close()
+        if app.state.jev:
+            await app.state.jev.close()
         await client.close()
 
 
