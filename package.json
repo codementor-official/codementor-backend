@@ -46,6 +46,7 @@
     "ai:lint": "cd apps/ai-service && uv run ruff check .",
     "ai:check": "cd apps/ai-service && uv run python -m compileall -q app",
     "migrate:ai": "node --env-file=.env scripts/migrate-ai.mjs",
+    "migrate:tutor-conversations": "node --env-file=.env scripts/migrate-tutor-conversations.mjs",
     "judge:install": "cd apps/judge-service && uv sync",
     "judge:images": "cd apps/judge-service && ./scripts/build-images.sh",
     "judge:dev": "cd apps/judge-service && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 3007",

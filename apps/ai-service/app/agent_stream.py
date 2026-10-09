@@ -1,6 +1,6 @@
 """Một lượt chạy agent, phát ra dạng SSE theo giao thức AG-UI.
 
-Thân chung của mọi bề mặt: Lecter giảng viên, Lecter nhóm học, Codey. Nằm ở gốc `app/` vì cả ba
+Thân chung của mọi bề mặt: Lecter giảng viên, Lecter nhóm học, Codey, Tutor. Nằm ở gốc `app/` vì cả bốn
 đều gọi nó — trước đây nó là một hàm private trong `lecter/endpoint.py`, và bề mặt thứ hai ngoài
 Lecter sẽ phải nhập một hàm gạch dưới xuyên feature để dùng lại.
 
@@ -36,6 +36,7 @@ async def stream_run(
     extra_config: dict,
     workspace_id: str | None = None,
     session_extra: dict | None = None,
+    persist_state: tuple[str, ...] = (),
 ) -> StreamingResponse:
     """Thân chung của MỌI bề mặt agent. Khác nhau đúng một `Capability` và vài khoá config."""
     state = request.app.state
@@ -87,7 +88,7 @@ async def stream_run(
         except Exception:
             # Không có RUN_ERROR thì trình duyệt treo mãi ở dòng tool đang chạy: SSE đã mở, nên
             # một ngoại lệ ở đây chỉ đóng kết nối, không thành mã lỗi HTTP nào cả.
-            logger.exception("Lecter run hỏng giữa chừng (thread %s)", thread_id)
+            logger.exception("%s run hỏng giữa chừng (thread %s)", capability.agent_id, thread_id)
             telemetry.record(ok=False, errorType="run_failed")
             yield encoder.encode(
                 RunErrorEvent(
@@ -106,6 +107,7 @@ async def stream_run(
                 agent_id=capability.agent_id,
                 workspace_id=workspace_id,
                 extra=session_extra,
+                persist_state=persist_state,
             )
 
     return StreamingResponse(

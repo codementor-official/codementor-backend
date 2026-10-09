@@ -73,30 +73,37 @@ khi deploy, nếu không Mongo tự tạo collection không có TTL.
 ## Client flow
 
 /ai-tutor → choose an existing membership → search approved documents → select 1–8 sources
-→ ask a question → automatically prepare the selected sources → answer with citation excerpts.
-The restored chat-first layout keeps learning shortcuts and document selection in right rails.
-No manual indexing is exposed to learners. Preparing/polling uses only selected IDs, rechecks
-access on every request, and never silently retries a failed job. Sending again retries it.
-Conversations belong to the authenticated user and chosen Workspace. Sources are immutable
-for a conversation; select New conversation to change them. Search/pagination, loading,
-processing, missing-key, unsupported-format and failure states use real APIs.
+→ ask a question → the answer streams in (preparing → finding passages → writing → checking
+quotes) → the finished turn shows verified excerpts and a separate "Giải thích & mở rộng" block.
+Learning shortcuts and document selection stay in the right rails. Documents can be added or
+swapped between questions; each question uses exactly the documents selected when it is sent.
+No manual indexing is exposed to learners and a failed job is never retried silently.
+Conversations belong to the authenticated user and chosen Workspace.
 Summaries and practice questions are generated as chat answers, not saved exercise entities.
 
 ## Architecture
 
-Client → Workspace Service (token identity + membership + view_doc + approval checks)
-→ Python AI Service (shared internal token) → Mongo / existing S3 / OpenAI.
+The Tutor runs on the same agent stack as Codey and Lecter (`app/tutor/`):
 
-- Public endpoints under /api/v1/workspaces/:slug/ai:
-  GET status, GET documents (supported formats filtered before pagination),
-  POST documents/prepare, POST documents/status, POST documents/:id/index (compatibility),
-  GET/POST conversations, GET/DELETE conversations/:id,
-  POST conversations/:id/messages.
-- Python accepts POST /api/v1/internal/workspace-ai/:action using a strict internal contract.
-  Browser-supplied userId, storage keys and arbitrary source URLs are not accepted by the
-  public facade. Backend checks apply to owner/deputy/member, not just UI visibility.
-- Each answer and history read revalidates approved, non-deleted sources. The facade checks
-  permission again after generation. Changed document revisions invalidate old conversations.
+Browser (`useAgent("tutor")`) → Next `/api/copilotkit/t/<slug>` → `POST /api/v1/ai/tutor/workspace/:slug/run`
+(Keycloak JWT, AG-UI over SSE) → `stream_run` → fixed LangGraph `wait ⟲ → retrieve → generate → verify`.
+
+- Before the stream opens, the route calls workspace-service with the user's own token:
+  `GET /workspaces/:slug` (membership) and `POST /workspaces/:slug/ai/documents/prepare`
+  (view_doc + approved-only + queue indexing). Bad selection, missing permission or a failed
+  document is a real 4xx and costs no daily request.
+- `wait` polls `documents/status` (2.5 s, max 3 min), reporting progress in `state.step`.
+- The model writes two marked blocks (`<<<TRICH_DAN>>>` / `<<<GIAI_THICH>>>`) so text can
+  stream. `verify` (`app/tutor/answer.py::ground`) keeps only quotes that are literal
+  substrings of the cited passage — the same rule as before — and stores the turn in
+  `state.grounding[<user message id>]`.
+- History lives in `ai_agent_sessions` (agentId `tutor`, plus `grounding` and `documents`).
+  The run route reloads `grounding` from Mongo; the browser's copy is never trusted.
+  Old `ai_conversations` are moved with `npm run migrate:tutor-conversations` (dry-run by default).
+- workspace-service keeps only the document facade under /api/v1/workspaces/:slug/ai:
+  GET status, GET documents, POST documents/prepare, POST documents/status,
+  POST documents/:id/index. Python's internal `POST /api/v1/internal/workspace-ai/:action`
+  accepts only `status`, `documents`, `index`.
 - Approved PDF text, DOCX paragraphs/tables, PPTX slide text/tables/groups and UTF-8
   TXT/Markdown are supported. PDF/PPTX citations carry actual page/slide numbers;
   DOCX/TXT/Markdown have no fabricated page numbers. Binary DOC/PPT need conversion first.
@@ -109,12 +116,15 @@ Client → Workspace Service (token identity + membership + view_doc + approval 
   scans only the selected approved document revisions (max 8 documents).
 - The Mongo indexing queue uses atomic leases. Interrupted jobs resume; failed jobs require
   explicit retry. Source IDs/model/revision prevent duplicate indexing of unchanged documents.
-  Index copies expire after 30 days and can be rebuilt; conversation history persists until deleted.
-- Generation uses Responses API with store=false and strict JSON output. Model `sourceQuotes`
-  are checked for literal membership in the corresponding retrieved text (normalizing only
-  whitespace). The public `answer` is assembled from verified excerpts, not model-written
+  Index copies expire after 30 days and can be rebuilt; conversation history expires after 90 days.
+- Retrieval keeps each ready index's vectors in an in-process LRU keyed by `(_id, updatedAt)`,
+  so a question no longer reloads every embedding from Mongo.
+- Generation uses the Responses API (store=false, low reasoning/verbosity, 3000-token cap)
+  through the shared `chat_model()`; the last three turns go back to the model in their
+  verified form. Quotes are checked for literal membership in the corresponding retrieved
+  text (normalizing only whitespace). The public `answer` is assembled from verified excerpts, not model-written
   claims: a valid source ID alone cannot substantiate an invented fact.
-  `supplementalAnswer` contains teaching explanations/examples and is rendered under
+  The explanation block (`supplementalAnswer`) contains teaching explanations/examples and is rendered under
   a distinct "Giải thích & mở rộng" label, never with document citations. Insufficient direct
   evidence does not discard a relevant supplemental explanation. Unrelated questions and
   unknown private facts (deadlines, author intent, group rules) are instructed to abstain.
@@ -125,10 +135,10 @@ Client → Workspace Service (token identity + membership + view_doc + approval 
   instead of an unconditional refusal, so the model can assess whether they are on topic.
   Documents are treated as untrusted data, not system instructions. Generated HTML/images
   and arbitrary clickable links are not rendered in chat.
-- Per-user daily budget covers questions and indexing requests; bounded model output and
-  timeouts prevent unlimited requests. Conversation leases prevent parallel answers.
-  Repeated successful request IDs replay the saved answer instead of paying again.
-- No live token streaming yet: UI shows a pending state, then the complete grounded response.
+- Per-user daily budget (`rag` key, shared with indexing) is charged once per run; bounded
+  model output and timeouts prevent unlimited requests. Conversations are capped at 50 turns.
+- While streaming, quotes are shown dimmed as "đang đối chiếu"; only `grounding` decides what is
+  labelled "Từ tài liệu của bạn".
 
 ## Scope and limitations
 

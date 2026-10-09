@@ -11,6 +11,10 @@ nguyên một vòng lặp worker thứ hai.
 
 import asyncio
 import logging
+import math
+import operator
+from array import array
+from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -21,7 +25,7 @@ from pymongo.errors import DuplicateKeyError
 from app import budget, telemetry
 from app.config import Settings
 from app.provider import OpenAIProvider
-from app.rag.documents import SUPPORTED_TYPES, DocumentStorage, cosine, extract_isolated, tokenizer
+from app.rag.documents import SUPPORTED_TYPES, DocumentStorage, extract_isolated, tokenizer
 
 logger = logging.getLogger("codementor.ai")
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -32,6 +36,30 @@ MAX_SOURCES = 8
 # thấp dù đúng chủ đề, nên vẫn có fallback top-3 thay vì từ chối thẳng.
 MIN_SIMILARITY = 0.2
 FALLBACK_MATCHES = 3
+# Số bản index giữ vector trong RAM. Một tài liệu tối đa 160 đoạn × 1536 số thực 8 byte ≈ 2 MB,
+# nên trần này là ~64 MB trong trường hợp xấu nhất, thường ít hơn nhiều.
+# ponytail: LRU theo số bản, đổi sang theo byte nếu tài liệu lớn thành chuyện thường.
+VECTOR_CACHE_SIZE = 32
+
+
+def prepare_chunks(chunks: list[dict]) -> list[dict]:
+    """Đoạn văn sẵn sàng để chấm: vector đóng gói `array('d')` kèm độ dài tính sẵn.
+
+    `list[float]` của Python tốn ~32 byte mỗi số; `array` tốn 8. Độ dài tính một lần ở đây thay
+    vì một lần cho MỖI câu hỏi.
+    """
+    prepared = []
+    for chunk in chunks:
+        vector = array("d", chunk["embedding"])
+        prepared.append(
+            {
+                "text": chunk["text"],
+                "page": chunk.get("page"),
+                "embedding": vector,
+                "norm": math.sqrt(sum(x * x for x in vector)),
+            }
+        )
+    return prepared
 
 
 def now() -> datetime:
@@ -68,6 +96,9 @@ class DocumentIndex:
         self.provider = provider
         self.storage = storage
         self.indexes = db["ai_document_indexes"]
+        # Khoá `(_id, updatedAt)`: index lại là đổi `updatedAt`, nên bản cũ tự trượt khỏi cache
+        # mà không cần ai báo. Mỗi tiến trình một cache — đúng một worker, nhiều lượt đọc.
+        self._vectors: OrderedDict[tuple, list[dict]] = OrderedDict()
 
     def index_id(self, scope: str, document_id: str) -> str:
         """Khoá của một bản index.
@@ -263,34 +294,75 @@ class DocumentIndex:
 
     # --- đọc lại ------------------------------------------------------------
 
-    async def ready_rows(self, scope: str, sources: list[dict]) -> list[dict]:
-        """Bản index đã sẵn sàng của đúng những nguồn này, kèm `chunks`.
+    async def ready_rows(
+        self, scope: str, sources: list[dict], projection: dict | None = None
+    ) -> list[dict]:
+        """Bản index đã sẵn sàng của đúng những nguồn này.
 
         Trả về ÍT hơn số nguồn được hỏi là chuyện bình thường (đang xếp hàng, hoặc hỏng); nơi
         gọi tự quyết định đó là lỗi hay chỉ là chờ.
         """
         keys = [self.index_id(scope, source["id"]) for source in sources]
-        return await self.indexes.find({"_id": {"$in": keys}, "state": "ready"}).to_list(
-            MAX_SOURCES
-        )
+        return await self.indexes.find(
+            {"_id": {"$in": keys}, "state": "ready"}, projection
+        ).to_list(MAX_SOURCES)
+
+    async def ready_chunks(self, scope: str, sources: list[dict]) -> list[dict]:
+        """Như `ready_rows`, nhưng `chunks` đã sẵn sàng để chấm và lấy từ cache khi có.
+
+        Trước đây mỗi câu hỏi kéo nguyên mảng embedding của mọi tài liệu từ Mongo — ~20 KB mỗi
+        đoạn ở dạng BSON, tức vài MB tới hàng chục MB một lượt — cho một thứ không đổi giữa hai
+        lần index. Giờ lượt đầu đọc phần đầu (không có `chunks`), chỉ tải đoạn văn của bản nào
+        chưa có trong cache.
+        """
+        heads = await self.ready_rows(scope, sources, {"chunks": 0})
+        result = []
+        for head in heads:
+            stamp = (head["_id"], head["updatedAt"])
+            chunks = self._vectors.get(stamp)
+            if chunks is None:
+                row = await self.indexes.find_one(
+                    {"_id": head["_id"], "updatedAt": head["updatedAt"]}, {"chunks": 1}
+                )
+                if not row:
+                    # Vừa bị index lại giữa hai lần đọc: lượt này coi như chưa sẵn sàng.
+                    continue
+                chunks = self._vectors[stamp] = prepare_chunks(row.get("chunks") or [])
+                while len(self._vectors) > VECTOR_CACHE_SIZE:
+                    self._vectors.popitem(last=False)
+            else:
+                self._vectors.move_to_end(stamp)
+            result.append({**head, "chunks": chunks})
+        return result
 
     async def search(self, scope: str, sources: list[dict], query: str, limit: int = MAX_SOURCES):
         """Đoạn văn gần nghĩa nhất với `query`, xếp giảm dần.
 
         Ngưỡng rồi mới fallback, không phải ngược lại: câu hỏi ngắn ăn theo lượt trước chấm thấp
         dù đúng chủ đề, và trả rỗng ở đó nghĩa là model từ chối một câu nó trả lời được.
+
+        Kết quả KHÔNG mang vector: nó đi vào state của agent, và state được phát về trình duyệt.
         """
-        indexes = await self.ready_rows(scope, sources)
+        indexes = await self.ready_chunks(scope, sources)
         if not indexes:
             return []
         vector = (await self.provider.embed([query]))[0]
+        query_norm = math.sqrt(sum(x * x for x in vector))
+
+        def similarity(chunk: dict) -> float:
+            denominator = query_norm * chunk["norm"]
+            if not denominator or len(chunk["embedding"]) != len(vector):
+                return 0.0
+            return sum(map(operator.mul, vector, chunk["embedding"])) / denominator
+
         matches = sorted(
             (
                 {
-                    **chunk,
+                    "text": chunk["text"],
+                    "page": chunk["page"],
                     "documentId": index["documentId"],
                     "title": index["source"]["title"],
-                    "similarity": cosine(vector, chunk["embedding"]),
+                    "similarity": similarity(chunk),
                 }
                 for index in indexes
                 for chunk in index["chunks"]
@@ -307,7 +379,8 @@ class DocumentIndex:
         Đếm token bằng chính tokenizer đã dùng lúc cắt đoạn, nên con số nơi gọi đem đi so với
         trần là con số thật chứ không phải ước lượng theo số ký tự.
         """
-        rows = await self.ready_rows(scope, [source])
+        # Không kéo embedding: tool đọc toàn văn chỉ cần chữ.
+        rows = await self.ready_rows(scope, [source], {"chunks.embedding": 0})
         if not rows:
             return None
         chunks = rows[0].get("chunks") or []

@@ -6,14 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import type {
-  AiConversation,
-  AiDocumentSource,
-  AiIndexStatus,
-  AiScope,
-  AiStatus,
-  AiTurn,
-} from '@codementor/contracts';
+import type { AiDocumentSource, AiIndexStatus, AiScope, AiStatus } from '@codementor/contracts';
 import { WorkspaceService } from './workspace.service';
 import { WorkspaceAiClient } from '../infrastructure/workspace-ai.client';
 import {
@@ -109,44 +102,5 @@ export class WorkspaceAiService {
         await this.ai.call('index', scope, { sources: [source] });
     }
     return this.ai.call<AiIndexStatus[]>('documents', scope, { sources });
-  }
-  async create(userId: string, slug: string, documentIds: string[]) {
-    const scope = await this.scope(userId, slug);
-    return this.ai.call<AiConversation>('create', scope, {
-      sources: await this.sources(scope, documentIds),
-    });
-  }
-  async list(userId: string, slug: string, query: { page: number; limit: number }) {
-    return this.ai.call('list', await this.scope(userId, slug), query);
-  }
-  async remove(userId: string, slug: string, id: string) {
-    return this.ai.call('delete', await this.scope(userId, slug), { id });
-  }
-  async read(userId: string, slug: string, id: string) {
-    const scope = await this.scope(userId, slug);
-    const meta = await this.ai.call<{ documentIds: string[] }>('metadata', scope, { id });
-    return this.ai.call<AiConversation>('read', scope, {
-      id,
-      sources: await this.sources(scope, meta.documentIds),
-    });
-  }
-  async ask(userId: string, slug: string, id: string, question: string, requestId: string) {
-    const scope = await this.scope(userId, slug);
-    const meta = await this.ai.call<{ documentIds: string[] }>('metadata', scope, { id });
-    const sources = await this.sources(scope, meta.documentIds);
-    const turn = await this.ai.call<AiTurn>('ask', scope, { id, question, requestId, sources });
-    // Revalidate after the long provider call: permission or moderation may change while waiting.
-    const currentScope = await this.scope(userId, slug);
-    const currentSources = await this.sources(currentScope, meta.documentIds);
-    if (
-      sources.some(
-        (source) =>
-          !currentSources.some(
-            (current) => current.id === source.id && current.revision === source.revision,
-          ),
-      )
-    )
-      throw new ForbiddenException('Nguồn tài liệu đã thay đổi khi AI đang trả lời.');
-    return turn;
   }
 }

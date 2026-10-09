@@ -10,6 +10,7 @@ nhập từ `app.lecter` sang `app.codey` là thứ khiến người đọc tư�
 Vòng lặp thì cũng dùng chung — xem `app/graph.py`.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,6 +44,13 @@ class Capability:
     # — đo được ~10 giây im lặng rồi mới tới 2-3 giây chữ chảy ra. Với Lecter, 10 giây đó đổi lấy
     # một chuỗi gọi tool đi đúng và đáng giá. Với Codey thì không: học viên đang chờ hai câu gợi ý.
     #
-    # Cuối danh sách vì nó là trường DUY NHẤT có mặc định, và dataclass không cho trường không
-    # mặc định đứng sau trường có mặc định.
+    # Cuối danh sách vì nó là trường có mặc định, và dataclass không cho trường không mặc định
+    # đứng sau trường có mặc định.
     reasoning_effort: str | None = None
+    # Graph riêng của bề mặt. `None` = vòng chat↔tools của `app/graph.py` (Lecter, Codey).
+    #
+    # Tutor cần một đường CỐ ĐỊNH (đợi index → tìm → viết → đối chiếu) chứ không để model tự
+    # quyết lúc nào tìm: câu trả lời bám tài liệu là lời hứa của sản phẩm, không phải một tool
+    # model có thể quên gọi. Nhưng nó vẫn chạy qua đúng `stream_run` — hạn mức, telemetry,
+    # RUN_ERROR, lưu lịch sử — nên chỗ khác nhau chỉ là hàm dựng graph.
+    build_graph: Callable[["Capability"], Any] | None = None

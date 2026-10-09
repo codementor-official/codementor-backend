@@ -19,6 +19,7 @@ from app.provider import OpenAIProvider
 from app.rag import DocumentIndex, DocumentLibrary, DocumentStorage, RagService
 from app.rag.endpoint import router as documents_router
 from app.suggest import router as suggest_router
+from app.tutor.endpoint import router as tutor_router
 
 
 @asynccontextmanager
@@ -101,6 +102,7 @@ app.include_router(suggest_router)
 app.include_router(dashboard_router)
 app.include_router(lecter_router)
 app.include_router(codey_router)
+app.include_router(tutor_router)
 app.include_router(documents_router)
 
 
@@ -111,6 +113,12 @@ async def health():
 
 @app.post("/api/v1/internal/workspace-ai/{action}")
 async def execute(action: str, body: InternalRequest, request: Request):
+    """Tài liệu của nhóm học, gọi từ workspace-service bằng service token.
+
+    Chỉ còn phần TÀI LIỆU (trạng thái, xếp hàng index). Hỏi đáp đã chuyển sang `/api/v1/ai/tutor`
+    — cùng đường AG-UI với Codey/Lecter — nên `create/list/read/ask/...` của hội thoại cũ không
+    còn ở đây.
+    """
     telemetry.set_scope("rag", str(body.userId), str(body.workspaceId))
     rag = request.app.state.rag
     if action == "status":
@@ -119,22 +127,6 @@ async def execute(action: str, body: InternalRequest, request: Request):
         result = await rag.states(body)
     elif action == "index" and len(body.sources) == 1:
         result = await rag.queue_index(body)
-    elif action == "create" and 1 <= len(body.sources) <= 8:
-        result = await rag.create(body)
-    elif action == "list":
-        result = await rag.list(body)
-    elif action in ("metadata", "delete") and body.id:
-        result = await getattr(rag, action)(body)
-    elif action == "read" and body.id and 1 <= len(body.sources) <= 8:
-        result = await rag.read(body)
-    elif (
-        action == "ask"
-        and body.id
-        and body.question
-        and body.requestId
-        and 1 <= len(body.sources) <= 8
-    ):
-        result = await rag.ask(body)
     else:
         raise HTTPException(400, "Thao tác AI không hợp lệ.")
     return {"data": result}

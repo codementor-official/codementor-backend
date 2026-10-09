@@ -17,7 +17,11 @@ from app.telemetry import COLLECTION
 router = APIRouter(prefix="/api/v1/ai/admin")
 
 TIMEZONE = "Asia/Ho_Chi_Minh"
-AGENTS = ["codey", "lecter", "lecter_workspace", "rag", "rag_index", "suggest", "dashboard"]
+# `rag` còn lại cho lịch sử trước khi Tutor chuyển sang AG-UI, và cho lần chặn hạn mức khi xếp
+# hàng index (cùng ngăn hạn mức với Tutor).
+AGENTS = [
+    "codey", "lecter", "lecter_workspace", "tutor", "rag", "rag_index", "suggest", "dashboard",
+]
 RECENT_ERRORS = 20
 # Lời gọi model = sự kiện có `model`. Chặn hạn mức và run hỏng không có model.
 IS_CALL = {"$ne": ["$model", None]}
@@ -90,6 +94,7 @@ def runtime_config() -> dict:
             "codey": settings.ai_codey_daily_limit,
             "lecter": settings.ai_lecter_daily_limit,
             "lecter_workspace": settings.ai_lecter_workspace_daily_limit,
+            "tutor": settings.ai_daily_request_limit,
             "rag": settings.ai_daily_request_limit,
             "suggest": settings.ai_suggest_daily_limit,
             "dashboard": settings.ai_dashboard_daily_limit,

@@ -26,17 +26,17 @@ describe('Workspace AI authorization', () => {
     );
     detail.mockResolvedValue({ id: 'workspace', currentMembership: { role: 'member', permissions: { view_doc: true } } });
     findDocument.mockResolvedValue(doc);
-    call.mockImplementation(async (action: string) => action === 'metadata' ? { documentIds: ['document'] } : {});
+    call.mockResolvedValue([]);
   });
   it('derives scope from authenticated user and workspace lookup', async () => {
-    await service.create('authenticated-user', 'slug', ['document']);
+    await service.documentStates('authenticated-user', 'slug', ['document']);
     expect(detail).toHaveBeenCalledWith('authenticated-user', 'slug');
-    expect(call).toHaveBeenCalledWith('create', { userId: 'authenticated-user', workspaceId: 'workspace' }, expect.objectContaining({ sources: expect.any(Array) }));
+    expect(call).toHaveBeenCalledWith('documents', { userId: 'authenticated-user', workspaceId: 'workspace' }, expect.objectContaining({ sources: expect.any(Array) }));
     expect(findDocument).toHaveBeenCalledWith('workspace', 'document');
   });
   it('rejects outsiders before AI sees source data', async () => {
     detail.mockRejectedValue(new NotFoundException());
-    await expect(service.create('outsider', 'slug', ['document'])).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.documentStates('outsider', 'slug', ['document'], true)).rejects.toBeInstanceOf(NotFoundException);
     expect(call).not.toHaveBeenCalled();
   });
   it('enforces denied view_doc even for deputy', async () => {
@@ -52,7 +52,7 @@ describe('Workspace AI authorization', () => {
   });
   it('does not read removed documents', async () => {
     findDocument.mockResolvedValue({ ...doc, deletedAt: new Date() });
-    await expect(service.create('member', 'slug', ['document'])).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.documentStates('member', 'slug', ['document'], true)).rejects.toBeInstanceOf(NotFoundException);
   });
   it('forces approved-only pagination and hides storage metadata from client', async () => {
     listDocuments.mockResolvedValue({ items: [doc], page: 2, limit: 10, total: 15, totalPages: 2 });
@@ -77,14 +77,5 @@ describe('Workspace AI authorization', () => {
     findDocument.mockResolvedValueOnce(doc).mockResolvedValueOnce({ ...doc, status: 'pending' });
     await expect(service.documentStates('member', 'slug', ['document', 'pending'], true)).rejects.toBeInstanceOf(NotFoundException);
     expect(call).not.toHaveBeenCalled();
-  });
-  it('rechecks permission after model response', async () => {
-    detail.mockResolvedValueOnce({ id: 'workspace', currentMembership: { role: 'member', permissions: { view_doc: true } } });
-    detail.mockResolvedValueOnce({ id: 'workspace', currentMembership: { role: 'member', permissions: { view_doc: false } } });
-    await expect(service.ask('member', 'slug', 'conversation', 'Stack?', 'request')).rejects.toBeInstanceOf(ForbiddenException);
-  });
-  it('rechecks publication after model response', async () => {
-    findDocument.mockResolvedValueOnce(doc).mockResolvedValueOnce({ ...doc, status: 'hidden' });
-    await expect(service.ask('member', 'slug', 'conversation', 'Stack?', 'request')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

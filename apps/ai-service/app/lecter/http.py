@@ -26,7 +26,15 @@ FIELD_CHARS = 500
 
 class ToolCallError(Exception):
     """Lỗi đã được diễn giải cho model đọc. Nội dung câu này sẽ nằm trong lịch sử hội thoại,
-    nên nó nói cái gì hỏng và làm gì tiếp, không phải stack trace."""
+    nên nó nói cái gì hỏng và làm gì tiếp, không phải stack trace.
+
+    `status` là mã HTTP của service phía sau (nếu có). Model không cần nó, nhưng một route gọi
+    trước khi mở stream (cổng quyền của Tutor) phải trả đúng 403/404 thay vì gộp hết thành 503.
+    """
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 def auth_token(config: RunnableConfig) -> str:
@@ -61,11 +69,11 @@ async def call(
         raise ToolCallError(f"Không kết nối được dịch vụ để thực hiện bước này ({path}).") from None
 
     if response.status_code == 401:
-        raise ToolCallError("Phiên đăng nhập đã hết hạn. Hãy tải lại trang rồi thử lại.")
+        raise ToolCallError("Phiên đăng nhập đã hết hạn. Hãy tải lại trang rồi thử lại.", 401)
     if response.status_code == 403:
-        raise ToolCallError("Tài khoản này không có quyền thực hiện thao tác đó.")
+        raise ToolCallError("Tài khoản này không có quyền thực hiện thao tác đó.", 403)
     if response.status_code == 404:
-        raise ToolCallError("Không tìm thấy đối tượng với định danh đã cho.")
+        raise ToolCallError("Không tìm thấy đối tượng với định danh đã cho.", 404)
     if response.status_code >= 400:
         # Câu lỗi của backend là thứ model cần để tự sửa (Nest liệt kê trường còn thiếu; judge nói
         # rõ "chế độ hàm chưa hỗ trợ ngôn ngữ 'Python'"). Hai service dùng hai khoá khác nhau —
@@ -81,7 +89,8 @@ async def call(
         except ValueError:
             detail = response.text
         raise ToolCallError(
-            f"Dịch vụ từ chối yêu cầu ({response.status_code}): {clip(detail) or 'không rõ lý do'}"
+            f"Dịch vụ từ chối yêu cầu ({response.status_code}): {clip(detail) or 'không rõ lý do'}",
+            response.status_code,
         )
 
     if response.status_code == 204 or not response.content:

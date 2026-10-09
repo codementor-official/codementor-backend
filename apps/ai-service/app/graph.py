@@ -1,6 +1,6 @@
 """Vòng lặp agent dùng chung: một node hội thoại, một node chạy tool phía server.
 
-Một vòng lặp cho MỌI bề mặt (Lecter giảng viên, Lecter nhóm học, Codey), khác nhau đúng một
+Một vòng lặp cho mọi bề mặt có tool (Lecter giảng viên, Lecter nhóm học, Codey), khác nhau đúng một
 `Capability`. Đây là lớp vá lỗi đã trả giá thật — lời gọi tool treo, tool server bị bỏ giữa lượt
 HITL, model gọi lặp. Chép nó ra bản thứ hai là hẹn ngày hai bản lệch nhau.
 
@@ -225,6 +225,35 @@ def repeated_calls(
     return nudges
 
 
+def chat_model(capability: Capability, **overrides: Any) -> ChatOpenAI:
+    """Model của một capability, dựng giống nhau cho MỌI bề mặt.
+
+    Tách ra khỏi `chat` vì graph của Tutor cũng gọi model, và hai chỗ dựng `ChatOpenAI` là hai
+    chỗ để lệch nhau ở retry, timeout hay telemetry — đúng những thứ đã phải vá bằng tiền thật.
+    """
+    return ChatOpenAI(
+        model=capability.model,
+        api_key=settings.openai_api_key.get_secret_value(),
+        timeout=settings.ai_request_timeout_ms / 1000,
+        # Một mã 429 hay 500 lẻ của OpenAI là lỗi tạm thời. Để 0 thì nó giết cả run, trong khi
+        # suất hạn mức ngày đã bị trừ trước lúc stream mở — người dùng mất lượt vì lỗi của nhà
+        # cung cấp, và câu họ nhận được là "đã dùng hết lượt AI hôm nay".
+        max_retries=2,
+        output_version="responses/v1",
+        # Đo token/độ trễ/lỗi cho trang Vận hành AI; ai gọi thì đọc từ phạm vi đặt ở
+        # `stream_run`, không truyền qua đây.
+        callbacks=[telemetry.UsageCallback(capability.model)],
+        # Không truyền khoá này khi capability không khai: để `None` đi qua sẽ ghi đè mặc định
+        # của nhà cung cấp bằng một giá trị rỗng thay vì bỏ qua nó.
+        **(
+            {"reasoning_effort": capability.reasoning_effort}
+            if capability.reasoning_effort
+            else {}
+        ),
+        **overrides,
+    )
+
+
 def make_chat(capability: Capability):
     """Node hội thoại của MỘT capability.
 
@@ -239,26 +268,9 @@ def make_chat(capability: Capability):
         state: AgentState, config: RunnableConfig
     ) -> Command[Literal["chat", "tools", "__end__"]]:
         frontend = _frontend_names(state, server_names)
-        model = ChatOpenAI(
-            model=capability.model,
-            api_key=settings.openai_api_key.get_secret_value(),
-            timeout=settings.ai_request_timeout_ms / 1000,
-            # Một mã 429 hay 500 lẻ của OpenAI là lỗi tạm thời. Để 0 thì nó giết cả run, trong
-            # khi suất hạn mức ngày đã bị trừ trước lúc stream mở — người soạn mất lượt vì lỗi
-            # của nhà cung cấp, và câu họ nhận được là "đã dùng hết lượt AI hôm nay".
-            max_retries=2,
-            output_version="responses/v1",
-            # Đo token/độ trễ/lỗi cho trang Vận hành AI; ai gọi thì đọc từ phạm vi đặt ở
-            # `stream_run`, không truyền qua đây.
-            callbacks=[telemetry.UsageCallback(capability.model)],
-            # Không truyền khoá này khi capability không khai: để `None` đi qua sẽ ghi đè mặc
-            # định của nhà cung cấp bằng một giá trị rỗng thay vì bỏ qua nó.
-            **(
-                {"reasoning_effort": capability.reasoning_effort}
-                if capability.reasoning_effort
-                else {}
-            ),
-        ).bind_tools([*capability.tools, *frontend_tools(state, server_names)])
+        model = chat_model(capability).bind_tools(
+            [*capability.tools, *frontend_tools(state, server_names)]
+        )
 
         history = drop_dangling_tool_calls(list(state["messages"]))
         response = await model.ainvoke(
@@ -371,5 +383,5 @@ def graph_for(capability: Capability) -> Any:
     """
     graph = _graphs.get(capability.agent_id)
     if graph is None:
-        graph = _graphs[capability.agent_id] = build(capability)
+        graph = _graphs[capability.agent_id] = (capability.build_graph or build)(capability)
     return graph

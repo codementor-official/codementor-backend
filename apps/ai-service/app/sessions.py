@@ -54,6 +54,7 @@ async def save(
     agent_id: str,
     workspace_id: str | None = None,
     extra: dict | None = None,
+    persist_state: tuple[str, ...] = (),
 ) -> None:
     """Lưu toàn bộ hội thoại của thread. Hỏng thì log rồi thôi — mất lịch sử là phiền, mất câu
     trả lời vừa stream xong vì một lỗi ghi mới là hỏng thật.
@@ -92,6 +93,9 @@ async def save(
         # hẳn khỏi `workspace_id` vốn là khoá PHẠM VI. Trộn hai vai đó lại thì thêm một nhãn để
         # hiện trong danh sách hoá ra lại thu hẹp cả bộ lọc quyền đọc.
         fields.update(extra or {})
+        # Khoá state mà bề mặt cần mở lại cùng hội thoại (Tutor: `grounding`, `documents`). Đọc
+        # từ checkpoint như `messages`, tức là bản SERVER đã ghi — không phải bản trình duyệt gửi.
+        fields.update({key: state.values[key] for key in persist_state if key in state.values})
         await db["ai_agent_sessions"].update_one(
             {"_id": _doc_id(agent_id, workspace_id, thread_id)},
             {"$set": fields, "$setOnInsert": {"createdAt": now}},
@@ -144,8 +148,15 @@ async def listing(
 
 
 async def read(
-    db, user_id: str, thread_id: str, *, agent_id: str, workspace_id: str | None = None
+    db,
+    user_id: str,
+    thread_id: str,
+    *,
+    agent_id: str,
+    workspace_id: str | None = None,
+    include: tuple[str, ...] = (),
 ) -> dict | None:
+    """`include`: trường phụ trả kèm — cùng nghĩa với `listing(include=…)`."""
     doc = await db["ai_agent_sessions"].find_one(
         {
             "_id": _doc_id(agent_id, workspace_id, thread_id),
@@ -159,6 +170,7 @@ async def read(
         "title": doc.get("title") or "Hội thoại mới",
         "messages": doc.get("messages") or [],
         "updatedAt": doc["updatedAt"].isoformat(),
+        **{key: doc[key] for key in include if key in doc},
     }
 
 

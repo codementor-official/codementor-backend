@@ -12,7 +12,13 @@ import pytest
 from fastapi import HTTPException
 
 from app.config import Settings
-from app.rag.index import FALLBACK_MATCHES, MIN_SIMILARITY, DocumentIndex, storage_prefix
+from app.rag.index import (
+    FALLBACK_MATCHES,
+    MIN_SIMILARITY,
+    DocumentIndex,
+    prepare_chunks,
+    storage_prefix,
+)
 
 WORKSPACE = "workspace:11111111-1111-4111-8111-111111111111"
 LECTURER = "lecturer:22222222-2222-4222-8222-222222222222"
@@ -101,10 +107,10 @@ async def search(similarities: list[float], limit: int = 8):
     subject = index()
     subject.provider = FakeProvider()
 
-    async def ready_rows(_scope, _sources):
-        return rows(similarities)
+    async def ready_chunks(_scope, _sources):
+        return [{**row, "chunks": prepare_chunks(row["chunks"])} for row in rows(similarities)]
 
-    subject.ready_rows = ready_rows
+    subject.ready_chunks = ready_chunks
     return await subject.search(WORKSPACE, [{"id": DOC}], "câu hỏi", limit)
 
 
@@ -131,8 +137,8 @@ async def test_search_respects_limit():
 async def test_search_without_ready_index_returns_nothing():
     subject = index()
 
-    async def ready_rows(_scope, _sources):
+    async def ready_chunks(_scope, _sources):
         return []
 
-    subject.ready_rows = ready_rows
+    subject.ready_chunks = ready_chunks
     assert await subject.search(WORKSPACE, [{"id": DOC}], "câu hỏi") == []
