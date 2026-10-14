@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   ForbiddenException,
   NotFoundException,
@@ -8,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { AuthenticatedUser, requireHumanId } from '@codementor/platform';
 import { CommerceStore, lock, audit, type Tx } from '../infrastructure/commerce.store';
 import { notifyCommerce } from '../infrastructure/commerce-notification';
+import { discountedPrice, listPriceViolation, salePriceViolation } from '../domain/money';
 
 type PricingRow = {
   course_id: string;
@@ -136,6 +138,8 @@ export class CommerceAccessService {
     };
   }
   async setPrice(user: AuthenticatedUser, courseId: string, price: number) {
+    const invalid = listPriceViolation(price);
+    if (invalid) throw new BadRequestException(invalid);
     return this.store.transaction(async (tx) => {
       await lock(tx, `course:${courseId}`);
       const [course] = await tx.$queryRaw<
@@ -301,10 +305,8 @@ export class CommerceAccessService {
       const basePrice = course.pending_price_vnd ?? course.price_vnd;
       if (course.pending_config_id)
         await tx.$executeRaw`UPDATE courses SET updated_at=now() WHERE id=${courseId}::uuid`;
-      if (basePrice <= 0)
-        throw new ConflictException('Khóa học miễn phí không cần tạo khuyến mãi.');
-      if (input.salePriceVnd >= basePrice)
-        throw new ConflictException('Giá ưu đãi phải thấp hơn giá niêm yết.');
+      const invalidSale = salePriceViolation(input.salePriceVnd, basePrice);
+      if (invalidSale) throw new ConflictException(invalidSale);
       const actorId = requireHumanId(user);
       if (user.role === 'admin' && !course.pending_config_id) {
         await tx.$executeRaw`
@@ -431,15 +433,12 @@ export class CommerceAccessService {
         throw new NotFoundException('Một hoặc nhiều khóa học không tồn tại hoặc chưa có giá bán.');
       if (courses.some((course) => course.pending_price_vnd !== null))
         throw new ConflictException('Có khóa học đang đề xuất đổi giá. Duyệt cấu hình riêng trước khi áp dụng khuyến mãi theo lô.');
-      if (courses.some((course) => course.price_vnd <= 1000))
-        throw new ConflictException('Chỉ có thể áp dụng theo lô cho khóa học trả phí trên 1.000 ₫.');
       for (const course of courses) {
-        const salePrice = Math.max(
-          1000,
-          Math.floor((course.price_vnd * (100 - input.discountPercent)) / 100_000) * 1000,
-        );
-        if (salePrice >= course.price_vnd)
-          throw new ConflictException('Mức giảm không tạo được giá ưu đãi hợp lệ.');
+        const salePrice = discountedPrice(course.price_vnd, input.discountPercent);
+        if (salePriceViolation(salePrice, course.price_vnd))
+          throw new ConflictException(
+            `Mức giảm ${input.discountPercent}% cho giá ${course.price_vnd.toLocaleString('vi-VN')} ₫ không tạo được giá ưu đãi hợp lệ (tối thiểu 5.000 ₫ và thấp hơn giá niêm yết).`,
+          );
         await tx.$executeRaw`
           INSERT INTO course_promotions(course_id,sale_price_vnd,label,starts_at,ends_at,is_active,created_by)
           VALUES (${course.id}::uuid,${salePrice},${input.label.trim()},${startsAt},${endsAt},${input.isActive},${actorId}::uuid)
@@ -493,16 +492,13 @@ export class CommerceAccessService {
         throw new ForbiddenException('Chỉ có thể tạo khuyến mãi cho khóa học do bạn sở hữu.');
       if (courses.some((course) => course.pending_price_vnd !== null))
         throw new ConflictException('Có khóa học đang đề xuất đổi giá. Thiết lập khuyến mãi riêng để duyệt cùng giá mới.');
-      if (courses.some((course) => course.price_vnd <= 1_000))
-        throw new ConflictException('Chỉ có thể gửi đề xuất cho khóa học trả phí trên 1.000 ₫.');
       const requests: string[] = [];
       for (const course of courses) {
-        const salePrice = Math.max(
-          1_000,
-          Math.floor((course.price_vnd * (100 - input.discountPercent)) / 100_000) * 1_000,
-        );
-        if (salePrice >= course.price_vnd)
-          throw new ConflictException('Mức giảm không tạo được giá ưu đãi hợp lệ.');
+        const salePrice = discountedPrice(course.price_vnd, input.discountPercent);
+        if (salePriceViolation(salePrice, course.price_vnd))
+          throw new ConflictException(
+            `Mức giảm ${input.discountPercent}% cho giá ${course.price_vnd.toLocaleString('vi-VN')} ₫ không tạo được giá ưu đãi hợp lệ (tối thiểu 5.000 ₫ và thấp hơn giá niêm yết).`,
+          );
         const [request] = await tx.$queryRaw<{ id: string }[]>`
           INSERT INTO course_promotion_requests(
             course_id,action,sale_price_vnd,label,starts_at,ends_at,requested_active,status,requested_by,base_price_version,base_price_vnd

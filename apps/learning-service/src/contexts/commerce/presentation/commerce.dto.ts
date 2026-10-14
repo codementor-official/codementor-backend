@@ -34,10 +34,11 @@ export class CreateOrderDto {
   @IsIn(['mock', 'vnpay', 'momo']) provider!: 'mock' | 'vnpay' | 'momo';
 }
 export class PriceDto {
-  @IsInt() @Min(0) @Max(1000000000) priceVnd!: number;
+  // 0 = miễn phí; khoảng trả phí (5.000 ₫ – dưới 1 tỷ ₫) kiểm ở `listPriceViolation`.
+  @IsInt() @Min(0) @Max(999999999) priceVnd!: number;
 }
 export class PromotionDto {
-  @IsInt() @Min(1000) @Max(1000000000) salePriceVnd!: number;
+  @IsInt() @Min(5000) @Max(999999999) salePriceVnd!: number;
   @IsString() @Length(2, 60) label!: string;
   @IsDateString() startsAt!: string;
   @IsDateString() endsAt!: string;

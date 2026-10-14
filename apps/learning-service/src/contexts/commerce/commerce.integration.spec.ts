@@ -878,7 +878,9 @@ describe('Payment verification', () => {
   });
   it('production requires an explicit commerce opt-in', () => {
     const previous = process.env;
+    // The suite loads the developer's .env (ConfigModule), which may already opt in.
     process.env = { ...previous, NODE_ENV: 'production', COMMERCE_MODE: 'mock' };
+    delete process.env.COMMERCE_ENABLED;
     try {
       const p = new PaymentProviders();
       expect(p.methods()).toEqual([]);
