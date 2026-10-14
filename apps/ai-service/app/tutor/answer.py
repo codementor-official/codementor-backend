@@ -35,7 +35,7 @@ NO_INFORMATION = (
 _TRAILING_SOURCE = re.compile(r"\[(S\d+)\]\s*$")
 _ANY_SOURCE = re.compile(r"\[S\d+\]")
 _BLANK_LINE = re.compile(r"\n[ \t]*\n")
-_QUOTE_PREFIX = re.compile(r"^>\s?")
+_QUOTE_PREFIX = re.compile(r"^>[ \t]?")
 # Model hay bọc trích dẫn trong dấu nháy. Nháy không có trong nguồn, nên để nguyên là làm hỏng
 # phép so chuỗi con của một câu chép đúng.
 _WRAPPING_QUOTES = "\"'“”‘’«»"
@@ -61,8 +61,12 @@ def split_answer(raw: str) -> tuple[list[dict], str]:
     section = head.split(QUOTES, 1)[1] if QUOTES in head else ""
     quotes = []
     for block in _BLANK_LINE.split(section):
-        lines = [line.strip() for line in block.strip().splitlines() if line.strip()]
-        body = " ".join(_QUOTE_PREFIX.sub("", line) for line in lines).strip()
+        # Giữ xuống dòng và thụt lề SAU dấu `>`: trích một đoạn code mà nối dòng bằng dấu cách
+        # là ra `def f(n): if n <= 1: return 1` — sai cú pháp, và markdown không còn nhận khối
+        # code. Phép đối chiếu gộp khoảng trắng nên không bị ảnh hưởng.
+        lines = [_QUOTE_PREFIX.sub("", line.strip()) if line.lstrip().startswith(">") else line.strip()
+                 for line in block.strip().splitlines()]
+        body = "\n".join(line.rstrip() for line in lines if line.strip()).strip()
         match = _TRAILING_SOURCE.search(body)
         if not match:
             continue
@@ -111,7 +115,11 @@ def ground(raw: str, sources: list[dict]) -> dict:
         answer = NO_DIRECT_ANSWER if supplemental else NO_INFORMATION
     else:
         answer = "\n\n".join(
-            "> " + item["quote"].replace("\n", "\n> ") + f" [{item['sourceId']}]"
+            "> "
+            + item["quote"].replace("\n", "\n> ")
+            # Sau dấu đóng ``` phải xuống dòng: "``` [S1]" không còn là dấu đóng khối code.
+            + ("\n> " if item["quote"].endswith("```") else " ")
+            + f"[{item['sourceId']}]"
             for item in verified
         )
     ids = list(dict.fromkeys(item["sourceId"] for item in verified))

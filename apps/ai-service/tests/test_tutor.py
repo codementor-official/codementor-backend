@@ -149,7 +149,7 @@ def test_split_reads_multiline_and_wrapped_quotes():
         raw('> "Stack dùng\n> LIFO." [S1]\n\n> Queue dùng FIFO. [S2]\n\n> không có mã', "Giải thích.")
     )
     assert quotes == [
-        {"sourceId": "S1", "quote": "Stack dùng LIFO."},
+        {"sourceId": "S1", "quote": "Stack dùng\nLIFO."},
         {"sourceId": "S2", "quote": "Queue dùng FIFO."},
     ]
     assert explanation == "Giải thích."
@@ -460,3 +460,16 @@ def test_run_gate_fails_as_http_before_streaming(monkeypatch):
             assert "chưa được duyệt" in missing.json()["message"]
     finally:
         app.dependency_overrides.pop(require_user, None)
+
+
+def test_quoted_code_keeps_its_lines_and_closes_its_fence():
+    code = "```python\ndef giai_thua(n):\n    if n <= 1:\n        return 1\n    return n * giai_thua(n - 1)\n```"
+    raw = f"{QUOTES}\n" + "\n".join("> " + line for line in code.splitlines()) + f"\n> [S1]\n{EXPLAIN}\nGiải thích."
+    quotes, _ = split_answer(raw)
+    assert quotes == [{"sourceId": "S1", "quote": code}]
+    turn = ground(raw, [{"sourceId": "S1", "documentId": DOC, "title": "Đệ quy", "page": 3,
+                         "excerpt": "## Ví dụ\n\n" + code + "\n\nThiếu trường hợp cơ sở..."}])
+    assert not turn["insufficientEvidence"]
+    # Dấu đóng ``` đứng riêng một dòng, mã nguồn xuống dòng dưới — markdown nhận đủ khối code.
+    assert turn["answer"].endswith("> ```\n> [S1]")
+    assert ">     if n <= 1:" in turn["answer"]
