@@ -170,6 +170,18 @@ export class PrismaRoadmapRepository implements RoadmapRepository {
       ORDER BY COUNT(DISTINCT r.id) DESC, t.name ASC`;
   }
 
+  async courseIdsByRoadmap(roadmapIds: string[]): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>(roadmapIds.map((id) => [id, []]));
+    if (!roadmapIds.length) return result;
+    const rows = await this.prisma.$queryRaw<{ roadmapId: string; courseId: string }[]>`
+      SELECT rc.roadmap_id AS "roadmapId", rc.course_id AS "courseId"
+      FROM roadmap_courses rc
+      WHERE rc.roadmap_id IN (${Prisma.join(roadmapIds.map((id) => Prisma.sql`${id}::uuid`))})
+      ORDER BY rc.roadmap_id, rc.position`;
+    for (const row of rows) result.get(row.roadmapId)?.push(row.courseId);
+    return result;
+  }
+
   async listCourses(roadmapId: string): Promise<RoadmapCourseItem[]> {
     return this.prisma.$queryRaw<RoadmapCourseItem[]>`
       SELECT rc.course_id AS "courseId", rc.position, rc.is_optional AS "isOptional",

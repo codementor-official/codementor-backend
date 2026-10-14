@@ -20,6 +20,18 @@ export interface RoadmapListFilter {
   cursor?: { updatedAt: Date; id: string };
 }
 
+/**
+ * Chi phí học hết một lộ trình, tính từ giá từng khóa. `totalVnd` là giá học viên trả hôm nay
+ * (đã áp khuyến mãi đang chạy); `listTotalVnd` là tổng giá niêm yết. Không cá nhân hóa — khóa
+ * đã mua vẫn được tính, vì đây là giá của lộ trình chứ không phải số tiền người xem còn thiếu.
+ */
+export interface RoadmapPricing {
+  totalVnd: number;
+  listTotalVnd: number;
+  paidCourses: number;
+  freeCourses: number;
+}
+
 export interface RoadmapListItem {
   id: string;
   slug: string;
@@ -79,6 +91,8 @@ export interface RoadmapRepository {
   list(filter: RoadmapListFilter): Promise<RoadmapListItem[]>;
   listTopics(): Promise<CatalogueTopicSummary[]>;
   listCourses(roadmapId: string): Promise<RoadmapCourseItem[]>;
+  /** Id khóa học của nhiều lộ trình trong một truy vấn — để tính giá cho cả trang danh mục. */
+  courseIdsByRoadmap(roadmapIds: string[]): Promise<Map<string, string[]>>;
   /**
    * Ghi lại toàn bộ danh sách trong MỘT transaction.
    *

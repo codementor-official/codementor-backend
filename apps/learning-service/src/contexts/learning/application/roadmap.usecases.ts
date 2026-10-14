@@ -23,9 +23,12 @@ import {
   type RoadmapAdminSummary,
   type RoadmapCourseInput,
   type RoadmapListItem,
+  type RoadmapPricing,
   type RoadmapRepository,
 } from '../domain/port/roadmap.repository';
 import { toRoadmapView, type RoadmapView } from './roadmap-view';
+import { summarizePricing } from './roadmap-pricing';
+import { CommerceAccessService } from '../../commerce/application/commerce-access.service';
 import type { CatalogueTopicSummary } from '../domain/port/catalogue-topic';
 
 export interface ListRoadmapsQuery {
@@ -70,7 +73,17 @@ export class RoadmapUseCases {
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
     private readonly authors: ContentAuthorLookup,
     private readonly storage: ObjectStorageService,
+    private readonly access: CommerceAccessService,
   ) {}
+
+  /** Giá của từng lộ trình, cùng nguồn `offers()` mà danh mục khóa học dùng. */
+  private async pricing(roadmapIds: string[]): Promise<Map<string, RoadmapPricing>> {
+    const courseIds = await this.roadmaps.courseIdsByRoadmap(roadmapIds);
+    const offers = await this.access.offers([...new Set([...courseIds.values()].flat())]);
+    return new Map(
+      [...courseIds].map(([roadmapId, ids]) => [roadmapId, summarizePricing(ids, offers)]),
+    );
+  }
 
   coverUploadConfig(): { enabled: boolean; maxBytes: number; acceptedTypes: string[] } {
     return {
@@ -98,7 +111,7 @@ export class RoadmapUseCases {
     scope:
       { createdBy: string } | { publishedOnly: true } | { pendingOnly: true } | { adminAll: true },
     query: ListRoadmapsQuery,
-  ): Promise<Page<RoadmapListItem>> {
+  ): Promise<Page<RoadmapListItem & { pricing: RoadmapPricing }>> {
     const limit = Math.min(Math.max(query.limit ?? DEFAULT_PAGE_LIMIT, 1), 100);
     // Xem chú thích ở `ListExercisesUseCase`.
     const status = 'publishedOnly' in scope ? undefined : query.status;
@@ -118,7 +131,11 @@ export class RoadmapUseCases {
       limit,
       cursor: query.cursor ? (decodeCursor(query.cursor) ?? undefined) : undefined,
     });
-    return toPage(rows, limit);
+    const pricing = await this.pricing(rows.map((row) => row.id));
+    return toPage(
+      rows.map((row) => ({ ...row, pricing: pricing.get(row.id) ?? summarizePricing([], new Map()) })),
+      limit,
+    );
   }
 
   adminSummary(): Promise<RoadmapAdminSummary> {
@@ -129,7 +146,7 @@ export class RoadmapUseCases {
     return this.roadmaps.listTopics();
   }
 
-  async get(user: AuthenticatedUser, id: string): Promise<RoadmapView> {
+  async get(user: AuthenticatedUser, id: string): Promise<RoadmapView & { pricing: RoadmapPricing }> {
     const roadmap = await this.mustFind(id);
     // Lộ trình chưa công khai chỉ chủ nhân và admin thấy. 404 chứ không 403: trả 403 là
     // xác nhận nó tồn tại.
@@ -139,7 +156,11 @@ export class RoadmapUseCases {
     ) {
       throw new NotFound('Lộ trình', id);
     }
-    return toRoadmapView(roadmap, await this.roadmaps.listCourses(id));
+    const [courses, pricing] = await Promise.all([
+      this.roadmaps.listCourses(id),
+      this.pricing([id]),
+    ]);
+    return { ...toRoadmapView(roadmap, courses), pricing: pricing.get(id)! };
   }
 
   async create(
