@@ -295,7 +295,7 @@ export class PaymentProviders {
         partnerCode: process.env.MOMO_PARTNER_CODE!,
         requestId,
       };
-      const r = await this.post('https://test-payment.momo.vn/v2/gateway/api/query', {
+      const r = await this.queryPost('https://test-payment.momo.vn/v2/gateway/api/query', {
         partnerCode: fields.partnerCode,
         orderId: p.id,
         requestId,
@@ -543,12 +543,14 @@ export class PaymentProviders {
       ? 'success'
       : 'unknown';
   }
+  /** Gateway down or timing out is a 503 the buyer can retry, not a 500. */
   private async queryPost(url: string, body: unknown): Promise<Record<string, unknown>> {
+    const momo = url.includes('momo.vn');
     try { return await this.post(url, body); }
     catch {
       throw new ServiceUnavailableException({
-        code: 'VNPAY_QUERY_UNAVAILABLE',
-        message: 'Chưa kết nối được VNPAY để xác minh thanh toán. Vui lòng thử lại sau.',
+        code: momo ? 'MOMO_QUERY_UNAVAILABLE' : 'VNPAY_QUERY_UNAVAILABLE',
+        message: `Chưa kết nối được ${momo ? 'MoMo' : 'VNPAY'} để xác minh thanh toán. Vui lòng thử lại sau.`,
       });
     }
   }
