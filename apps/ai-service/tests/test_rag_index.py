@@ -244,3 +244,47 @@ async def test_wait_finished_wakes_on_a_finished_job_not_on_the_poll():
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+class FakeIndexes:
+    """Đủ cho `queue()`: chưa có bản index nào, ghi gì cũng nhận."""
+
+    async def find_one(self, *_args, **_kwargs):
+        return None
+
+    async def update_one(self, *_args, **_kwargs):
+        return None
+
+
+async def test_workspace_indexing_does_not_spend_quota_but_uploads_do(monkeypatch):
+    from app.models import InternalRequest
+    from app.rag.service import RagService
+
+    charged = []
+
+    async def consume(_db, user_id, key, _limit):
+        charged.append((user_id, key))
+
+    monkeypatch.setattr("app.rag.index.budget.consume", consume)
+    target = DocumentIndex(
+        {"ai_document_indexes": FakeIndexes()}, config(openai_api_key="sk-test"), Provider(), None
+    )
+
+    async def states(_scope, sources):
+        return [{"id": source["id"], "state": "queued"} for source in sources]
+
+    target.states = states
+    source = {"id": DOC, "title": "A", "docType": "pdf", "storageKey": "k", "previewText": None,
+              "revision": "a" * 64}
+    user = "44444444-4444-4444-8444-444444444444"
+    request = InternalRequest(userId=user, workspaceId=WORKSPACE.split(":")[1], sources=[source])
+
+    await RagService(None, target.config, target).queue_index(request)
+    assert charged == []
+    await target.queue(LECTURER, source, user)
+    assert charged == [(user, "rag")]
+
+
+class Provider:
+    def require_configured(self):
+        pass

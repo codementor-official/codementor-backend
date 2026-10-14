@@ -29,6 +29,11 @@ class RagService:
         return await self.index.states(self.index_scope(request), request.source_dicts)
 
     async def queue_index(self, request: InternalRequest):
+        # Không trừ hạn mức: mỗi câu hỏi Tutor đã trừ một lượt "rag" (`agent_stream`), nên trừ
+        # thêm ở đây là một câu hỏi kèm ba tài liệu mới tốn bốn lượt — và tick chọn rồi bỏ tick
+        # (index bắt đầu ngay lúc chọn) tốn lượt cho câu chưa hỏi. Không có đường lạm dụng: chỉ
+        # index được tài liệu đã duyệt của nhóm mình đọc được, mỗi bản một lần theo `revision`.
+        # Tài liệu giảng viên tự tải lên (`library.py`) vẫn trừ — số tệp đó không có trần.
         return await self.index.queue(
-            self.index_scope(request), request.source_dicts[0], str(request.userId)
+            self.index_scope(request), request.source_dicts[0], str(request.userId), charge=False
         )

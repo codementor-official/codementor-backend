@@ -178,7 +178,8 @@ class DocumentIndex:
             )
         return result
 
-    async def queue(self, scope: str, source: dict, user_id: str) -> dict:
+    async def queue(self, scope: str, source: dict, user_id: str, charge: bool = True) -> dict:
+        """Xếp hàng index một tài liệu. `charge=False`: không trừ hạn mức "rag" của người gọi."""
         self.provider.require_configured()
         if source["docType"] not in SUPPORTED_TYPES:
             raise HTTPException(400, "Dùng PDF có text, DOCX, PPTX, TXT hoặc Markdown.")
@@ -198,7 +199,8 @@ class DocumentIndex:
                 {"$set": {"source": source, "expiresAt": now() + timedelta(days=30)}},
             )
             return (await self.states(scope, [source]))[0]
-        await self.consume_budget(user_id)
+        if charge:
+            await self.consume_budget(user_id)
         try:
             await self.indexes.update_one(
                 {
