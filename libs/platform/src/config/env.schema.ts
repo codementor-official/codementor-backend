@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import { emailSettingsIssues } from './email-settings';
+
+/** `KEY=` trong `.env` là chuỗi rỗng, nghĩa là "chưa đặt" — không phải một giá trị sai. */
+const blankAsUnset = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), schema);
 
 /**
  * Env được validate lúc khởi động, fail-fast.
@@ -83,6 +88,22 @@ export const envSchema = z.object({
   SES_ENABLED: z.string().default('false').transform((v) => v === 'true'),
   SES_FROM_EMAIL: z.string().email().default('noreply@codementor.cloud'),
   SES_FROM_NAME: z.string().min(1).max(80).regex(/^[^\r\n"<>]+$/).default('CodeMentor'),
+  /**
+   * Kênh gửi email. `ses` giữ hành vi cũ (SES API, đọc `SES_*`). `smtp` gửi qua một máy chủ
+   * SMTP bất kỳ — Gmail với mật khẩu ứng dụng là trường hợp đang dùng — vì SES còn ở Sandbox
+   * và từ chối mọi người nhận chưa xác minh. Xem `email-settings.ts`.
+   */
+  EMAIL_PROVIDER: z.enum(['ses', 'smtp']).default('ses'),
+  /** Bỏ trống = theo `SES_ENABLED`, để `.env` cũ không đổi nghĩa. */
+  EMAIL_ENABLED: blankAsUnset(z.enum(['true', 'false']).optional()),
+  EMAIL_FROM_ADDRESS: blankAsUnset(z.string().email().optional()),
+  EMAIL_FROM_NAME: blankAsUnset(z.string().min(1).max(80).regex(/^[^\r\n"<>]+$/).optional()),
+  SMTP_HOST: blankAsUnset(z.string().min(1).optional()),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(465),
+  /** `true` = TLS ngay từ đầu (cổng 465); `false` = STARTTLS bắt buộc (cổng 587). */
+  SMTP_SECURE: blankAsUnset(z.enum(['true', 'false']).optional()),
+  SMTP_USER: blankAsUnset(z.string().min(1).optional()),
+  SMTP_PASSWORD: blankAsUnset(z.string().min(1).optional()),
   CLIENT_APP_URL: z.string().url().default('http://localhost:3000'),
   REMINDER_POLL_SECONDS: z.coerce.number().int().min(5).max(3600).default(60),
   LEARNING_INACTIVITY_DAYS: z.coerce.number().int().min(1).max(90).default(3),
@@ -120,6 +141,12 @@ export function validateEnv(raw: Record<string, unknown>): Env {
       .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
       .join('\n');
     throw new Error(`Cấu hình môi trường không hợp lệ:\n${issues}`);
+  }
+  // Ràng buộc chéo giữa các biến: bật SMTP mà thiếu thông tin đăng nhập thì chết lúc khởi
+  // động, thay vì mọi email lặng lẽ thất bại về sau.
+  const email = emailSettingsIssues(parsed.data);
+  if (email.length) {
+    throw new Error(`Cấu hình môi trường không hợp lệ:\n${email.map((i) => `  - ${i}`).join('\n')}`);
   }
   return parsed.data;
 }

@@ -93,6 +93,44 @@ system announcements are fully connected to the existing Admin producer.
 No automatic historical backfill: installing the migration will not email all old demo assignments.
 Subsequent source changes schedule current reminders. Overdue reminders older than seven days are not recreated.
 
+## Email provider: SMTP (Gmail) or SES — 2026-10-14
+
+**Why mail was not arriving.** Read-only checks on 2026-10-14: the SES account is still in the
+Sandbox (`productionAccess: false`, 200 mails/day) and only verified identities may receive mail.
+`email_deliveries` held 167 `FAILED / MessageRejected` (unverified recipients), 167
+`SKIPPED / SES_DISABLED` (`SES_ENABLED=false` in the production env) and only 13 `SENT`.
+
+**Options weighed.** SES Production Access needs an AWS support case with a described use case,
+bounce/complaint handling and a custom domain reputation; approval is not guaranteed and takes
+days. Gmail SMTP with an app password works immediately for any recipient, but Gmail limits a
+consumer account to roughly 500 recipients/day and always sends as the authenticated address.
+For the current volume (tens of mails per day) Gmail SMTP is the pragmatic choice; switch back
+to SES later by changing only `EMAIL_PROVIDER`.
+
+```env
+EMAIL_PROVIDER=smtp            # ses | smtp
+EMAIL_ENABLED=true             # blank = follow SES_ENABLED (old .env keeps its meaning)
+EMAIL_FROM_ADDRESS=            # blank = SMTP_USER (Gmail rewrites any other From)
+EMAIL_FROM_NAME=CodeMentor
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465                  # 465 = TLS; 587 = STARTTLS (SMTP_SECURE=false)
+SMTP_SECURE=true
+SMTP_USER=<gmail address>
+SMTP_PASSWORD=<16-character app password, spaces allowed>
+```
+
+- One reader for these variables: `libs/platform/src/config/email-settings.ts`, used by the
+  dispatcher, both providers and Admin › Cài đặt (which shows the provider, never the password).
+- Enabling SMTP with a missing `SMTP_HOST/USER/PASSWORD` stops every service at startup.
+- `SmtpEmailProvider` maps failures onto the existing queue semantics: wrong password / 5xx =
+  permanent; 4xx and connection failures before the transfer = retryable; a drop mid-transfer =
+  ambiguous (`UNKNOWN`, never resent, because SMTP has no idempotency key).
+- `npm run verify:smtp` logs in only; `npm run verify:smtp -- --send <address>` sends one test mail.
+- Keycloak (verification / reset-password mail) uses the same account:
+  `INFRA_ENV_FILE=<infra env> node --env-file=.env scripts/configure-keycloak-smtp.mjs --apply --test-simulator`.
+  With `EMAIL_PROVIDER=smtp` the test mails a unique `+tag` alias of `SMTP_USER` and deletes the
+  temporary Keycloak user afterwards. Applied to realm `codementor` on 2026-10-14.
+
 ## Configuration and deployment
 
 S3 and SES both use `AWS_REGION` and the SDK default credential chain.

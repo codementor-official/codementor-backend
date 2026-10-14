@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { emailSettings, fromConfig } from '@codementor/platform/config/email-settings';
 import {
   EMAIL_PROVIDER,
   EmailDeliveryError,
@@ -96,7 +97,8 @@ export class ReminderDispatcher implements OnModuleInit, OnModuleDestroy {
         }),
       );
     }
-    if (!this.config.get<boolean>('SES_ENABLED')) return this.repo.skip(r, user, 'SES_DISABLED');
+    if (!emailSettings(fromConfig((key) => this.config.get(key))).enabled)
+      return this.repo.skip(r, user, 'EMAIL_DISABLED');
     if (!permitsEmail(user, r.type, r.category))
       return this.repo.skip(r, user, 'EMAIL_PREFERENCE_OR_VERIFICATION');
     const rendered = renderEmail(

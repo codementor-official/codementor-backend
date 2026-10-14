@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '@codementor/platform';
+import { PrismaService, emailSettings, fromConfig } from '@codementor/platform';
 
 /** Tên, biến môi trường chứa URL, cổng mặc định khi chạy local, và đường health của service. */
 const SERVICES: [name: string, env: string, port: number, path?: string][] = [
@@ -150,6 +150,7 @@ export class SystemService {
     const text = (key: string) => this.config.get<string>(key)?.toString().trim() || null;
     const number = (key: string, fallback: number) => Number(this.config.get(key) ?? fallback);
     const configured = (...keys: string[]) => keys.every((key) => Boolean(text(key)));
+    const email = emailSettings(fromConfig((key) => this.config.get(key)));
     return {
       storage: {
         region: text('AWS_REGION'),
@@ -163,10 +164,13 @@ export class SystemService {
         },
       },
       email: {
-        // Cùng cách đọc với notification-service: chỉ gửi khi SES_ENABLED bật.
-        enabled: String(this.config.get('SES_ENABLED') ?? '').toLowerCase() === 'true',
-        fromEmail: text('SES_FROM_EMAIL'),
-        fromName: text('SES_FROM_NAME'),
+        // Cùng hàm đọc với notification-service, nên trang Cài đặt không thể báo khác thực tế.
+        enabled: email.enabled,
+        provider: email.provider,
+        // Chỉ báo đã đủ thông tin đăng nhập hay chưa; mật khẩu không bao giờ rời backend.
+        smtpConfigured: email.provider === 'smtp' ? email.smtp !== null : null,
+        fromEmail: email.fromAddress,
+        fromName: email.fromName,
         // Cùng mặc định với `reminder-dispatcher` / `reminder-planner`.
         reminderPollSeconds: number('REMINDER_POLL_SECONDS', 60),
         learningInactivityDays: number('LEARNING_INACTIVITY_DAYS', 3),

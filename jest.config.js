@@ -6,6 +6,9 @@ module.exports = {
   testRegex: '.*\.spec\.ts$',
   transform: { '^.+\.ts$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.json' }] },
   moduleNameMapper: {
+    // Đường sâu (`@codementor/platform/config/x`) như alias `@codementor/*/*` trong tsconfig:
+    // cho phép import một file mà không kéo cả barrel (barrel nạp jwks-rsa, ESM, jest không chạy).
+    '^@codementor/([^/]+)/(.+)$': '<rootDir>/libs/$1/src/$2',
     '^@codementor/(.*)$': '<rootDir>/libs/$1/src',
   },
   collectCoverageFrom: [

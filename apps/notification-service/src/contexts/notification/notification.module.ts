@@ -32,6 +32,9 @@ import { ReminderDispatcher } from './application/reminder-dispatcher';
 import { ReminderRepository } from './infrastructure/reminder.repository';
 import { EMAIL_PROVIDER } from './domain/port/email-provider';
 import { SesEmailProvider } from './infrastructure/ses-email.provider';
+import { SmtpEmailProvider } from './infrastructure/smtp-email.provider';
+import { ConfigService } from '@nestjs/config';
+import { emailSettings, fromConfig } from '@codementor/platform/config/email-settings';
 import { WorkspaceActivityRepository } from './infrastructure/workspace-activity.repository';
 import { WorkspaceActivityNotifications } from './application/workspace-activity-notifications';
 
@@ -60,7 +63,15 @@ import { WorkspaceActivityNotifications } from './application/workspace-activity
     ReminderRepository,
     WorkspaceActivityRepository,
     WorkspaceActivityNotifications,
-    { provide: EMAIL_PROVIDER, useClass: SesEmailProvider },
+    // Chọn kênh một lần lúc khởi động theo EMAIL_PROVIDER; đổi kênh = đổi env + khởi động lại.
+    {
+      provide: EMAIL_PROVIDER,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        emailSettings(fromConfig((key) => config.get(key))).provider === 'smtp'
+          ? new SmtpEmailProvider(config)
+          : new SesEmailProvider(config),
+    },
   ],
 })
 export class NotificationModule implements OnModuleInit {

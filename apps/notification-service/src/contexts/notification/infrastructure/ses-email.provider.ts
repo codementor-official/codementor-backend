@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SendEmailCommand, SESv2Client } from '@aws-sdk/client-sesv2';
+import { emailSettings, fromConfig } from '@codementor/platform/config/email-settings';
 import {
   EmailDeliveryError,
   type EmailProvider,
@@ -20,12 +21,12 @@ export class SesEmailProvider implements EmailProvider, OnModuleDestroy {
     });
   }
   async send(input: SendEmailInput) {
-    if (!this.config.get<boolean>('SES_ENABLED'))
-      throw new EmailDeliveryError('SES_DISABLED', false);
+    const settings = emailSettings(fromConfig((key) => this.config.get(key)));
+    if (!settings.enabled) throw new EmailDeliveryError('EMAIL_DISABLED', false);
     try {
       const result = await this.client.send(
         new SendEmailCommand({
-          FromEmailAddress: `"${this.config.get<string>('SES_FROM_NAME')}" <${this.config.get<string>('SES_FROM_EMAIL')}>`,
+          FromEmailAddress: `"${settings.fromName}" <${settings.fromAddress}>`,
           Destination: { ToAddresses: [input.recipient] },
           Content: {
             Simple: {

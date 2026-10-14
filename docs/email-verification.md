@@ -9,6 +9,11 @@
 
 ## SMTP setup
 
+> **2026-10-14:** realm `codementor` now sends through Gmail SMTP (the same account as
+> notification-service), not SES — SES is still in the Sandbox. See
+> `docs/email-reminders.md` › *Email provider*. The SES notes below describe the earlier setup and
+> the path back to SES.
+
 In Keycloak **Realm settings > Email**, configure SMTP host, port, From, TLS and SMTP credentials. AWS SES API credentials used by notification-service do **not** automatically configure Keycloak SMTP. Use region-matching SES SMTP credentials (kept only in Keycloak's secret configuration), not an AWS secret key pasted as the SMTP password. SES sandbox recipient restrictions still apply.
 
 Set `KEYCLOAK_EMAIL_VERIFICATION_CLIENT_ID` (default `codementor-web`) to a client whose allowed redirects include `${CLIENT_APP_URL}/profile?tab=settings`. The service account must be permitted to read the user and send verification mail; reading realm configuration lets the UI proactively report missing SMTP.

@@ -25,3 +25,4 @@ export * from './storage/storage.module';
 export * from './storage/object-storage.service';
 export * from './health/health.module';
 export * from './bootstrap';
+export * from './config/email-settings';

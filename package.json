@@ -10,6 +10,7 @@
   "scripts": {
     "migrate:email-reminders": "node --env-file=.env scripts/migrate-email-reminders.mjs",
     "verify:ses": "node --env-file=.env scripts/check-ses.mjs",
+    "verify:smtp": "node --env-file=.env scripts/check-smtp.mjs",
     "verify:email-reminders": "node --env-file=.env scripts/verify-email-reminders.mjs",
     "test:reminders": "jest --runInBand --testPathPatterns=reminder",
     "seed:workspace-demo": "node --env-file=.env scripts/seed-workspace-demo.mjs",
@@ -79,6 +80,7 @@
     "kafkajs": "^2.2.4",
     "mongoose": "^8.20.1",
     "nestjs-pino": "^4.4.1",
+    "nodemailer": "^7.0.13",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pino-http": "^11.0.0",
@@ -92,6 +94,7 @@
     "@nestjs/schematics": "^11.0.9",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
+    "@types/nodemailer": "^7.0.12",
     "@types/passport-jwt": "^4.0.1",
     "eslint": "^9.39.1",
     "eslint-import-resolver-typescript": "^4.4.5",
