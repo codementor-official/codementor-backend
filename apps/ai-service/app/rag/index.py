@@ -119,6 +119,10 @@ class DocumentIndex:
         # mà không cần ai báo. Mỗi tiến trình một cache — đúng một worker, nhiều lượt đọc.
         self._vectors: OrderedDict[tuple, list[dict]] = OrderedDict()
         self._wake = asyncio.Event()
+        # Số job tiến trình này đã làm xong, để nơi chờ (node `wait` của Tutor) tỉnh ngay khi có
+        # job xong thay vì ngủ hết nhịp poll.
+        self.finished = 0
+        self._changed = asyncio.Condition()
 
     def index_id(self, scope: str, document_id: str) -> str:
         """Khoá của một bản index.
@@ -250,9 +254,22 @@ class DocumentIndex:
             except Exception:
                 # No prompts, source text, storage keys, or credentials in logs.
                 logger.warning("Document queue unavailable; retrying on the next poll.")
-            if not busy:
+            if busy:
+                async with self._changed:
+                    self.finished += 1
+                    self._changed.notify_all()
+            else:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._wake.wait(), POLL_SECONDS)
+
+    async def wait_finished(self, seen: int, timeout: float) -> None:
+        """Đợi tới khi có job xong sau mốc `seen` (giá trị `finished` đọc lúc trước), tối đa
+        `timeout` giây. Job do tiến trình khác làm thì không báo được: hết `timeout` là xong."""
+        async with self._changed:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(
+                    self._changed.wait_for(lambda: self.finished != seen), timeout
+                )
 
     async def process_next(self) -> bool:
         """Nhận và làm một job. `False` = hàng trống."""

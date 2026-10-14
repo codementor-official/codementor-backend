@@ -17,7 +17,6 @@ dòng trạng thái người dùng nhìn trong lúc chờ. Không dùng `manuall
 ag-ui-langgraph: bản state đặt tay ở đó đè lên mọi snapshot còn lại của lượt chạy.
 """
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -35,7 +34,8 @@ from app.rag.index import MAX_SOURCES
 from app.tutor import jev_policy as policy
 from app.tutor.answer import EXPLAIN, NO_INFORMATION, QUOTES, as_history, ground
 
-# Cùng nhịp với vòng poll cũ ở trình duyệt (`prepare-documents.ts`): 2.5 giây, tối đa 3 phút.
+# Nhịp kiểm tối đa khi đợi index: node tỉnh sớm hơn mỗi khi worker xong một job. `MAX_POLLS`
+# là trần số vòng (mỗi vòng một bước, dưới `recursion_limit`), ~3 phút nếu không ai đánh thức.
 POLL_SECONDS = 2.5
 MAX_POLLS = 72
 # Số lượt trước đưa lại cho model. Câu hỏi nối tiếp ("còn gì nữa", "giải thích ý 2") cần lượt
@@ -59,6 +59,8 @@ class TutorState(AgentState, total=False):
     # trình duyệt sinh và giữ nguyên qua mọi lần phát lại; id câu trả lời thì do model đặt.
     grounding: dict[str, dict]
     polls: int
+    # Mốc `DocumentIndex.finished` của vòng `wait` trước.
+    seen: int
     # Câu trả lời sớm của `gate` (ngoài phạm vi / unsafe). Rỗng = đi tiếp như thường.
     refusal: str
     # `False` khi Jev cho rằng các đoạn chưa đủ trả lời — LLM được báo để trống phần trích dẫn.
@@ -138,8 +140,11 @@ def build(capability: Capability) -> Any:
         """Đợi mọi tài liệu của lượt này index xong. Mỗi vòng là một node, nên mỗi vòng là một
         snapshot — người dùng thấy "1/3 sẵn sàng" nhích dần thay vì một spinner câm."""
         polls = state.get("polls") or 0
+        index = config["configurable"]["index"]
         if polls:
-            await asyncio.sleep(POLL_SECONDS)
+            await index.wait_finished(state.get("seen") or 0, POLL_SECONDS)
+        # Đọc mốc TRƯỚC khi hỏi trạng thái: job xong trong lúc đang hỏi thì vòng sau tỉnh ngay.
+        seen = index.finished
         slug = config["configurable"]["workspace_slug"]
         ids = [document["id"] for document in state.get("documents") or []]
         try:
@@ -163,7 +168,11 @@ def build(capability: Capability) -> Any:
             return _stop(NOT_READY)
         return Command(
             goto="wait",
-            update={"polls": polls + 1, "step": f"Đang đọc tài liệu · {ready}/{len(ids)} sẵn sàng"},
+            update={
+                "polls": polls + 1,
+                "seen": seen,
+                "step": f"Đang đọc tài liệu · {ready}/{len(ids)} sẵn sàng",
+            },
         )
 
     async def gate(state: TutorState, config: RunnableConfig) -> Command[Literal["retrieve", "verify"]]:

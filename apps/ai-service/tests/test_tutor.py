@@ -182,9 +182,14 @@ def test_history_keeps_last_turns_and_prefers_grounding():
 
 
 class FakeIndex:
+    finished = 0
+
     def __init__(self, matches):
         self.matches = matches
         self.calls = []
+
+    async def wait_finished(self, _seen, _timeout):
+        return None
 
     async def search(self, scope, sources, query, limit):
         self.calls.append((scope, sources, query, limit))

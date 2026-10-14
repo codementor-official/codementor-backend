@@ -229,3 +229,18 @@ def test_same_content_ignores_title_but_not_the_file():
         {**source, "docType": "md", "storageKey": None, "previewText": "x"},
         {**source, "docType": "md", "storageKey": None, "previewText": "y"},
     )
+
+
+async def test_wait_finished_wakes_on_a_finished_job_not_on_the_poll():
+    queued = QueueIndex(jobs=0)
+    task = asyncio.create_task(queued.worker())
+    try:
+        seen = queued.finished
+        queued.jobs = 1
+        queued._wake.set()
+        async with asyncio.timeout(0.5):  # nhịp poll là 3 s: tỉnh trước đó nghĩa là được báo
+            await queued.wait_finished(seen, 3)
+        assert queued.finished == seen + 1
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
