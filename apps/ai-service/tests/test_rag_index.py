@@ -15,11 +15,14 @@ from fastapi import HTTPException
 
 from app.config import Settings
 from app.rag.index import (
+    EMBED_BATCH,
+    EMBED_PARALLEL,
     FALLBACK_MATCHES,
     INDEX_WORKERS,
     MIN_SIMILARITY,
     DocumentIndex,
     prepare_chunks,
+    same_content,
     storage_prefix,
 )
 
@@ -197,3 +200,32 @@ async def test_queue_wakes_an_idle_worker():
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_embed_chunks_keeps_order_and_caps_parallel_calls():
+    class Provider:
+        running = peak = 0
+
+        async def embed(self, texts):
+            self.running += 1
+            self.peak = max(self.peak, self.running)
+            await asyncio.sleep(0.01)
+            self.running -= 1
+            return [[float(text)] for text in texts]
+
+    provider = Provider()
+    target = DocumentIndex({"ai_document_indexes": None}, config(), provider, None)
+    chunks = [{"text": str(i)} for i in range(EMBED_BATCH * EMBED_PARALLEL * 2 + 3)]
+    await target.embed_chunks(chunks)
+    assert [chunk["embedding"] for chunk in chunks] == [[float(i)] for i in range(len(chunks))]
+    assert provider.peak == EMBED_PARALLEL
+
+
+def test_same_content_ignores_title_but_not_the_file():
+    source = {"title": "A", "docType": "pdf", "storageKey": "k1", "previewText": None}
+    assert same_content(source, {**source, "title": "B", "revision": "r2"})
+    assert not same_content(source, {**source, "storageKey": "k2"})
+    assert not same_content(
+        {**source, "docType": "md", "storageKey": None, "previewText": "x"},
+        {**source, "docType": "md", "storageKey": None, "previewText": "y"},
+    )

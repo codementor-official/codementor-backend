@@ -49,6 +49,10 @@ INDEX_WORKERS = 3
 # Nhịp quét hàng khi rảnh. `queue()` đánh thức worker ngay nên đây chỉ là lưới an toàn: job hết
 # lease, job do tiến trình khác xếp.
 POLL_SECONDS = 3
+# Lô 16 đoạn, tối đa 4 lời gọi embedding cùng lúc mỗi job. Đo trên 58 đoạn: lô 32 tuần tự
+# 1.38 s, một lời gọi 1.02 s, lô 16 song song 0.69 s.
+EMBED_BATCH = 16
+EMBED_PARALLEL = 4
 
 
 def prepare_chunks(chunks: list[dict]) -> list[dict]:
@@ -69,6 +73,12 @@ def prepare_chunks(chunks: list[dict]) -> list[dict]:
             }
         )
     return prepared
+
+
+def same_content(old: dict, new: dict) -> bool:
+    """Hai mô tả nguồn trỏ tới cùng một nội dung. Tệp của một tài liệu không thay được — sửa
+    tài liệu chỉ đổi tên/chủ đề/trạng thái — nên cùng `storageKey` là cùng chữ."""
+    return all(old.get(field) == new.get(field) for field in ("docType", "storageKey", "previewText"))
 
 
 def now() -> datetime:
@@ -169,12 +179,20 @@ class DocumentIndex:
         if source["docType"] not in SUPPORTED_TYPES:
             raise HTTPException(400, "Dùng PDF có text, DOCX, PPTX, TXT hoặc Markdown.")
         key = self.index_id(scope, source["id"])
-        previous = await self.indexes.find_one({"_id": key})
+        previous = await self.indexes.find_one({"_id": key}, {"chunks": 0})
         if (
             previous
             and previous["source"]["revision"] == source["revision"]
             and previous["state"] in ("ready", "queued", "processing")
         ):
+            return (await self.states(scope, [source]))[0]
+        if previous and previous["state"] == "ready" and same_content(previous["source"], source):
+            # Revision băm cả tên tài liệu: đổi tên là "bản mới" dù không một chữ nào đổi. Giữ
+            # nguyên đoạn và `updatedAt` (cache vector vẫn đúng), chỉ cập nhật `source`.
+            await self.indexes.update_one(
+                {"_id": key, "updatedAt": previous["updatedAt"], "state": "ready"},
+                {"$set": {"source": source, "expiresAt": now() + timedelta(days=30)}},
+            )
             return (await self.states(scope, [source]))[0]
         await self.consume_budget(user_id)
         try:
@@ -268,11 +286,7 @@ class DocumentIndex:
             stages.append(time.perf_counter())
             chunks = await extract_isolated(job["source"]["docType"], data)
             stages.append(time.perf_counter())
-            for offset in range(0, len(chunks), 32):
-                batch = chunks[offset : offset + 32]
-                vectors = await self.provider.embed([chunk["text"] for chunk in batch])
-                for chunk, vector in zip(batch, vectors, strict=True):
-                    chunk["embedding"] = vector
+            await self.embed_chunks(chunks)
             stages.append(time.perf_counter())
             await self.indexes.update_one(
                 lock,
@@ -326,6 +340,23 @@ class DocumentIndex:
                 },
             )
         return True
+
+    async def embed_chunks(self, chunks: list[dict]) -> None:
+        """Gắn `embedding` cho từng đoạn, nhiều lô cùng lúc.
+
+        Một lô hỏng là cả job hỏng như trước; các lô còn lại chạy nốt rồi bị bỏ.
+        """
+        limit = asyncio.Semaphore(EMBED_PARALLEL)
+
+        async def embed(batch: list[dict]) -> None:
+            async with limit:
+                vectors = await self.provider.embed([chunk["text"] for chunk in batch])
+            for chunk, vector in zip(batch, vectors, strict=True):
+                chunk["embedding"] = vector
+
+        await asyncio.gather(
+            *(embed(chunks[i : i + EMBED_BATCH]) for i in range(0, len(chunks), EMBED_BATCH))
+        )
 
     # --- đọc lại ------------------------------------------------------------
 
