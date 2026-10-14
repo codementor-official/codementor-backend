@@ -8,12 +8,15 @@ Ba thứ được kiểm ở đây đều là thứ mà việc tách có thể l
 3. Xếp hạng của `search` — ngưỡng rồi mới fallback, đúng thứ tự.
 """
 
+import asyncio
+
 import pytest
 from fastapi import HTTPException
 
 from app.config import Settings
 from app.rag.index import (
     FALLBACK_MATCHES,
+    INDEX_WORKERS,
     MIN_SIMILARITY,
     DocumentIndex,
     prepare_chunks,
@@ -142,3 +145,55 @@ async def test_search_without_ready_index_returns_nothing():
 
     subject.ready_chunks = ready_chunks
     assert await subject.search(WORKSPACE, [{"id": DOC}], "câu hỏi") == []
+
+
+class QueueIndex(DocumentIndex):
+    """`process_next` giả: rút từ một danh sách job, ghi lại job nào chạy song song."""
+
+    def __init__(self, jobs: int):
+        super().__init__({"ai_document_indexes": None}, config(openai_api_key="sk-test"), None, None)
+        self.jobs, self.running, self.peak, self.done = jobs, 0, 0, 0
+
+    async def process_next(self) -> bool:
+        if not self.jobs:
+            return False
+        self.jobs -= 1
+        self.running += 1
+        self.peak = max(self.peak, self.running)
+        await asyncio.sleep(0.05)
+        self.running -= 1
+        self.done += 1
+        return True
+
+
+async def run_worker(index: DocumentIndex, until, seconds: float = 1.0):
+    task = asyncio.create_task(index.worker())
+    try:
+        async with asyncio.timeout(seconds):
+            while not until():
+                await asyncio.sleep(0.01)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_worker_drains_the_queue_in_parallel_without_polling():
+    # 6 job × 50 ms: nối tiếp + ngủ 3 s giữa các job là ~15 s; giờ phải xong trong 1 s.
+    queued = QueueIndex(jobs=6)
+    await run_worker(queued, lambda: queued.done == 6)
+    assert queued.peak == INDEX_WORKERS
+
+
+async def test_queue_wakes_an_idle_worker():
+    queued = QueueIndex(jobs=0)
+    task = asyncio.create_task(queued.worker())
+    try:
+        await asyncio.sleep(0.05)  # mọi vòng đều đã rảnh, đang chờ tới nhịp poll 3 s
+        queued.jobs = 1
+        queued._wake.set()
+        async with asyncio.timeout(0.5):
+            while queued.done < 1:
+                await asyncio.sleep(0.01)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

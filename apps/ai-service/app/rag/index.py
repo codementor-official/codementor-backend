@@ -10,9 +10,12 @@ nguyên một vòng lặp worker thứ hai.
 """
 
 import asyncio
+import contextlib
+import itertools
 import logging
 import math
 import operator
+import time
 from array import array
 from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
@@ -40,6 +43,12 @@ FALLBACK_MATCHES = 3
 # nên trần này là ~64 MB trong trường hợp xấu nhất, thường ít hơn nhiều.
 # ponytail: LRU theo số bản, đổi sang theo byte nếu tài liệu lớn thành chuyện thường.
 VECTOR_CACHE_SIZE = 32
+# Số job index chạy cùng lúc trong một tiến trình. Mỗi job giữ một tiến trình con trích chữ
+# (trần 768 MB bộ nhớ ảo) và vài lời gọi embedding song song.
+INDEX_WORKERS = 3
+# Nhịp quét hàng khi rảnh. `queue()` đánh thức worker ngay nên đây chỉ là lưới an toàn: job hết
+# lease, job do tiến trình khác xếp.
+POLL_SECONDS = 3
 
 
 def prepare_chunks(chunks: list[dict]) -> list[dict]:
@@ -99,6 +108,7 @@ class DocumentIndex:
         # Khoá `(_id, updatedAt)`: index lại là đổi `updatedAt`, nên bản cũ tự trượt khỏi cache
         # mà không cần ai báo. Mỗi tiến trình một cache — đúng một worker, nhiều lượt đọc.
         self._vectors: OrderedDict[tuple, list[dict]] = OrderedDict()
+        self._wake = asyncio.Event()
 
     def index_id(self, scope: str, document_id: str) -> str:
         """Khoá của một bản index.
@@ -192,6 +202,7 @@ class DocumentIndex:
             )
         except DuplicateKeyError:
             raise HTTPException(409, "Tài liệu đang được xử lý; vui lòng chờ.") from None
+        self._wake.set()
         return (await self.states(scope, [source]))[0]
 
     async def drop(self, scope: str, document_id: str) -> None:
@@ -203,18 +214,30 @@ class DocumentIndex:
     async def worker(self):
         # Task riêng của tiến trình: phạm vi này chỉ sống trong nó, không rò sang request nào.
         telemetry.set_scope("rag_index")
+        await asyncio.gather(*(self._work() for _ in range(INDEX_WORKERS)))
+
+    async def _work(self):
+        """Một vòng nhận job. Chỉ ngủ khi hàng trống — trước đây ngủ 3 giây sau MỖI job, nên
+        chọn bốn tài liệu là chờ thêm 12 giây không làm gì."""
         while True:
+            # Xoá cờ TRƯỚC khi nhận job: `queue()` ghi job rồi mới bật cờ, nên một job xếp sau
+            # lần nhận này chắc chắn bật lại cờ và vòng chờ dưới tỉnh ngay.
+            self._wake.clear()
+            busy = False
             try:
                 if self.config.configured:
-                    await self.process_next()
+                    busy = await self.process_next()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 # No prompts, source text, storage keys, or credentials in logs.
                 logger.warning("Document queue unavailable; retrying on the next poll.")
-            await asyncio.sleep(3)
+            if not busy:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(self._wake.wait(), POLL_SECONDS)
 
-    async def process_next(self):
+    async def process_next(self) -> bool:
+        """Nhận và làm một job. `False` = hàng trống."""
         lease = str(uuid4())
         job = await self.indexes.find_one_and_update(
             {
@@ -236,17 +259,21 @@ class DocumentIndex:
             return_document=ReturnDocument.AFTER,
         )
         if not job:
-            return
+            return False
         lock = {"_id": job["_id"], "leaseId": lease}
+        stages = [time.perf_counter()]
         try:
             prefix = storage_prefix(self.config, job["scope"])
             data = await asyncio.to_thread(self.storage.read, prefix, job["source"])
+            stages.append(time.perf_counter())
             chunks = await extract_isolated(job["source"]["docType"], data)
+            stages.append(time.perf_counter())
             for offset in range(0, len(chunks), 32):
                 batch = chunks[offset : offset + 32]
                 vectors = await self.provider.embed([chunk["text"] for chunk in batch])
                 for chunk, vector in zip(batch, vectors, strict=True):
                     chunk["embedding"] = vector
+            stages.append(time.perf_counter())
             await self.indexes.update_one(
                 lock,
                 {
@@ -260,6 +287,13 @@ class DocumentIndex:
                     },
                     "$unset": {"leaseId": "", "error": ""},
                 },
+            )
+            stages.append(time.perf_counter())
+            # Chỉ số đoạn và thời gian: không tên tệp, không khoá S3.
+            logger.info(
+                "Indexed %d chunks: read %.2fs, extract %.2fs, embed %.2fs, save %.2fs.",
+                len(chunks),
+                *(after - before for before, after in itertools.pairwise(stages)),
             )
         except asyncio.CancelledError:
             await self.indexes.update_one(
@@ -291,6 +325,7 @@ class DocumentIndex:
                     "$unset": {"leaseId": ""},
                 },
             )
+        return True
 
     # --- đọc lại ------------------------------------------------------------
 
