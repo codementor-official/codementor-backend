@@ -168,8 +168,9 @@ export class PrismaEnrollmentRepository implements EnrollmentRepository {
                   started_at AS "startedAt", completed_at AS "completedAt",
                   last_activity_at AS "lastActivityAt"`;
       // Seed/legacy course progress may already exist before the roadmap is started.
+      // $executeRaw: the function returns void, which $queryRaw cannot deserialize (always 500).
       await this.prisma
-        .$queryRaw`SELECT fn_refresh_roadmap_progress(${userId}::uuid, ${roadmapId}::uuid)`;
+        .$executeRaw`SELECT fn_refresh_roadmap_progress(${userId}::uuid, ${roadmapId}::uuid)`;
       return (await this.findRoadmapEnrollment(userId, roadmapId)) ?? toRoadmapEnrollment(rows[0]);
     } catch (cause) {
       throw mapDatabaseError(cause);
