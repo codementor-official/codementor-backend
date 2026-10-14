@@ -1,5 +1,6 @@
 import asyncio
 import hmac
+import logging
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException, Request
@@ -21,6 +22,16 @@ from app.rag.endpoint import router as documents_router
 from app.suggest import router as suggest_router
 from app.tutor import jev
 from app.tutor.endpoint import router as tutor_router
+
+# Logger của service. Không ai cấu hình nó thì Python chỉ in từ WARNING qua handler dự phòng, và
+# mọi `logger.info` (thời gian từng chặng index, agent gọi tool lạ) im lặng — cả trên prod. Chỉ
+# logger này, không đụng root: httpx/openai log mỗi request ở INFO.
+_log = logging.getLogger("codementor.ai")
+_log.setLevel(logging.INFO)
+if not _log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
+    _log.addHandler(_handler)
 
 
 @asynccontextmanager
