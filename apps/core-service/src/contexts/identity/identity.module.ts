@@ -50,6 +50,7 @@ import { EMAIL_VERIFICATION_PROVIDER } from './domain/port/email-verification.pr
     { provide: IDENTITY_PROVISIONING, useExisting: ProvisionUserUseCase },
     { provide: IDENTITY_QUERY, useClass: IdentityQueryService },
   ],
-  exports: [IDENTITY_QUERY, IDENTITY_PROVISIONING],
+  // Báo cáo vi phạm khoá tài khoản tác giả bằng đúng hai bước của `PATCH /users/:id/status`.
+  exports: [IDENTITY_QUERY, IDENTITY_PROVISIONING, KeycloakAdminService, MirrorAccountUseCase],
 })
 export class IdentityModule {}

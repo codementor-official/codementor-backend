@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { PrismaService } from '@codementor/platform';
+import { reportCooldownLeft } from './report-rules';
+import { REPORT_TARGET_COLUMNS, REPORT_TARGET_JOINS } from './report-moderation.service';
 
 export const REPORT_TARGET_TYPES = [
   'DOCUMENT',
@@ -19,6 +21,9 @@ export const REPORT_CATEGORIES = [
   'OTHER',
 ] as const;
 export type ReportCategory = (typeof REPORT_CATEGORIES)[number];
+
+export const REPORT_STATUSES = ['PENDING', 'RESOLVED', 'REJECTED'] as const;
+export type ReportStatus = (typeof REPORT_STATUSES)[number];
 
 interface ContentReportRow {
   id: string;
@@ -51,11 +56,29 @@ export class ContentReportService {
       note?: string;
     },
   ) {
-    const [row] = await this.prisma.$queryRawUnsafe<ContentReportRow[]>(
-      `INSERT INTO content_reports
-         (reporter_id, target_type, target_id, target_ref, category, note, status)
-       VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, 'PENDING')
+    // Khoá theo người báo cáo trong transaction: hai request song song không cùng lọt qua bước
+    // kiểm tra rồi cùng ghi.
+    const row = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`content-report:${reporterId}`}))`;
+      const [last] = await tx.$queryRaw<Array<{ at: Date | null }>>`
+        SELECT max(submitted_at) AS at FROM content_reports WHERE reporter_id = ${reporterId}::uuid`;
+      const wait = reportCooldownLeft(last?.at ?? null, new Date());
+      if (wait > 0) {
+        const minutes = Math.ceil(wait / 60);
+        throw new HttpException(
+          {
+            message: `Mỗi tài khoản chỉ gửi được một báo cáo trong 10 phút. Vui lòng thử lại sau ${minutes} phút.`,
+            retryAfterSeconds: wait,
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      const [inserted] = await tx.$queryRawUnsafe<ContentReportRow[]>(
+        `INSERT INTO content_reports
+         (reporter_id, target_type, target_id, target_ref, category, note, status, submitted_at)
+       VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, 'PENDING', now())
        ON CONFLICT (reporter_id, target_type, target_id) DO UPDATE SET
+         submitted_at = now(),
          target_ref = COALESCE(EXCLUDED.target_ref, content_reports.target_ref),
          category = EXCLUDED.category,
          note = EXCLUDED.note,
@@ -69,13 +92,15 @@ export class ContentReportService {
                  resolution_note AS "resolutionNote", resolved_by AS "resolvedBy",
                  resolved_at AS "resolvedAt",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
-      reporterId,
-      input.targetType,
-      input.targetId,
-      input.targetRef?.trim() || null,
-      input.category,
-      input.note?.trim() || null,
-    );
+        reporterId,
+        input.targetType,
+        input.targetId,
+        input.targetRef?.trim() || null,
+        input.category,
+        input.note?.trim() || null,
+      );
+      return inserted;
+    });
     return this.serialize(row);
   }
 
@@ -135,7 +160,8 @@ export class ContentReportService {
     if (input.category) where.push(`r.category = ${bind(input.category)}`);
     if (input.q?.trim()) {
       const token = bind(`%${input.q.trim()}%`);
-      where.push(`(r.target_ref ILIKE ${token} OR r.note ILIKE ${token} OR u.email ILIKE ${token} OR u.display_name ILIKE ${token})`);
+      where.push(`(r.target_ref ILIKE ${token} OR r.note ILIKE ${token} OR u.email ILIKE ${token} OR u.display_name ILIKE ${token}
+        OR COALESCE(c.title, rm.title, e.title, a.title, g.name, d.title, '') ILIKE ${token})`);
     }
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const [items, countRows] = await Promise.all([
@@ -145,43 +171,28 @@ export class ContentReportService {
                 r.resolution_note AS "resolutionNote", r.resolved_by AS "resolvedBy",
                 r.resolved_at AS "resolvedAt", r.created_at AS "createdAt",
                 r.updated_at AS "updatedAt", u.display_name AS "reporterName",
-                u.email AS "reporterEmail"
+                u.email AS "reporterEmail", ${REPORT_TARGET_COLUMNS}
          FROM content_reports r
          JOIN users u ON u.id = r.reporter_id
+         ${REPORT_TARGET_JOINS}
          ${clause}
          ORDER BY CASE WHEN r.status = 'PENDING' THEN 0 ELSE 1 END, r.updated_at DESC, r.id DESC
          LIMIT ${bind(limit)} OFFSET ${bind(offset)}`,
         ...values,
       ),
       this.prisma.$queryRawUnsafe<Array<{ total: bigint }>>(
-        `SELECT count(*) AS total FROM content_reports r JOIN users u ON u.id = r.reporter_id ${clause}`,
+        `SELECT count(*) AS total FROM content_reports r JOIN users u ON u.id = r.reporter_id ${REPORT_TARGET_JOINS} ${clause}`,
         ...values.slice(0, values.length - 2),
       ),
     ]);
     const total = Number(countRows[0]?.total ?? 0);
-    return { items: items.map((item) => this.serialize(item)), page, limit, total, totalPages: Math.ceil(total / limit) };
-  }
-
-  async resolve(
-    id: string,
-    moderatorId: string,
-    input: { status: 'RESOLVED' | 'REJECTED'; resolutionNote: string },
-  ) {
-    const [row] = await this.prisma.$queryRawUnsafe<ContentReportRow[]>(
-      `UPDATE content_reports
-       SET status = $2, resolution_note = $3, resolved_by = $4::uuid,
-           resolved_at = now(), updated_at = now()
-       WHERE id = $1::uuid
-       RETURNING id, target_type AS "targetType", target_id AS "targetId",
-                 target_ref AS "targetRef", category, note, status,
-                 resolution_note AS "resolutionNote", resolved_by AS "resolvedBy",
-                 resolved_at AS "resolvedAt", created_at AS "createdAt", updated_at AS "updatedAt"`,
-      id,
-      input.status,
-      input.resolutionNote.trim(),
-      moderatorId,
-    );
-    return row ? this.serialize(row) : null;
+    return {
+      items: items.map((item) => this.serialize(item)),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   private serialize(row: ContentReportRow) {

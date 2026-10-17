@@ -3,7 +3,11 @@ import { AuditLogService } from './application/audit-log.service';
 import { ModerationAuditConsumer } from './application/moderation-audit.consumer';
 import { AuditLogController } from './presentation/audit-log.controller';
 import { ContentReportService } from './application/content-report.service';
-import { AdminContentReportController, ContentReportController } from './presentation/content-report.controller';
+import { ReportModerationService } from './application/report-moderation.service';
+import {
+  AdminContentReportController,
+  ContentReportController,
+} from './presentation/content-report.controller';
 
 /**
  * Global vì bất kỳ context nào thực hiện một hành động quản trị cũng cần ghi lại nó, và
@@ -13,7 +17,12 @@ import { AdminContentReportController, ContentReportController } from './present
 @Global()
 @Module({
   controllers: [AuditLogController, ContentReportController, AdminContentReportController],
-  providers: [AuditLogService, ContentReportService, ModerationAuditConsumer],
+  providers: [
+    AuditLogService,
+    ContentReportService,
+    ReportModerationService,
+    ModerationAuditConsumer,
+  ],
   exports: [AuditLogService],
 })
 export class AuditModule {}

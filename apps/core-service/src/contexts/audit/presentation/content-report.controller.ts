@@ -1,4 +1,4 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -7,16 +7,29 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { CurrentUser, requireHumanId, Roles } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
 import {
   ContentReportService,
   REPORT_CATEGORIES,
+  REPORT_STATUSES,
   REPORT_TARGET_TYPES,
   type ReportCategory,
+  type ReportStatus,
   type ReportTargetType,
 } from '../application/content-report.service';
+import { ReportModerationService } from '../application/report-moderation.service';
 
 class SubmitContentReportDto {
   @ApiProperty({ enum: REPORT_TARGET_TYPES })
@@ -62,15 +75,21 @@ class ListMyReportsQueryDto {
 }
 
 class ListAdminReportsQueryDto extends ListMyReportsQueryDto {
-  @IsOptional() @IsIn(['PENDING', 'RESOLVED', 'REJECTED']) status?: 'PENDING' | 'RESOLVED' | 'REJECTED';
+  @IsOptional() @IsIn(['PENDING', 'RESOLVED', 'REJECTED']) status?:
+    'PENDING' | 'RESOLVED' | 'REJECTED';
   @IsOptional() @IsIn(REPORT_TARGET_TYPES) targetType?: ReportTargetType;
   @IsOptional() @IsIn(REPORT_CATEGORIES) category?: ReportCategory;
   @IsOptional() @IsString() @MaxLength(200) q?: string;
 }
 
+/** Mọi chiều đổi trạng thái đều cần lý do — nó là thứ duy nhất giải thích dòng lịch sử về sau. */
 class ResolveContentReportDto {
-  @IsIn(['RESOLVED', 'REJECTED']) status!: 'RESOLVED' | 'REJECTED';
+  @IsIn(REPORT_STATUSES) status!: ReportStatus;
   @IsString() @IsNotEmpty() @MaxLength(1000) resolutionNote!: string;
+}
+
+class ModerationNoteDto {
+  @IsString() @IsNotEmpty() @MaxLength(1000) note!: string;
 }
 
 @ApiTags('reports')
@@ -97,7 +116,10 @@ export class ContentReportController {
 @Controller({ path: 'reports', version: '1' })
 @Roles('admin')
 export class AdminContentReportController {
-  constructor(private readonly reports: ContentReportService) {}
+  constructor(
+    private readonly reports: ContentReportService,
+    private readonly moderation: ReportModerationService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Admin: hàng chờ báo cáo vi phạm, có lọc và phân trang' })
@@ -105,15 +127,48 @@ export class AdminContentReportController {
     return this.reports.adminList(query);
   }
 
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Admin: chi tiết báo cáo, nội dung bị báo cáo, tác giả và lịch sử xử lý',
+  })
+  detail(@Param('id', ParseUUIDPipe) id: string) {
+    return this.moderation.detail(id);
+  }
+
   @Patch(':id')
-  @ApiOperation({ summary: 'Admin: kết luận một báo cáo vi phạm' })
-  async resolve(
+  @ApiOperation({ summary: 'Admin: đổi trạng thái xử lý (ghi lịch sử, hoàn tác được)' })
+  resolve(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ResolveContentReportDto,
   ) {
-    const result = await this.reports.resolve(id, requireHumanId(user), dto);
-    if (!result) throw new NotFoundException('Không tìm thấy báo cáo');
-    return result;
+    return this.moderation.changeStatus(
+      id,
+      user,
+      requireHumanId(user),
+      dto.status,
+      dto.resolutionNote.trim(),
+    );
+  }
+
+  @Post(':id/sanctions')
+  @ApiOperation({ summary: 'Admin: tạm khoá tài khoản tác giả của nội dung bị báo cáo' })
+  suspendOwner(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ModerationNoteDto,
+  ) {
+    return this.moderation.suspendOwner(id, user, requireHumanId(user), dto.note.trim());
+  }
+
+  @Post(':id/actions/:actionId/rollback')
+  @ApiOperation({ summary: 'Admin: hoàn tác một thao tác trong lịch sử xử lý báo cáo' })
+  rollback(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('actionId', ParseUUIDPipe) actionId: string,
+    @Body() dto: ModerationNoteDto,
+  ) {
+    return this.moderation.rollback(id, actionId, user, requireHumanId(user), dto.note.trim());
   }
 }
