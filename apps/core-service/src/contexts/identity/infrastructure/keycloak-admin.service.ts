@@ -192,6 +192,9 @@ export class KeycloakAdminService implements EmailVerificationProvider {
       method: 'PUT',
       body: JSON.stringify({ enabled }),
     });
+    // Tắt `enabled` chỉ chặn lần đăng nhập SAU; phiên đang mở vẫn gia hạn được. Đăng xuất mọi
+    // phiên ngay để refresh token chết — BFF của các app sẽ đá người dùng ra ở lần gia hạn kế.
+    if (!enabled) await this.request(`/users/${userId}/logout`, { method: 'POST' });
     return this.getUser(userId);
   }
 

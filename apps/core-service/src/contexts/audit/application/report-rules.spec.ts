@@ -1,4 +1,4 @@
-import { reportCooldownLeft, rollbackBlocker } from './report-rules';
+import { reportCooldownLeft, rollbackBlocker, suspensionEndsAt } from './report-rules';
 
 describe('reportCooldownLeft', () => {
   const now = new Date('2026-10-17T10:00:00Z');
@@ -41,4 +41,12 @@ describe('rollbackBlocker', () => {
     expect(rollbackBlocker({ id: 'd', action: 'ROLLED_BACK', revertedAt: null }, history)).toMatch(
       /Không hoàn tác/,
     ));
+});
+
+describe('suspensionEndsAt', () => {
+  const now = new Date('2026-10-17T10:00:00Z');
+  it('adds whole days', () =>
+    expect(suspensionEndsAt(7, now)?.toISOString()).toBe('2026-10-24T10:00:00.000Z'));
+  it('has no end for an indefinite suspension', () =>
+    expect(suspensionEndsAt(null, now)).toBeNull());
 });

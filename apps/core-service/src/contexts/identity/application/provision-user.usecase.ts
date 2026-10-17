@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
@@ -63,6 +63,11 @@ export class ProvisionUserUseCase implements IdentityProvisioning {
 
     // Bị khoá ở phía CodeMentor thì token Keycloak hợp lệ cũng không vào được.
     const access = user.canAccessPlatform();
+    // Mã riêng cho "bị khoá" để frontend đăng xuất ngay và hiện hướng dẫn kháng cáo, thay vì
+    // coi như một lỗi nghiệp vụ chung.
+    if (access.isFail && user.status === 'suspended') {
+      throw new ForbiddenException({ message: access.error.message, code: 'ACCOUNT_SUSPENDED' });
+    }
     if (access.isFail) throw access.error;
 
     return {

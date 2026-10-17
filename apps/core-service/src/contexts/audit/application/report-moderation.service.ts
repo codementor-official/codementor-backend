@@ -1,5 +1,8 @@
 import {
   BadRequestException,
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -11,7 +14,7 @@ import { KeycloakAdminService } from '../../identity/infrastructure/keycloak-adm
 import { MirrorAccountUseCase } from '../../identity/application/mirror-account.usecase';
 import { AuditLogService } from './audit-log.service';
 import type { ReportStatus } from './content-report.service';
-import { rollbackBlocker } from './report-rules';
+import { rollbackBlocker, suspensionEndsAt, type SuspensionDays } from './report-rules';
 
 /**
  * Nội dung bị báo cáo, đọc thẳng từ bảng của từng loại — cùng cách `user_bookmarks` đã làm
@@ -61,6 +64,8 @@ export interface ReportActionRow {
   sanctionedUserName: string | null;
   revertsActionId: string | null;
   revertedAt: Date | null;
+  /** Hạn khoá với USER_SUSPENDED; `null` là khoá tới khi có người mở. */
+  suspendedUntil: Date | null;
   createdAt: Date;
 }
 
@@ -79,7 +84,10 @@ interface LockedReport {
 }
 
 @Injectable()
-export class ReportModerationService {
+export class ReportModerationService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ReportModerationService.name);
+  private expiryTimer?: NodeJS.Timeout;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly keycloak: KeycloakAdminService,
@@ -149,7 +157,64 @@ export class ReportModerationService {
   }
 
   /** Tạm khoá tài khoản tác giả của nội dung bị báo cáo — cùng cơ chế với trang Người dùng. */
-  async suspendOwner(id: string, actor: AuthenticatedUser, actorId: string, note: string) {
+  // shortcut: quét hết hạn khoá bằng setInterval trong tiến trình, đúng với một bản core-service
+  // trên EC2. Chạy nhiều bản thì chuyển sang job có khoá (advisory lock) hoặc scheduler riêng.
+  onModuleInit() {
+    if (process.env.NODE_ENV === 'test') return;
+    this.expiryTimer = setInterval(() => void this.expireSuspensions(), 60_000);
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.expiryTimer);
+  }
+
+  /** Mở lại tài khoản có hạn khoá đã qua; ghi một dòng "hệ thống" vào lịch sử báo cáo. */
+  async expireSuspensions(): Promise<number> {
+    const due = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        reportId: string;
+        userId: string;
+        externalId: string | null;
+        status: string;
+      }>
+    >`
+      SELECT a.id, a.report_id AS "reportId", u.id AS "userId", u.external_id AS "externalId",
+             u.status::text AS status
+      FROM content_report_actions a
+      JOIN users u ON u.id = a.sanctioned_user_id
+      WHERE a.action = 'USER_SUSPENDED' AND a.reverted_at IS NULL
+        AND a.suspended_until IS NOT NULL AND a.suspended_until <= now()`;
+    for (const row of due) {
+      try {
+        if (row.externalId && row.status === 'suspended') {
+          await this.keycloak.setEnabled(row.externalId, true);
+          await this.mirror.status(row.externalId, true);
+        }
+        await this.prisma.$transaction([
+          this.prisma
+            .$executeRaw`UPDATE content_report_actions SET reverted_at = now() WHERE id = ${row.id}::uuid AND reverted_at IS NULL`,
+          this.prisma.$executeRaw`
+            INSERT INTO content_report_actions
+              (report_id, actor_email, action, note, sanctioned_user_id, reverts_action_id)
+            VALUES (${row.reportId}::uuid, 'Hệ thống', 'ROLLED_BACK', 'Hết thời hạn khoá, tự mở lại tài khoản.',
+                    ${row.userId}::uuid, ${row.id}::uuid)`,
+        ]);
+      } catch (error) {
+        // Lỗi một tài khoản không chặn các tài khoản khác; phút sau quét lại.
+        this.logger.error(`không mở khoá được tài khoản ${row.userId} khi hết hạn`, error as Error);
+      }
+    }
+    return due.length;
+  }
+
+  async suspendOwner(
+    id: string,
+    actor: AuthenticatedUser,
+    actorId: string,
+    note: string,
+    days: SuspensionDays | null,
+  ) {
     const [owner] = await this.prisma.$queryRawUnsafe<
       Array<{
         id: string | null;
@@ -175,6 +240,7 @@ export class ReportModerationService {
     if (owner.status !== 'active')
       throw new ConflictException('Tài khoản tác giả không ở trạng thái hoạt động.');
 
+    const until = suspensionEndsAt(days, new Date());
     // Keycloak trước, DB sau: khoá hỏng thì không để lại dòng lịch sử nói rằng đã khoá.
     await this.keycloak.setEnabled(owner.externalId, false);
     await this.mirror.status(owner.externalId, false);
@@ -187,14 +253,20 @@ export class ReportModerationService {
         note,
         previous: report,
         sanctionedUserId: owner.id,
+        suspendedUntil: until,
       });
     });
     await this.audit.record(actor, {
       action: 'user.suspended',
       targetType: 'user',
       targetId: owner.id,
-      summary: `Tạm khoá tài khoản ${owner.name ?? ''} theo báo cáo vi phạm`.trim(),
-      metadata: { reportId: id, note, keycloakId: owner.externalId },
+      summary: `Tạm khoá tài khoản ${owner.name ?? ''} theo báo cáo vi phạm${until ? ` tới ${until.toISOString()}` : ' (không thời hạn)'}`,
+      metadata: {
+        reportId: id,
+        note,
+        keycloakId: owner.externalId,
+        suspendedUntil: until?.toISOString() ?? null,
+      },
     });
     return this.detail(id);
   }
@@ -275,7 +347,7 @@ export class ReportModerationService {
       SELECT a.id, a.action, a.actor_email AS "actorEmail", a.from_status AS "fromStatus",
              a.to_status AS "toStatus", a.note, a.sanctioned_user_id AS "sanctionedUserId",
              s.display_name AS "sanctionedUserName", a.reverts_action_id AS "revertsActionId",
-             a.reverted_at AS "revertedAt", a.created_at AS "createdAt"
+             a.reverted_at AS "revertedAt", a.suspended_until AS "suspendedUntil", a.created_at AS "createdAt"
       FROM content_report_actions a
       LEFT JOIN users s ON s.id = a.sanctioned_user_id
       WHERE a.report_id = ${id}::uuid
@@ -304,15 +376,18 @@ export class ReportModerationService {
       previous: LockedReport;
       sanctionedUserId?: string | null;
       revertsActionId?: string;
+      suspendedUntil?: Date | null;
     },
   ) {
     await tx.$executeRaw`
       INSERT INTO content_report_actions
         (report_id, actor_id, actor_email, action, from_status, to_status, previous_note,
-         previous_resolved_by, previous_resolved_at, note, sanctioned_user_id, reverts_action_id)
+         previous_resolved_by, previous_resolved_at, note, sanctioned_user_id, reverts_action_id,
+         suspended_until)
       VALUES (${reportId}::uuid, ${actorId}::uuid, ${actor.email ?? actor.externalId}, ${input.action},
               ${input.fromStatus}, ${input.toStatus}, ${input.previous.resolutionNote},
               ${input.previous.resolvedBy}::uuid, ${input.previous.resolvedAt}, ${input.note},
-              ${input.sanctionedUserId ?? null}::uuid, ${input.revertsActionId ?? null}::uuid)`;
+              ${input.sanctionedUserId ?? null}::uuid, ${input.revertsActionId ?? null}::uuid,
+              ${input.suspendedUntil ?? null})`;
   }
 }

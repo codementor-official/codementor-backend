@@ -10,6 +10,14 @@ export function reportCooldownLeft(lastSubmittedAt: Date | null, now: Date): num
   return Math.max(0, Math.ceil(REPORT_COOLDOWN_SECONDS - elapsed));
 }
 
+/** Các mức khoá admin chọn được; `null` là khoá không thời hạn (tới khi có người mở). */
+export const SUSPENSION_DAYS = [1, 3, 7, 30] as const;
+export type SuspensionDays = (typeof SUSPENSION_DAYS)[number];
+
+export function suspensionEndsAt(days: SuspensionDays | null, now: Date): Date | null {
+  return days === null ? null : new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
 interface ActionLike {
   id: string;
   action: 'STATUS_CHANGED' | 'USER_SUSPENDED' | 'ROLLED_BACK';

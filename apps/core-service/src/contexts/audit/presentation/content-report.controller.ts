@@ -30,6 +30,7 @@ import {
   type ReportTargetType,
 } from '../application/content-report.service';
 import { ReportModerationService } from '../application/report-moderation.service';
+import { SUSPENSION_DAYS, type SuspensionDays } from '../application/report-rules';
 
 class SubmitContentReportDto {
   @ApiProperty({ enum: REPORT_TARGET_TYPES })
@@ -90,6 +91,11 @@ class ResolveContentReportDto {
 
 class ModerationNoteDto {
   @IsString() @IsNotEmpty() @MaxLength(1000) note!: string;
+}
+
+class SuspendOwnerDto extends ModerationNoteDto {
+  /** Bỏ trống / null = khoá không thời hạn. */
+  @IsOptional() @IsIn(SUSPENSION_DAYS) days?: SuspensionDays | null;
 }
 
 @ApiTags('reports')
@@ -156,9 +162,15 @@ export class AdminContentReportController {
   suspendOwner(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: ModerationNoteDto,
+    @Body() dto: SuspendOwnerDto,
   ) {
-    return this.moderation.suspendOwner(id, user, requireHumanId(user), dto.note.trim());
+    return this.moderation.suspendOwner(
+      id,
+      user,
+      requireHumanId(user),
+      dto.note.trim(),
+      dto.days ?? null,
+    );
   }
 
   @Post(':id/actions/:actionId/rollback')
