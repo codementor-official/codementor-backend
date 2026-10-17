@@ -1,4 +1,4 @@
-import { resolveWorkspacePermissions } from './workspace-policy';
+import { ADMIN_VIEW_PERMISSIONS, resolveWorkspacePermissions } from './workspace-policy';
 
 describe('Workspace permission policy', () => {
   it('Owner luôn có mọi quyền, không thể bị override bởi dữ liệu lưu trữ', () => {
@@ -36,5 +36,14 @@ describe('Workspace permission policy', () => {
       [{ permission: 'delete_own_doc', allowed: false }],
     );
     expect(permissions.delete_own_doc).toBe(false);
+  });
+});
+
+describe('ADMIN_VIEW_PERMISSIONS', () => {
+  it('lets a platform admin read documents and exercises but change nothing', () => {
+    const granted = Object.entries(ADMIN_VIEW_PERMISSIONS)
+      .filter(([, allowed]) => allowed)
+      .map(([permission]) => permission);
+    expect(granted.sort()).toEqual(['view_doc', 'view_exercise']);
   });
 });

@@ -146,6 +146,8 @@ export interface WorkspaceRepository {
   /** Mọi trạng thái — admin cần mở cả nhóm đã lưu trữ để khôi phục. */
   findByIdWithOwner(id: string): Promise<(WorkspaceRecord & { owner: WorkspaceUser }) | null>;
   findDetail(slug: string, userId: string): Promise<WorkspaceDetailRecord | null>;
+  /** Quản trị viên nền tảng (`users.role = admin`) — được xem nhóm để kiểm duyệt báo cáo. */
+  isPlatformAdmin(userId: string): Promise<boolean>;
   findActiveBySlug(slug: string): Promise<WorkspaceRecord | null>;
   findActiveByInviteCode(inviteCode: string): Promise<WorkspaceRecord | null>;
   create(input: {

@@ -60,6 +60,17 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
   },
 };
 
+/**
+ * Quyền của quản trị viên nền tảng khi mở một nhóm mình không là thành viên (kiểm tra nội dung
+ * bị báo cáo): chỉ xem tài liệu và bài tập — không tải lên, sửa, duyệt hay xoá gì trong nhóm.
+ */
+export const ADMIN_VIEW_PERMISSIONS: EffectivePermissions = Object.fromEntries(
+  WORKSPACE_PERMISSIONS.map((permission) => [
+    permission,
+    permission === 'view_doc' || permission === 'view_exercise',
+  ]),
+) as EffectivePermissions;
+
 export function resolveWorkspacePermissions(
   role: WorkspaceRole,
   rolePermissions: PermissionGrant[],

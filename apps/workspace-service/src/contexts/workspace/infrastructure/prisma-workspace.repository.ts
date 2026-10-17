@@ -281,6 +281,14 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
     return { total, owned, joined, unreadCount: Number(unreadRows[0]?.count ?? 0n) };
   }
 
+  async isPlatformAdmin(userId: string): Promise<boolean> {
+    const user = await this.prisma.users.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    return user?.role === 'admin';
+  }
+
   async findDetail(slug: string, userId: string): Promise<WorkspaceDetailRecord | null> {
     const row = await this.prisma.study_groups.findUnique({
       where: { slug },

@@ -31,6 +31,7 @@ export class WorkspaceChatService {
 
   async attachmentUpload(userId: string, slug: string, dto: DocumentUploadUrlDto) {
     const workspace = await this.workspaces.detail(userId, slug);
+    assertCanPost(workspace);
     if (!DOCUMENT_CONTENT_TYPES.includes(dto.contentType as (typeof DOCUMENT_CONTENT_TYPES)[number]))
       throw new BusinessRuleViolation('Định dạng tệp không được hỗ trợ');
     const result = await this.storage.presignDocumentUpload({
@@ -81,6 +82,7 @@ export class WorkspaceChatService {
 
   async create(userId: string, slug: string, dto: CreateWorkspaceMessageDto) {
     const workspace = await this.workspaces.detail(userId, slug);
+    assertCanPost(workspace);
     const content = normaliseContent(dto.content);
     const message = await this.chat.createMessage(workspace.id, userId, content);
     const recipientExternalIds = await this.chat.notificationRecipients(workspace.id, userId);
@@ -104,6 +106,7 @@ export class WorkspaceChatService {
 
   async update(userId: string, slug: string, messageId: string, dto: UpdateWorkspaceMessageDto) {
     const workspace = await this.workspaces.detail(userId, slug);
+    assertCanPost(workspace);
     const message = await this.requireMessage(workspace.id, messageId);
     if (message.senderId !== userId)
       throw new NotAuthorized('Bạn chỉ có thể sửa tin nhắn của mình');
@@ -115,6 +118,7 @@ export class WorkspaceChatService {
 
   async remove(userId: string, slug: string, messageId: string) {
     const workspace = await this.workspaces.detail(userId, slug);
+    assertCanPost(workspace);
     const message = await this.requireMessage(workspace.id, messageId);
     const role = workspace.currentMembership.role;
     if (message.senderId !== userId && role !== 'owner' && role !== 'deputy') {
@@ -126,6 +130,7 @@ export class WorkspaceChatService {
 
   async unread(userId: string, slug: string) {
     const workspace = await this.workspaces.detail(userId, slug);
+    if (workspace.currentMembership.adminView) return { count: 0 };
     return {
       count: await this.chat.unreadCount(workspace.id, workspace.currentMembership.id, userId),
     };
@@ -133,6 +138,8 @@ export class WorkspaceChatService {
 
   async markRead(userId: string, slug: string) {
     const workspace = await this.workspaces.detail(userId, slug);
+    // Admin không phải thành viên: không có dòng thành viên để ghi mốc đã đọc.
+    if (workspace.currentMembership.adminView) return;
     const readAt = new Date();
     await this.chat.markRead(workspace.currentMembership.id, readAt);
     return { readAt };
@@ -186,4 +193,11 @@ function decodeCursor(value: string): WorkspaceMessageCursor {
 
 function clamp(value: number | undefined, fallback: number, maximum: number) {
   return Math.min(Math.max(value ?? fallback, 1), maximum);
+}
+
+/** Admin xem nhóm để kiểm duyệt thì chỉ đọc — không nói thay ai trong nhóm. */
+function assertCanPost(workspace: { currentMembership: { adminView: boolean } }) {
+  if (workspace.currentMembership.adminView) {
+    throw new NotAuthorized('Quản trị viên chỉ xem nhóm để kiểm duyệt, không gửi hay sửa tin nhắn');
+  }
 }

@@ -8,6 +8,7 @@ import {
   assertCanManageWorkspace,
   assertConfigurableRole,
   normalisePermissionPatch,
+  ADMIN_VIEW_PERMISSIONS,
   resolveWorkspacePermissions,
   rolePermissionsFor,
   WORKSPACE_PERMISSIONS,
@@ -88,12 +89,15 @@ export class WorkspaceService {
 
   async detail(userId: string, slug: string) {
     const data = await this.workspaces.findDetail(slug, userId);
-    if (!data?.membership) throw new NotFound('Không tìm thấy nhóm học tập');
-    const permissions = resolveWorkspacePermissions(
-      data.membership.role,
-      data.rolePermissions,
-      data.memberOverrides,
-    );
+    // Admin mở nhóm từ báo cáo vi phạm: vào thẳng để xem, không phải xin tham gia. Không tạo
+    // thành viên thật — `adminView` chỉ có quyền xem (ADMIN_VIEW_PERMISSIONS).
+    const adminView = !!data && !data.membership && (await this.workspaces.isPlatformAdmin(userId));
+    if (!data || (!data.membership && !adminView))
+      throw new NotFound('Không tìm thấy nhóm học tập');
+    const membership = data.membership ?? { id: '', role: 'member' as const, joinedAt: null };
+    const permissions = adminView
+      ? ADMIN_VIEW_PERMISSIONS
+      : resolveWorkspacePermissions(membership.role, data.rolePermissions, data.memberOverrides);
     return {
       id: data.id,
       slug: data.slug,
@@ -115,14 +119,15 @@ export class WorkspaceService {
       lastActivityAt: data.lastActivityAt,
       owner: data.owner,
       currentMembership: {
-        id: data.membership.id,
-        role: data.membership.role,
-        joinedAt: data.membership.joinedAt,
+        id: membership.id,
+        role: membership.role,
+        joinedAt: membership.joinedAt,
         permissions,
+        adminView,
       },
-      inviteCode: data.membership.role === 'owner' ? data.inviteCode : null,
+      inviteCode: membership.role === 'owner' ? data.inviteCode : null,
       rolePermissions:
-        data.membership.role === 'owner'
+        membership.role === 'owner'
           ? {
               deputy: rolePermissionsFor('deputy', data.rolePermissions),
               member: rolePermissionsFor('member', data.rolePermissions),
@@ -292,7 +297,11 @@ export class WorkspaceService {
 
   async members(userId: string, slug: string, query: ListMembersQueryDto) {
     const workspace = await this.requireActive(slug);
-    const requester = await this.workspaces.findMembership(workspace.id, userId);
+    // Admin xem nhóm để kiểm duyệt (xem `detail`) thấy danh sách như một thành viên thường:
+    // chỉ thông tin công khai, không quyền quản lý.
+    const requester =
+      (await this.workspaces.findMembership(workspace.id, userId)) ??
+      ((await this.workspaces.isPlatformAdmin(userId)) ? { role: 'member' as const } : null);
     if (!requester) throw new NotFound('Không tìm thấy nhóm học tập');
     const page = Math.max(query.page ?? 1, 1);
     const limit = clamp(query.limit, 10, 100);
