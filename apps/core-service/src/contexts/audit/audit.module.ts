@@ -8,6 +8,7 @@ import {
   AdminContentReportController,
   ContentReportController,
 } from './presentation/content-report.controller';
+import { SuspensionController } from './presentation/suspension.controller';
 
 /**
  * Global vì bất kỳ context nào thực hiện một hành động quản trị cũng cần ghi lại nó, và
@@ -16,7 +17,12 @@ import {
  */
 @Global()
 @Module({
-  controllers: [AuditLogController, ContentReportController, AdminContentReportController],
+  controllers: [
+    AuditLogController,
+    ContentReportController,
+    AdminContentReportController,
+    SuspensionController,
+  ],
   providers: [
     AuditLogService,
     ContentReportService,

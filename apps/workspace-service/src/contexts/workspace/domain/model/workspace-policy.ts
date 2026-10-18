@@ -62,12 +62,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<
 
 /**
  * Quyền của quản trị viên nền tảng khi mở một nhóm mình không là thành viên (kiểm tra nội dung
- * bị báo cáo): chỉ xem tài liệu và bài tập — không tải lên, sửa, duyệt hay xoá gì trong nhóm.
+ * bị báo cáo): xem, và gỡ nội dung vi phạm bằng xoá mềm — vào thùng rác 30 ngày, khôi phục
+ * hoặc xoá vĩnh viễn được. Không tải lên, sửa hay duyệt gì trong nhóm.
  */
 export const ADMIN_VIEW_PERMISSIONS: EffectivePermissions = Object.fromEntries(
   WORKSPACE_PERMISSIONS.map((permission) => [
     permission,
-    permission === 'view_doc' || permission === 'view_exercise',
+    ['view_doc', 'view_exercise', 'delete_doc', 'delete_exercise'].includes(permission),
   ]),
 ) as EffectivePermissions;
 

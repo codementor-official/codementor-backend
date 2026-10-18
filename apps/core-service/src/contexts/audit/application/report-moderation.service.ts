@@ -208,6 +208,18 @@ export class ReportModerationService implements OnModuleInit, OnModuleDestroy {
     return due.length;
   }
 
+  /** `until` null khi khoá không thời hạn hoặc khoá tay ở trang Người dùng. */
+  async suspensionOf(externalId: string): Promise<{ suspended: boolean; until: string | null }> {
+    const [row] = await this.prisma.$queryRaw<Array<{ status: string; until: Date | null }>>`
+      SELECT u.status::text AS status,
+             (SELECT a.suspended_until FROM content_report_actions a
+              WHERE a.sanctioned_user_id = u.id AND a.action = 'USER_SUSPENDED' AND a.reverted_at IS NULL
+              ORDER BY a.created_at DESC LIMIT 1) AS until
+      FROM users u WHERE u.external_id = ${externalId}`;
+    const suspended = row?.status === 'suspended';
+    return { suspended, until: suspended ? (row?.until?.toISOString() ?? null) : null };
+  }
+
   async suspendOwner(
     id: string,
     actor: AuthenticatedUser,

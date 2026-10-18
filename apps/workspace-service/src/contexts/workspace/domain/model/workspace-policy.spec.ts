@@ -40,10 +40,10 @@ describe('Workspace permission policy', () => {
 });
 
 describe('ADMIN_VIEW_PERMISSIONS', () => {
-  it('lets a platform admin read documents and exercises but change nothing', () => {
+  it('lets a platform admin read and soft-delete documents and exercises, nothing else', () => {
     const granted = Object.entries(ADMIN_VIEW_PERMISSIONS)
       .filter(([, allowed]) => allowed)
       .map(([permission]) => permission);
-    expect(granted.sort()).toEqual(['view_doc', 'view_exercise']);
+    expect(granted.sort()).toEqual(['delete_doc', 'delete_exercise', 'view_doc', 'view_exercise']);
   });
 });
