@@ -78,6 +78,26 @@ const CATEGORY_LABEL: Record<string, string> = {
   OTHER: 'Vi phạm khác',
 };
 
+interface SanctionTarget {
+  id: string | null;
+  externalId: string | null;
+  role: string | null;
+  status: string | null;
+  name: string | null;
+}
+
+/** Vì sao không khoá được tác giả từ báo cáo, hoặc `null` nếu khoá được. */
+function ownerSuspendBlocker(owner: SanctionTarget, actorId: string): Error | null {
+  if (!owner.id || !owner.externalId)
+    return new BadRequestException('Không xác định được tác giả của nội dung này.');
+  if (owner.id === actorId) return new BadRequestException('Không thể tự khoá tài khoản của mình.');
+  if (owner.role === 'admin')
+    return new BadRequestException('Không khoá tài khoản quản trị viên từ báo cáo vi phạm.');
+  if (owner.status !== 'active')
+    return new ConflictException('Tài khoản tác giả không ở trạng thái hoạt động.');
+  return null;
+}
+
 const STATUS_LABEL: Record<ReportStatus, string> = {
   PENDING: 'Chờ xử lý',
   RESOLVED: 'Đã xử lý vi phạm',
@@ -133,7 +153,14 @@ export class ReportModerationService implements OnModuleInit, OnModuleDestroy {
     actorId: string,
     status: ReportStatus,
     note: string,
+    days: SuspensionDays | null = null,
   ) {
+    // Kết luận có vi phạm thì khoá luôn tác giả (luồng khoá tự đặt "Đã xử lý" và ghi cả hai bước).
+    // Không khoá được — không rõ tác giả, tác giả là admin hay chính mình, hoặc đã bị khoá — thì
+    // chỉ đổi trạng thái như cũ.
+    if (status === 'RESOLVED' && (await this.suspendableOwner(id, actorId))) {
+      return this.suspendOwner(id, actor, actorId, note, days);
+    }
     await this.prisma.$transaction(async (tx) => {
       const report = await this.lock(tx, id);
       if (report.status === status)
@@ -253,6 +280,23 @@ export class ReportModerationService implements OnModuleInit, OnModuleDestroy {
     return { suspended: true, until: row.until?.toISOString() ?? null, reason: reason ?? null };
   }
 
+  /** Tác giả nội dung bị báo cáo, đủ để kiểm có khoá được không. */
+  private async ownerOf(id: string): Promise<SanctionTarget | null> {
+    const [owner] = await this.prisma.$queryRawUnsafe<SanctionTarget[]>(
+      `SELECT owner.id, owner.external_id AS "externalId", owner.role::text AS role,
+              owner.status::text AS status, owner.display_name AS name
+       FROM content_reports r ${REPORT_TARGET_JOINS}
+       WHERE r.id = $1::uuid`,
+      id,
+    );
+    return owner ?? null;
+  }
+
+  private async suspendableOwner(id: string, actorId: string): Promise<boolean> {
+    const owner = await this.ownerOf(id);
+    return !!owner && ownerSuspendBlocker(owner, actorId) === null;
+  }
+
   async suspendOwner(
     id: string,
     actor: AuthenticatedUser,
@@ -260,30 +304,12 @@ export class ReportModerationService implements OnModuleInit, OnModuleDestroy {
     note: string,
     days: SuspensionDays | null,
   ) {
-    const [owner] = await this.prisma.$queryRawUnsafe<
-      Array<{
-        id: string | null;
-        externalId: string | null;
-        role: string | null;
-        status: string | null;
-        name: string | null;
-      }>
-    >(
-      `SELECT owner.id, owner.external_id AS "externalId", owner.role::text AS role,
-              owner.status::text AS status, owner.display_name AS name
-       FROM content_reports r ${REPORT_TARGET_JOINS}
-       WHERE r.id = $1::uuid`,
-      id,
-    );
+    const owner = await this.ownerOf(id);
     if (!owner) throw new NotFoundException('Không tìm thấy báo cáo');
+    const blocker = ownerSuspendBlocker(owner, actorId);
+    if (blocker) throw blocker;
     if (!owner.id || !owner.externalId)
       throw new BadRequestException('Không xác định được tác giả của nội dung này.');
-    if (owner.id === actorId)
-      throw new BadRequestException('Không thể tự khoá tài khoản của mình.');
-    if (owner.role === 'admin')
-      throw new BadRequestException('Không khoá tài khoản quản trị viên từ báo cáo vi phạm.');
-    if (owner.status !== 'active')
-      throw new ConflictException('Tài khoản tác giả không ở trạng thái hoạt động.');
 
     const until = suspensionEndsAt(days, new Date());
     // Khoá ở CodeMentor (`users.status`), KHÔNG tắt tài khoản ở Keycloak: core chặn mọi request

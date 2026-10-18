@@ -86,6 +86,8 @@ class ListAdminReportsQueryDto extends ListMyReportsQueryDto {
 /** Mọi chiều đổi trạng thái đều cần lý do — nó là thứ duy nhất giải thích dòng lịch sử về sau. */
 class ResolveContentReportDto {
   @IsIn(REPORT_STATUSES) status!: ReportStatus;
+  /** Chỉ dùng khi chuyển sang RESOLVED: thời hạn khoá tác giả; bỏ trống / null = không thời hạn. */
+  @IsOptional() @IsIn(SUSPENSION_DAYS) days?: SuspensionDays | null;
   @IsString() @IsNotEmpty() @MaxLength(1000) resolutionNote!: string;
 }
 
@@ -154,6 +156,7 @@ export class AdminContentReportController {
       requireHumanId(user),
       dto.status,
       dto.resolutionNote.trim(),
+      dto.days ?? null,
     );
   }
 
