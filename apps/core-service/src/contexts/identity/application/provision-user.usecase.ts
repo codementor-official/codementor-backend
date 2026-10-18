@@ -70,6 +70,10 @@ export class ProvisionUserUseCase implements IdentityProvisioning {
     }
     if (access.isFail) throw access.error;
 
+    // "Hoạt động cuối" ở trang Người dùng: mọi request có xác thực đi qua đây (các service
+    // khác hỏi core mỗi lần gặp token mới). Tối đa 5 phút ghi một lần, không UPDATE mỗi request.
+    await this.users.touchLastActive(user.id, 300);
+
     return {
       id: user.id,
       externalId: user.externalId,

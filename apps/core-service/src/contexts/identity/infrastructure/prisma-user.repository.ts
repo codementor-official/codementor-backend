@@ -55,6 +55,13 @@ export class PrismaUserRepository implements UserRepository {
     return rows[0] ? this.toDomain(rows[0]) : null;
   }
 
+  async touchLastActive(id: string, throttleSeconds: number): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE users SET last_active_at = now()
+      WHERE id = ${id}::uuid
+        AND (last_active_at IS NULL OR last_active_at < now() - make_interval(secs => ${throttleSeconds}))`;
+  }
+
   async save(user: User): Promise<void> {
     try {
       await this.prisma.$executeRawUnsafe(

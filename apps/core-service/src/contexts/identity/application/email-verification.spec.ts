@@ -21,7 +21,7 @@ describe('Self-service email verification', () => {
   let service: EmailVerificationService;
   beforeEach(() => {
     user = provision();
-    users = { findById: jest.fn().mockResolvedValue(user), findByExternalId: jest.fn(), findByEmail: jest.fn(), save: jest.fn().mockResolvedValue(undefined) };
+    users = { findById: jest.fn().mockResolvedValue(user), findByExternalId: jest.fn(), findByEmail: jest.fn(), save: jest.fn().mockResolvedValue(undefined), touchLastActive: jest.fn().mockResolvedValue(undefined) };
     provider = { emailStatus: jest.fn().mockResolvedValue({ email: 'learner@example.com', verified: false, canSend: true }), sendVerificationEmail: jest.fn().mockResolvedValue(undefined) };
     service = new EmailVerificationService(users, provider);
   });
