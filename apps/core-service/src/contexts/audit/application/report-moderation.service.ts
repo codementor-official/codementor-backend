@@ -69,6 +69,15 @@ export interface ReportActionRow {
   createdAt: Date;
 }
 
+/** Cùng nhãn với nút Báo cáo bên client — người bị khoá đọc được vì sao. */
+const CATEGORY_LABEL: Record<string, string> = {
+  SPAM: 'Spam hoặc quảng cáo',
+  MISLEADING: 'Thông tin sai lệch',
+  INAPPROPRIATE: 'Nội dung không phù hợp',
+  COPYRIGHT: 'Vi phạm bản quyền',
+  OTHER: 'Vi phạm khác',
+};
+
 const STATUS_LABEL: Record<ReportStatus, string> = {
   PENDING: 'Chờ xử lý',
   RESOLVED: 'Đã xử lý vi phạm',
@@ -208,16 +217,40 @@ export class ReportModerationService implements OnModuleInit, OnModuleDestroy {
     return due.length;
   }
 
-  /** `until` null khi khoá không thời hạn hoặc khoá tay ở trang Người dùng. */
-  async suspensionOf(externalId: string): Promise<{ suspended: boolean; until: string | null }> {
-    const [row] = await this.prisma.$queryRaw<Array<{ status: string; until: Date | null }>>`
-      SELECT u.status::text AS status,
-             (SELECT a.suspended_until FROM content_report_actions a
-              WHERE a.sanctioned_user_id = u.id AND a.action = 'USER_SUSPENDED' AND a.reverted_at IS NULL
-              ORDER BY a.created_at DESC LIMIT 1) AS until
-      FROM users u WHERE u.external_id = ${externalId}`;
-    const suspended = row?.status === 'suspended';
-    return { suspended, until: suspended ? (row?.until?.toISOString() ?? null) : null };
+  /**
+   * Hạn và lý do khoá, cho chính người bị khoá đọc ở trang đăng nhập. Ưu tiên lần khoá theo báo
+   * cáo còn hiệu lực (có hạn, lý do do admin ghi, kèm loại vi phạm); không có thì lấy lý do của
+   * lần khoá tay gần nhất ở trang Người dùng (không thời hạn).
+   */
+  async suspensionOf(
+    externalId: string,
+  ): Promise<{ suspended: boolean; until: string | null; reason: string | null }> {
+    const [row] = await this.prisma.$queryRaw<
+      Array<{
+        status: string;
+        until: Date | null;
+        note: string | null;
+        category: string | null;
+        manualReason: string | null;
+      }>
+    >`
+      SELECT u.status::text AS status, a.suspended_until AS until, a.note, r.category,
+             (SELECT l.metadata->>'reason' FROM audit_logs l
+              WHERE l.action = 'user.suspended' AND l.target_id = u.id::text
+              ORDER BY l.created_at DESC LIMIT 1) AS "manualReason"
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT x.suspended_until, x.note, x.report_id FROM content_report_actions x
+        WHERE x.sanctioned_user_id = u.id AND x.action = 'USER_SUSPENDED' AND x.reverted_at IS NULL
+        ORDER BY x.created_at DESC LIMIT 1
+      ) a ON true
+      LEFT JOIN content_reports r ON r.id = a.report_id
+      WHERE u.external_id = ${externalId}`;
+    if (row?.status !== 'suspended') return { suspended: false, until: null, reason: null };
+    const reason = row.note
+      ? `${CATEGORY_LABEL[row.category ?? ''] ? `${CATEGORY_LABEL[row.category ?? '']}: ` : ''}${row.note}`
+      : row.manualReason;
+    return { suspended: true, until: row.until?.toISOString() ?? null, reason: reason ?? null };
   }
 
   async suspendOwner(

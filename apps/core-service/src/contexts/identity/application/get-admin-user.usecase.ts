@@ -76,6 +76,19 @@ export class GetAdminUserUseCase {
    * chúng gọi thẳng Keycloak, nhưng nhật ký phải ghi theo id CodeMentor — đó là id mà màn
    * chi tiết tài khoản dùng để tra ngược lại.
    */
+  /** Dữ kiện để kiểm ràng buộc trước khi đổi vai trò/trạng thái (xem `account-change-rules`). */
+  async changeFacts(
+    externalId: string,
+  ): Promise<{ role: string | null; status: string | null; activeAdmins: number }> {
+    const [row] = await this.prisma.$queryRaw<
+      { role: string | null; status: string | null; activeAdmins: number }[]
+    >`
+      SELECT (SELECT role::text FROM users WHERE external_id = ${externalId}) AS role,
+             (SELECT status::text FROM users WHERE external_id = ${externalId}) AS status,
+             (SELECT count(*)::int FROM users WHERE role = 'admin' AND status = 'active') AS "activeAdmins"`;
+    return row ?? { role: null, status: null, activeAdmins: 0 };
+  }
+
   async resolveUserId(externalId: string): Promise<string | null> {
     const [row] = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM users WHERE external_id = ${externalId} LIMIT 1`;

@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { PageQuery, UserRole } from '@codementor/platform';
 
 export const ASSIGNABLE_HUMAN_ROLES = [
@@ -41,6 +50,13 @@ export class UpdateUserRoleDto {
   @ApiProperty({ enum: ASSIGNABLE_HUMAN_ROLES })
   @IsIn([...ASSIGNABLE_HUMAN_ROLES])
   role!: UserRole;
+
+  /** Lý do, ghi vào nhật ký kiểm toán — đổi quyền là thao tác phải truy được vì sao. */
+  @ApiProperty({ maxLength: 500 })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
 }
 
 export enum UserAccountStatus {
@@ -52,6 +68,12 @@ export class UpdateUserStatusDto {
   @ApiProperty({ enum: UserAccountStatus })
   @IsEnum(UserAccountStatus)
   status!: UserAccountStatus;
+
+  @ApiProperty({ maxLength: 500 })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
 }
 
 /** Nhận vai trò/trạng thái theo đúng giá trị enum trong PostgreSQL, không phải tên Keycloak. */

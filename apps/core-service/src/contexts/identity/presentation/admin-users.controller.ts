@@ -1,4 +1,21 @@
-import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  ConflictException,
+  Controller,
+  DefaultValuePipe,
+  Get,
+  Param,
+  ParseIntPipe,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
+import {
+  roleChangeBlocker,
+  statusChangeBlocker,
+  type PlatformRole,
+} from '../domain/model/account-change-rules';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Roles } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
@@ -15,6 +32,12 @@ import {
   UpdateUserStatusDto,
   UserAccountStatus,
 } from './dto/admin-user.dto';
+
+const PLATFORM_ROLE: Record<string, PlatformRole> = {
+  STUDENT: 'learner',
+  LECTURER: 'lecturer',
+  ADMIN: 'admin',
+};
 
 /**
  * Quản trị tài khoản Ở KEYCLOAK, tách khỏi `IdentityController`.
@@ -109,6 +132,15 @@ export class AdminUsersController {
     @Param('id') id: string,
     @Body() dto: UpdateUserRoleDto,
   ) {
+    const facts = await this.profile.changeFacts(id);
+    const blocker = roleChangeBlocker({
+      selfChange: actor.externalId === id,
+      currentRole: facts.role,
+      currentStatus: facts.status,
+      nextRole: PLATFORM_ROLE[dto.role],
+      activeAdmins: facts.activeAdmins,
+    });
+    if (blocker) throw new ConflictException(blocker);
     const result = await this.keycloak.assignHumanRole(id, dto.role);
     // Cùng lý do với khoá/mở: danh sách quản trị đọc `users.role` chứ không hỏi Keycloak,
     // nên không chép về thì đổi vai trò xong bảng vẫn hiện vai trò cũ.
@@ -117,8 +149,13 @@ export class AdminUsersController {
       action: 'user.role_changed',
       targetType: 'user',
       targetId: await this.auditTargetId(id),
-      summary: `Đổi vai trò tài khoản thành ${dto.role}`,
-      metadata: { role: dto.role, keycloakId: id },
+      summary: `Đổi vai trò tài khoản thành ${dto.role}: ${dto.reason.trim()}`,
+      metadata: {
+        role: dto.role,
+        previousRole: facts.role,
+        reason: dto.reason.trim(),
+        keycloakId: id,
+      },
     });
     return result;
   }
@@ -132,6 +169,15 @@ export class AdminUsersController {
     @Body() dto: UpdateUserStatusDto,
   ) {
     const active = dto.status === UserAccountStatus.ACTIVE;
+    const facts = await this.profile.changeFacts(id);
+    const blocker = statusChangeBlocker({
+      selfChange: actor.externalId === id,
+      suspend: !active,
+      currentStatus: facts.status,
+      currentRole: facts.role,
+      activeAdmins: facts.activeAdmins,
+    });
+    if (blocker) throw new ConflictException(blocker);
     const result = await this.keycloak.setEnabled(id, active);
     // Keycloak đã là nguồn sự thật cho việc đăng nhập, nhưng mọi màn hình đọc
     // `users.status` — không chép về thì khoá xong danh sách vẫn hiện "đang hoạt động".
@@ -140,8 +186,8 @@ export class AdminUsersController {
       action: active ? 'user.activated' : 'user.suspended',
       targetType: 'user',
       targetId: await this.auditTargetId(id),
-      summary: active ? 'Mở khoá tài khoản' : 'Tạm khoá tài khoản',
-      metadata: { status: dto.status, keycloakId: id },
+      summary: `${active ? 'Mở khoá tài khoản' : 'Tạm khoá tài khoản'}: ${dto.reason.trim()}`,
+      metadata: { status: dto.status, reason: dto.reason.trim(), keycloakId: id },
     });
     return result;
   }
