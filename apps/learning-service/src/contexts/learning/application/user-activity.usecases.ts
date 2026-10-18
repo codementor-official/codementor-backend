@@ -5,7 +5,18 @@ import type { AuthenticatedUser } from '@codementor/platform';
 
 /** Một việc người học đã làm, đủ chữ để hiển thị mà không phải tra thêm bảng nào. */
 export interface ActivityEntry {
-  kind: 'roadmap_enrolled' | 'course_enrolled' | 'course_completed' | 'lesson_completed' | 'exercise_solved';
+  kind:
+    | 'roadmap_enrolled'
+    | 'course_enrolled'
+    | 'course_completed'
+    | 'lesson_completed'
+    | 'exercise_solved'
+    // Chỉ có trong bản cho quản trị viên (`forUser`): ngoài việc học còn cần biết người này
+    // làm gì trong nhóm, mua gì, báo cáo gì, đăng gì khi xét một báo cáo vi phạm.
+    | 'course_purchased'
+    | 'group_activity'
+    | 'report_submitted'
+    | 'article_written';
   title: string;
   detail: string | null;
   occurredAt: string;
@@ -42,7 +53,7 @@ export class UserActivityUseCases {
     // Chỉ quản trị viên xem được lịch sử của NGƯỜI KHÁC. Kiểm ở use case chứ không chỉ ở
     // guard: mọi lối gọi khác về sau cũng đi qua đây.
     if (actor.role !== 'admin') throw new NotAuthorized('xem hoạt động của tài khoản khác');
-    return this.timeline(userId, limit);
+    return this.timeline(userId, limit, true);
   }
 
   /** Chính chủ xem lịch sử của mình — không cần kiểm vai trò, `userId` luôn là actor. */
@@ -120,7 +131,7 @@ export class UserActivityUseCases {
     return streak;
   }
 
-  private async timeline(userId: string, limit: number): Promise<ActivityEntry[]> {
+  private async timeline(userId: string, limit: number, forAdmin = false): Promise<ActivityEntry[]> {
     const capped = Math.min(Math.max(limit, 1), 200);
 
     // UNION ALL rồi sắp một lần, thay vì bốn truy vấn rồi trộn trong JavaScript: giới hạn
@@ -167,6 +178,33 @@ export class UserActivityUseCases {
                'Điểm cao nhất ' || coalesce(ep.best_score::text, '—'), ep.first_solved_at
         FROM exercise_progress ep JOIN exercises e ON e.id = ep.exercise_id
         WHERE ep.user_id = ${userId}::uuid AND ep.first_solved_at IS NOT NULL
+
+        -- Bốn nguồn dưới chỉ cho quản trị viên. Đơn hàng là của learning-service; nhóm học,
+        -- báo cáo và bài viết đọc thẳng bảng của context khác trong cùng PostgreSQL, như
+        -- core-service đã làm với bookmark — chỉ đọc, không ghi.
+        UNION ALL
+        SELECT 'course_purchased', o.course_title,
+               to_char(o.amount, 'FM999G999G999') || ' VND' ||
+                 CASE WHEN o.status = 'refunded' THEN ' · đã hoàn tiền' ELSE '' END,
+               coalesce(o.settled_at, o.created_at)
+        FROM commerce_orders o
+        WHERE ${forAdmin} AND o.buyer_id = ${userId}::uuid AND o.status IN ('paid', 'refunded')
+
+        UNION ALL
+        SELECT 'group_activity', g.name, ga.action, ga.created_at
+        FROM group_activities ga JOIN study_groups g ON g.id = ga.group_id
+        WHERE ${forAdmin} AND ga.actor_id = ${userId}::uuid
+
+        UNION ALL
+        SELECT 'report_submitted', coalesce(cr.target_ref, cr.target_type),
+               cr.category || ' · ' || cr.status, cr.submitted_at
+        FROM content_reports cr
+        WHERE ${forAdmin} AND cr.reporter_id = ${userId}::uuid
+
+        UNION ALL
+        SELECT 'article_written', a.title, a.status::text, a.created_at
+        FROM articles a
+        WHERE ${forAdmin} AND a.author_id = ${userId}::uuid
       ) AS timeline
       WHERE "occurredAt" IS NOT NULL
       ORDER BY "occurredAt" DESC

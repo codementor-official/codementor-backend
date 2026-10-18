@@ -246,10 +246,27 @@ export class ReportModerationService implements OnModuleInit, OnModuleDestroy {
     await this.mirror.status(owner.externalId, false);
     await this.prisma.$transaction(async (tx) => {
       const report = await this.lock(tx, id);
+      // Khoá tác giả nghĩa là đã kết luận có vi phạm: báo cáo sang "Đã xử lý" bằng một bước
+      // đổi trạng thái riêng, để hoàn tác khoá không kéo theo kết luận và ngược lại.
+      if (report.status !== 'RESOLVED') {
+        const resolutionNote = `Khoá tài khoản tác giả: ${note}`.slice(0, 1000);
+        await tx.$executeRaw`
+          UPDATE content_reports
+          SET status = 'RESOLVED', resolution_note = ${resolutionNote}, resolved_by = ${actorId}::uuid,
+              resolved_at = now(), updated_at = now()
+          WHERE id = ${id}::uuid`;
+        await this.insertAction(tx, id, actor, actorId, {
+          action: 'STATUS_CHANGED',
+          fromStatus: report.status,
+          toStatus: 'RESOLVED',
+          note: resolutionNote,
+          previous: report,
+        });
+      }
       await this.insertAction(tx, id, actor, actorId, {
         action: 'USER_SUSPENDED',
-        fromStatus: report.status,
-        toStatus: report.status,
+        fromStatus: 'RESOLVED',
+        toStatus: 'RESOLVED',
         note,
         previous: report,
         sanctionedUserId: owner.id,
