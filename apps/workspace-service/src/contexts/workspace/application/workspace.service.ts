@@ -12,6 +12,7 @@ import {
   resolveWorkspacePermissions,
   rolePermissionsFor,
   WORKSPACE_PERMISSIONS,
+  type WorkspaceRole,
 } from '../domain/model/workspace-policy';
 import {
   WORKSPACE_REPOSITORY,
@@ -297,12 +298,7 @@ export class WorkspaceService {
 
   async members(userId: string, slug: string, query: ListMembersQueryDto) {
     const workspace = await this.requireActive(slug);
-    // Admin xem nhóm để kiểm duyệt (xem `detail`) thấy danh sách như một thành viên thường:
-    // chỉ thông tin công khai, không quyền quản lý.
-    const requester =
-      (await this.workspaces.findMembership(workspace.id, userId)) ??
-      ((await this.workspaces.isPlatformAdmin(userId)) ? { role: 'member' as const } : null);
-    if (!requester) throw new NotFound('Không tìm thấy nhóm học tập');
+    const requester = await this.viewer(workspace.id, userId);
     const page = Math.max(query.page ?? 1, 1);
     const limit = clamp(query.limit, 10, 100);
     const result = await this.workspaces.listMembers(workspace.id, {
@@ -334,8 +330,7 @@ export class WorkspaceService {
   }
   async memberDetail(userId: string, slug: string, memberId: string) {
     const workspace = await this.requireActive(slug);
-    const requester = await this.workspaces.findMembership(workspace.id, userId);
-    if (!requester) throw new NotFound('Không tìm thấy nhóm học tập');
+    const requester = await this.viewer(workspace.id, userId);
     const member = await this.workspaces.memberDashboard(workspace.id, memberId);
     if (!member) throw new NotFound('Không tìm thấy thành viên');
     const base = {
@@ -617,6 +612,17 @@ export class WorkspaceService {
     if (!invitation) throw new NotFound('Không tìm thấy lời mời');
     await this.workspaces.updateMember(invitation.id, { status: 'removed' });
     return { revoked: true };
+  }
+
+  /**
+   * Tư cách xem danh sách và hồ sơ thành viên. Admin xem nhóm để kiểm duyệt (xem `detail`) được
+   * coi như một thành viên thường: chỉ thông tin công khai, không quyền quản lý.
+   */
+  private async viewer(workspaceId: string, userId: string): Promise<{ role: WorkspaceRole }> {
+    const membership = await this.workspaces.findMembership(workspaceId, userId);
+    if (membership) return membership;
+    if (await this.workspaces.isPlatformAdmin(userId)) return { role: 'member' };
+    throw new NotFound('Không tìm thấy nhóm học tập');
   }
 
   private async requireActive(slug: string) {
