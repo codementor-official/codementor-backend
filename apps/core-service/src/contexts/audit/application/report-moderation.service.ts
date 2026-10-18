@@ -253,11 +253,17 @@ export class ReportModerationService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException('Tài khoản tác giả không ở trạng thái hoạt động.');
 
     const until = suspensionEndsAt(days, new Date());
-    // Keycloak trước, DB sau: khoá hỏng thì không để lại dòng lịch sử nói rằng đã khoá.
-    await this.keycloak.setEnabled(owner.externalId, false);
-    await this.mirror.status(owner.externalId, false);
+    // Khoá ở CodeMentor (`users.status`), KHÔNG tắt tài khoản ở Keycloak: core chặn mọi request
+    // bằng 403 ACCOUNT_SUSPENDED, nên app — kể cả đăng nhập Google — biết người đó là ai để báo
+    // hạn mở khoá. Tắt ở Keycloak thì popup Google dừng ở trang lỗi của Keycloak, không biết gì.
+    // Đăng xuất mọi phiên trước, DB sau: hỏng giữa chừng thì không có dòng lịch sử nói đã khoá.
+    await this.keycloak.logoutSessions(owner.externalId);
     await this.prisma.$transaction(async (tx) => {
       const report = await this.lock(tx, id);
+      // `users.status` giờ là nơi chặn duy nhất, nên ghi trong transaction và hỏng là báo lỗi
+      // (`mirror.status` nuốt lỗi — đúng khi Keycloak còn là nơi chặn thật, sai ở đây).
+      await tx.$executeRaw`
+        UPDATE users SET status = 'suspended'::account_status WHERE id = ${owner.id}::uuid AND status = 'active'`;
       // Khoá tác giả nghĩa là đã kết luận có vi phạm: báo cáo sang "Đã xử lý" bằng một bước
       // đổi trạng thái riêng, để hoàn tác khoá không kéo theo kết luận và ngược lại.
       if (report.status !== 'RESOLVED') {

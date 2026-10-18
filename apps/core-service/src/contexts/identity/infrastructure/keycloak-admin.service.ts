@@ -187,6 +187,11 @@ export class KeycloakAdminService implements EmailVerificationProvider {
     return this.getUser(userId);
   }
 
+  /** Đăng xuất mọi phiên đang mở của tài khoản — refresh token chết ngay, tài khoản vẫn bật. */
+  async logoutSessions(userId: string): Promise<void> {
+    await this.request(`/users/${userId}/logout`, { method: 'POST' });
+  }
+
   async setEnabled(userId: string, enabled: boolean): Promise<ManagedUser> {
     await this.request(`/users/${userId}`, {
       method: 'PUT',
