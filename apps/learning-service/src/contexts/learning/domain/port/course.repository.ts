@@ -143,6 +143,21 @@ export interface LessonContent {
     durationSeconds?: number;
     captionsUrl?: string;
   };
+  /**
+   * Ghi công khi bài dựa trên tác phẩm của người khác (bài giảng CS50, video MIT OCW…).
+   * Giấy phép Creative Commons bắt buộc đủ: tên tác phẩm, tác giả, nguồn, giấy phép và đã
+   * thay đổi gì. Khớp `attribution` trong validator `lesson_contents`. Không có = nội dung
+   * tự viết.
+   */
+  attribution?: {
+    title: string;
+    author: string;
+    sourceUrl: string;
+    /** Nhãn hiển thị, ví dụ `CC BY-NC-SA 4.0`. */
+    license: string;
+    licenseUrl: string;
+    changes?: string;
+  };
 }
 
 export interface LessonContentRepository {

@@ -89,6 +89,9 @@ function readCourse(dir) {
     ...chapter,
     lessons: chapter.lessons.map((entry) => {
       if (entry.exercise) return { kind: 'exercise', ...entry };
+      if (entry.video) return { kind: 'video', ...entry.video };
+      // Bài đọc mới lên dàn ý trong course-seed (`article: {title, basedOn}`), chưa có file .md.
+      if (entry.article) return { kind: 'todo', ...entry.article };
       const [front, body] = splitFrontmatter(readFileSync(join(dir, 'lessons', entry.md), 'utf8'));
       return { kind: 'article', file: entry.md, ...yaml.load(front), body: body.trim() };
     }),
@@ -135,19 +138,38 @@ function lintCourse(course, tags, exerciseSlugs) {
   const errors = [];
   const warnings = [];
   const { meta, chapters } = course;
-  const lessons = chapters.flatMap((c) => c.lessons);
+  // Khoá dựng trên bài giảng của trường khác (course-seed, có khối `source`): chủ dự án
+  // chốt 2026-10-28 là không bắt bài code cho loại này, và bài đọc chưa viết thì đẩy sau.
+  const external = Boolean(meta.source);
+  const lessons = chapters.flatMap((c) => c.lessons).filter((l) => !(external && l.kind === 'todo'));
   const [minCh, maxCh] = QUALITY.chapters;
   const [minLe, maxLe] = QUALITY.lessons;
   if (chapters.length < minCh || chapters.length > maxCh) errors.push(`${chapters.length} chương (cần ${minCh}–${maxCh})`);
-  if (lessons.length < minLe || lessons.length > maxLe) errors.push(`${lessons.length} bài (cần ${minLe}–${maxLe})`);
+  if (lessons.length > maxLe) errors.push(`${lessons.length} bài (tối đa ${maxLe})`);
+  else if (lessons.length < minLe) (external ? warnings : errors).push(`${lessons.length} bài (cần ≥ ${minLe})`);
   for (const tag of meta.tags ?? []) if (!tags.has(tag)) errors.push(`tag không tồn tại: ${tag}`);
   if (!meta.cover) errors.push('thiếu "cover" (ảnh bìa trong content/illustrations)');
   else if (!hasIllustration(meta.cover)) errors.push(`ảnh bìa không có: illustrations/${meta.cover}.svg`);
   for (const chapter of chapters) {
-    if (!chapter.lessons.some((l) => l.kind === 'exercise')) errors.push(`chương "${chapter.title}" không có bài code`);
+    if (!external && !chapter.lessons.some((l) => l.kind === 'exercise')) errors.push(`chương "${chapter.title}" không có bài code`);
+    if (!chapter.lessons.some((l) => l.kind !== 'todo')) {
+      (external ? warnings : errors).push(`chương "${chapter.title}" chỉ có bài chưa viết${external ? ', bỏ qua khi đẩy' : ''}`);
+    }
     for (const lesson of chapter.lessons) {
       if (lesson.kind === 'exercise') {
         if (!exerciseSlugs.has(lesson.exercise)) errors.push(`bài code "${lesson.exercise}" không có trong content/exercises`);
+        continue;
+      }
+      if (lesson.kind === 'todo') {
+        (external ? warnings : errors).push(`"${lesson.title}": bài đọc chưa viết${external ? ', bỏ qua khi đẩy' : ''}`);
+        continue;
+      }
+      if (lesson.kind === 'video') {
+        if (!lesson.title || !lesson.minutes) errors.push(`video "${lesson.title ?? lesson.youtube}": thiếu title/minutes`);
+        if (!/^https:\/\//.test(lesson.youtube ?? '')) errors.push(`video "${lesson.title}": "youtube" phải là URL https`);
+        // Video lấy từ nơi khác: giấy phép CC chỉ cho dùng khi ghi công đủ.
+        const missing = attributionGaps(lesson.source ?? meta.source);
+        if (missing.length) errors.push(`video "${lesson.title}": nguồn thiếu ${missing.join(', ')}`);
         continue;
       }
       const words = proseWords(lesson.body);
@@ -172,6 +194,27 @@ function lintCourse(course, tags, exerciseSlugs) {
     }
   }
   return { errors, warnings };
+}
+
+// --- ghi công ----------------------------------------------------------------
+
+const ATTRIBUTION_KEYS = ['name', 'author', 'url', 'license', 'licenseUrl'];
+const attributionGaps = (source) => (source ? ATTRIBUTION_KEYS.filter((k) => !source[k]) : ['toàn bộ khối "source"']);
+
+/**
+ * Khối `source` trong course.yaml → `attribution` của bài. Bài tự khai `source` thì dùng nó,
+ * không thì dùng của khoá; khoá tự viết (không có `source`) thì bài không mang ghi công.
+ * `CC-BY-NC-SA-4.0` (mã SPDX trong yaml) → `CC BY-NC-SA 4.0` (nhãn người đọc thấy).
+ */
+function attribution(lesson, meta) {
+  const s = lesson.source ?? meta.source;
+  if (!s) return undefined;
+  const changes = s.changes ?? meta.source?.changes;
+  return {
+    title: s.name, author: s.author, sourceUrl: s.url,
+    license: s.license.replace(/^CC-/, 'CC ').replace(/-(\d)/, ' $1'), licenseUrl: s.licenseUrl,
+    ...(changes ? { changes } : {}),
+  };
 }
 
 // --- ảnh ---------------------------------------------------------------------
@@ -324,8 +367,16 @@ async function pushExercise(call, ex, tags, mine) {
   return record.id;
 }
 
-async function pushCourse(call, course, tags, exerciseIds) {
-  const { meta } = course;
+async function pushCourse(call, input, tags, exerciseIds) {
+  const { meta } = input;
+  // Bài đọc chưa viết (`todo`) không lên server: một bài rỗng chặn luôn cả lượt gửi duyệt.
+  // Chương chỉ toàn bài như thế cũng bỏ: chương không có bài nào cũng chặn gửi duyệt.
+  const course = {
+    ...input,
+    chapters: input.chapters
+      .map((ch) => ({ ...ch, lessons: ch.lessons.filter((l) => l.kind !== 'todo') }))
+      .filter((ch) => ch.lessons.length > 0),
+  };
   const mine = await all(call, '/courses/mine');
   let record = mine.find((c) => c.slug === course.slug);
   if (record?.status === 'pending_review') await call('POST', `/courses/${record.id}/withdraw`);
@@ -351,7 +402,7 @@ async function pushCourse(call, course, tags, exerciseIds) {
         return {
           ...(id ? { id } : {}),
           title: lessonTitle(l),
-          type: l.kind === 'exercise' ? 'exercise' : 'article',
+          type: l.kind === 'video' ? 'video' : l.kind === 'exercise' ? 'exercise' : 'article',
           durationMinutes: l.minutes ?? (l.kind === 'exercise' ? 20 : 15),
           isPreview: Boolean(l.preview),
           exerciseId: l.kind === 'exercise' ? exerciseIds.get(l.exercise).id : null,
@@ -363,11 +414,23 @@ async function pushCourse(call, course, tags, exerciseIds) {
   const saved = await call('GET', `/courses/${record.id}`);
   for (const [ci, chapter] of course.chapters.entries()) {
     for (const [li, lesson] of chapter.lessons.entries()) {
-      if (lesson.kind !== 'article') continue;
       const target = saved.chapters[ci].lessons[li];
+      const credit = attribution(lesson, meta);
+      if (lesson.kind === 'video') {
+        // Không gửi `durationSeconds`: chỉ biết số phút đã làm tròn, và máy chủ chỉ dùng nó để
+        // chặn bài ngắn hơn video — `minutes` đã là trần làm tròn lên nên không bao giờ vướng.
+        await call('PUT', `/courses/${record.id}/lessons/${target.id}/content`, {
+          summary: lesson.summary ?? (lesson.original ? `Bài giảng gốc: ${lesson.original}` : undefined),
+          media: { url: lesson.youtube },
+          ...(credit ? { attribution: credit } : {}),
+        });
+        continue;
+      }
+      if (lesson.kind !== 'article') continue;
       await call('PUT', `/courses/${record.id}/lessons/${target.id}/content`, {
         summary: lesson.summary, objectives: lesson.objectives,
         contentHtml: markdownToHtml(await withIllustrations(call, record.id, lesson.body)),
+        ...(credit ? { attribution: credit } : {}),
       });
     }
   }

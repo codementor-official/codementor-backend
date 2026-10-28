@@ -226,6 +226,43 @@ class LessonMediaDto {
   captionsUrl?: string;
 }
 
+/** Xem `LessonContent.attribution`. URL bị chặn ở http(s): trang học viên đặt nó vào `href`. */
+class LessonAttributionDto {
+  @ApiProperty({ description: 'Tên tác phẩm gốc' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  title!: string;
+
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  author!: string;
+
+  @ApiProperty()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(2048)
+  sourceUrl!: string;
+
+  @ApiProperty({ description: 'Nhãn hiển thị, ví dụ "CC BY-NC-SA 4.0"' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(60)
+  license!: string;
+
+  @ApiProperty()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(2048)
+  licenseUrl!: string;
+
+  @ApiPropertyOptional({ description: 'Đã thay đổi gì so với bản gốc' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  changes?: string;
+}
+
 /** Xin một URL ký sẵn để trình duyệt `PUT` thẳng video lên kho — xem `ObjectStorageService`. */
 export class VideoUploadUrlDto {
   @ApiProperty({ description: 'Chỉ phần đuôi được giữ lại làm tên đối tượng' })
@@ -273,6 +310,12 @@ export class SaveLessonContentDto {
   @ValidateNested()
   @Type(() => LessonMediaDto)
   media?: LessonMediaDto;
+
+  @ApiPropertyOptional({ type: LessonAttributionDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LessonAttributionDto)
+  attribution?: LessonAttributionDto;
 }
 
 export class ListCoursesQueryDto extends PageQuery {
