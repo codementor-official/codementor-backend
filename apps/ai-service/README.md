@@ -42,33 +42,33 @@ and uv.lock; no host port is published in the backend Compose configuration.
 
 ## Public surface: /api/v1/ai/*
 
-Ngoài đường nội bộ, service có một đường CÔNG KHAI sau Kong. Nó tự kiểm JWT Keycloak trong
-`app/auth.py` (copy từ judge-service — Kong ở dự án này không có plugin JWT).
+Besides the internal routes, the service has a PUBLIC surface behind Kong. It verifies the Keycloak
+JWT itself in `app/auth.py` (copied from judge-service — Kong in this project has no JWT plugin).
 
 ~~~dotenv
-KEYCLOAK_ISSUER=          # PHẢI trùng issuer mà Nest và judge đang dùng, không đặt biến riêng
-KEYCLOAK_AUDIENCE=        # để trống nếu Keycloak chưa có audience mapper
+KEYCLOAK_ISSUER=          # MUST match the issuer used by the NestJS services and the judge; no separate variable
+KEYCLOAK_AUDIENCE=        # leave empty if Keycloak has no audience mapper yet
 AI_SUGGEST_DAILY_LIMIT=100
 ~~~
 
-`POST /api/v1/ai/suggest/test-cases` — gợi ý ĐẦU VÀO cho test case từ đề bài đang soạn.
-`count` là 1–5, mặc định 3 — người soạn chọn ở ô ngay cạnh nút trong studio. Không bao giờ trả
-`expected`: studio lấy đáp án bằng nút "Sinh đáp án", tức là bằng cách chạy lời giải mẫu thật
-qua judge. Đề bài rỗng hoặc quá ngắn bị từ chối trước khi tiêu một lời gọi model; chế độ hàm
-còn phải có chữ ký kèm ít nhất một tham số.
+`POST /api/v1/ai/suggest/test-cases` suggests test-case INPUTS from the exercise being written.
+`count` is 1–5, default 3 — the author picks it next to the button in the studio. It never returns
+`expected`: the studio gets expected outputs from the "generate answers" button, which runs the real
+reference solution through the judge. An empty or very short statement is rejected before spending
+a model call; function mode also requires a signature with at least one parameter.
 
-Route Kong ở `kong/kong.yml` (`ai-service`, `read_timeout: 300000`) chỉ mở `/api/v1/ai`.
-`/api/v1/internal/*` KHÔNG nằm trong đó và vẫn chỉ tới được từ trong mạng Docker.
+The Kong route in `kong/kong.yml` (`ai-service`, `read_timeout: 300000`) exposes only `/api/v1/ai`.
+`/api/v1/internal/*` is NOT exposed and stays reachable only from inside the Docker network.
 
-## Đo đếm: `ai_call_events`
+## Telemetry: `ai_call_events`
 
-`app/telemetry.py` ghi một dòng cho mỗi lời gọi model (token vào/ra, độ trễ, lỗi), mỗi lần chặn
-hạn mức và mỗi run agent hỏng; không ghi prompt hay nội dung. Agent/người dùng lấy từ phạm vi đặt
-ở cửa vào (`telemetry.set_scope`). Collection có validator + TTL 90 ngày ở
-`codementor-infra/database/mongo/schemas/10-ai-call-events.js` — chạy `npm run migrate:ai` TRƯỚC
-khi deploy, nếu không Mongo tự tạo collection không có TTL.
+`app/telemetry.py` records one row per model call (input/output tokens, latency, errors), per quota
+refusal and per failed agent run; it never stores prompts or content. The agent and user come from
+the scope set at the entry point (`telemetry.set_scope`). The collection has a validator and a
+90-day TTL in `codementor-infra/database/mongo/schemas/10-ai-call-events.js` — run
+`npm run migrate:ai` BEFORE deploying, otherwise Mongo creates the collection without the TTL.
 
-`GET /api/v1/ai/admin/stats?days=7|30` (realm role admin) là nguồn số liệu của trang Vận hành AI.
+`GET /api/v1/ai/admin/stats?days=7|30` (realm role admin) feeds the admin AI Operations page.
 
 ## Client flow
 

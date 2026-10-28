@@ -1,365 +1,238 @@
-# codementor-backend
+<div align="center">
 
-Backend của **CodeMentor** — nền tảng tự học lập trình. Kiến trúc **Service-Based**: 10 service
-triển khai độc lập (8 NestJS + 2 Python), dùng chung một PostgreSQL nhưng có **logical ownership
-rõ ràng**, giao tiếp bất đồng bộ qua **Kafka** và đồng bộ qua **HTTP**.
+# CodeMentor Backend
 
-Thiết kế đầy đủ: [`docs/02-service-architecture.md`](docs/02-service-architecture.md)
+**The backend of CodeMentor — a self-paced programming platform with courses, learning paths, auto-graded coding practice, study groups and an AI assistant.**
+
+![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522-339933?logo=node.js&logoColor=white)
+![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)
+![Python](https://img.shields.io/badge/Python-FastAPI-3776AB?logo=python&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248?logo=mongodb&logoColor=white)
+![Kafka](https://img.shields.io/badge/Kafka-KRaft-231F20?logo=apachekafka&logoColor=white)
+![Keycloak](https://img.shields.io/badge/Keycloak-26-4D4D4D?logo=keycloak&logoColor=white)
+
+</div>
 
 ---
 
-## Yêu cầu
+## Contents
 
-| | Phiên bản | Ghi chú |
-| --- | --- | --- |
-| Node.js | ≥ 22 (khuyến nghị 24) | |
-| Docker | có | cho Kafka + Kong (chạy local) |
-| Hạ tầng dùng chung | đã chạy trên EC2 | PostgreSQL, MongoDB, Keycloak — xem `../codementor-connect.txt` |
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Services](#services)
+- [Getting started](#getting-started)
+- [Common commands](#common-commands)
+- [Database](#database)
+- [Authentication](#authentication)
+- [Kafka](#kafka)
+- [Deployment](#deployment)
+- [Project structure](#project-structure)
+- [Documentation](#documentation)
 
-> Schema database **không** thuộc repo này. Xem [§Database](#database) trước khi chạy migration.
+## Overview
 
-### Cái gì chạy ở đâu
+A **service-based** architecture: 10 independently deployable services (8 NestJS, 2 Python) that
+share one PostgreSQL database, where **every table has exactly one owning service**. Services talk
+synchronously over HTTP and asynchronously over Kafka. The frontend sees **a single origin**: the
+Kong gateway at `/api/v1`.
 
-| Chạy trên EC2 `13.214.122.227` | Chạy local bằng `docker compose` ở repo này |
+| Layer | Technology |
 | --- | --- |
-| PostgreSQL `:5432`, MongoDB `:27017`, Keycloak sau Nginx tại `https://id.codementor.cloud` | Kafka `:9092`, Kong `:8000`, Kafka UI `:8081` |
+| Business services | NestJS · TypeScript · Prisma · Mongoose |
+| Code judging, AI | Python · FastAPI · LangGraph · Docker sandboxes |
+| Data | PostgreSQL (relational) · MongoDB (document content) · S3 (video, documents, images) |
+| Platform | Kafka (KRaft) · Kong (DB-less) · Caddy (TLS) · Keycloak (identity) |
 
-Keycloak **không** còn nghe `:8080` công khai — nó bind `127.0.0.1:8080` trên EC2, Nginx +
-Let's Encrypt là lối vào duy nhất. `KEYCLOAK_ISSUER` phải là
-`https://id.codementor.cloud/realms/codementor`; dùng `http://13.214.122.227:8080/...` thì đăng
-nhập xong mọi lời gọi API đều 401 vì issuer trong token không khớp.
+## Architecture
 
-EC2 là máy 1.9 GB RAM nên chỉ giữ ba thứ có state. Kafka và Kong là hạ tầng không state —
-để local thì nhẹ máy, và không phải phơi broker PLAINTEXT hay gateway ra internet.
-
-`docker-compose.yml` vẫn còn `keycloak` + `keycloak-db` làm **phương án dự phòng** khi cần
-một stack hoàn toàn offline; ngày thường không bật, vì realm thật nằm trên EC2.
-
-### Chuẩn bị EC2 chạy application
-
-Cách chia hai máy ít vận hành nhất:
-
-- EC2 dữ liệu: PostgreSQL, MongoDB, Keycloak.
-- EC2 application: Kafka, Kong và toàn bộ service backend.
-
-Không chia các service application ngẫu nhiên giữa hai máy: Compose DNS chỉ hoạt động trong
-một host, còn Kafka và các HTTP call nội bộ đang dùng tên service. Hai máy 1 GB cũng không đủ
-cho stack đầy đủ; riêng application stack cần khoảng 4,5 GB khi có judge sandbox, nên dùng máy
-8 GB hoặc chỉ bật một tập service phục vụ demo đã đo RAM.
-
-Từ máy dev, chuẩn bị EC2 application và chép `.env` hiện tại qua SSH:
-
-```bash
-SSH_KEY=../codementor-app.pem ./scripts/bootstrap-ec2.sh ec2-user@<APP_IP>
-SSH_KEY=../codementor-app.pem ./scripts/push-env-ec2.sh ec2-user@<APP_IP>
+```text
+                    Frontend (client · lecturer · admin)
+                                   │ HTTPS
+                     Caddy ── TLS via Let's Encrypt
+                       │                     │ /socket.io
+                  Kong gateway         realtime-service
+                       │ /api/v1/*
+   ┌────────┬──────────┼──────────┬───────────┬──────────────┐
+  core   learning   exercise   workspace   submission   notification …
+   │        │          │          │           │
+   └────────┴── PostgreSQL ── MongoDB ── S3 ──┘
+                       │
+                  Kafka (evt.* / cmd.*) ── judge-service ── Docker sandboxes
+                                         ── ai-service
 ```
 
-`push-env-ec2.sh` truyền secret qua stdin, ghi atomically với quyền `0600`, rồi chạy
-`docker compose config --quiet`. Không cần `export` từng biến: `env_file: .env` đã đưa chúng
-vào container. Có thể dùng SSH host alias thay cho `SSH_KEY`.
+The full design — services, topics, dependencies and data ownership — lives in
+[`docs/02-service-architecture.md`](docs/02-service-architecture.md).
 
-Hai script **không tự chạy stack production**. `docker-compose.yml` hiện phục vụ local: DB URL
-và Keycloak còn override theo local, Kong trỏ `host.docker.internal`, và compose còn thiếu
-`notification-service`. Cần `docker-compose.prod.yml` + `kong.prod.yml` riêng trước khi mở
-`80/443`; không dùng file local để deploy rồi phơi các cổng `3001–3013`, `8081`, `9092`.
+## Services
 
-## Chạy lần đầu
+| Service | Port | Responsibility |
+| --- | --- | --- |
+| `core-service` | 3001 | Accounts, profiles, roles, audit log, content reports and moderation, announcements |
+| `learning-service` | 3002 | Courses, learning paths, lessons, articles, progress, commerce (orders, revenue, payouts) |
+| `exercise-service` | 3003 | Exercises, exercise sets, topics, solving progress |
+| `workspace-service` | 3004 | Study groups, members, group permissions, documents, assignments, chat |
+| `submission-service` | 3006 | Submissions and verdicts |
+| `judge-service` *(Python)* | 3007 | Runs code in Docker sandboxes for 6 languages |
+| `ai-service` *(Python)* | 3008 | AI assistants (Codey, Lecter, Tutor) and document RAG |
+| `realtime-service` | 3009 | Kafka → WebSocket bridge |
+| `notification-service` | 3012 | In-app notifications, email (SMTP/SES), study reminders |
+| `recommendation-service` | 3013 | Course and learning-path recommendations (read-only) |
+
+Health checks: NestJS services expose `/api/v1/health`; `judge-service` exposes
+`/api/v1/judge/health`. Each service serves Swagger at `http://localhost:<port>/api/docs`.
+
+## Getting started
+
+**Prerequisites:** Node.js ≥ 22 · npm · Docker · [uv](https://docs.astral.sh/uv/) for the two Python
+services. PostgreSQL, MongoDB and Keycloak run on the data host managed by `codementor-infra`.
 
 ```bash
-# 1. Hạ tầng local: Kafka + Kong. PostgreSQL/MongoDB/Keycloak đã chạy sẵn trên EC2.
-cp .env.example .env          # rồi điền endpoint EC2 từ ../codementor-connect.txt
+# 1. Configure
+cp .env.example .env                 # fill in DATABASE_URL, MONGO_URI, Keycloak, S3, SMTP…
+
+# 2. Local platform: Kafka + Kong
 docker compose up -d kafka kafka-ui kong
 
-# 2. Sinh Prisma client từ schema thật (introspect, KHÔNG migrate)
-npm install
+# 3. Install and generate the Prisma client from the live schema (introspect — never migrate)
+npm ci
 npm run db:sync
 
-# 3. Chạy service
-npm run build:all             # 8 service NestJS. ai/judge là Python, xem README riêng của chúng
-npm run services start        # cả 8, hoặc: npm run start:core để chạy 1 service ở chế độ watch
+# 4. Run
+npm run start:core                               # one service in watch mode
+npm run build:all && npm run services start      # or all 8 NestJS services
 
-# 4. Kiểm tra
-npm run smoke                 # gọi HTTP qua gateway, kiểm các luồng chính
+# 5. Check
+npm run smoke
 ```
 
-| Giao diện | URL |
+| Interface | URL |
 | --- | --- |
-| Gateway (frontend chỉ gọi origin này) | http://localhost:8000/api/v1 |
-| Swagger từng service | `http://localhost:<port>/api/docs` |
+| API gateway | http://localhost:8000/api/v1 |
 | Kafka UI | http://localhost:8081 |
-| Keycloak Admin | https://id.codementor.cloud/admin/ |
 
----
+> Use **npm**. The Docker image builds with `npm ci` from `package-lock.json`.
 
-## 10 service
+## Common commands
 
-| Service | Port | Sở hữu (PostgreSQL) | MongoDB | Truy cập |
-| --- | --- | --- | --- | --- |
-| `core-service` | 3001 | `users`, `user_stats`, `learning_preferences`, `study_schedule_slots`, `technologies`, `tags`, `tag_categories`, `companies`, `announcements`, `audit_logs` | — | công khai |
-| `learning-service` | 3002 | `roadmaps*`, `courses*`, `chapters`, `lessons`, 4 bảng `*_prerequisites`, `*_enrollments`, `lesson_progress`, `articles` | `lesson_contents`, `article_contents` | công khai |
-| `exercise-service` | 3003 | `exercises`, `exercise_sets`, `exercise_prerequisites`, `exercise_progress`… | `exercise_contents` | công khai |
-| `workspace-service` | 3004 | `study_groups`, `group_members`, quyền nhóm, `assignments`, `group_documents` | — | công khai |
-| `submission-service` | 3006 | `submissions` | — | công khai |
-| `judge-service` (Python/FastAPI) | 3007 | **0** | `submission_run_details` | nội bộ + `/api/v1/judge/run` |
-| `ai-service` (Python/FastAPI) | 3008 | **0** | `ai_conversations`, `ai_documents`, `ai_rag`, `ai_agent_sessions` | nội bộ + `/api/v1/ai/*` |
-| `realtime-service` | 3009 | **0** — chỉ cầu nối Kafka → WS/SSE | — | công khai |
-| `notification-service` | 3012 | `notifications*` | `notifications`, `notification_reads` | công khai |
-| `recommendation-service` | 3013 | **0** — chỉ đọc | — | công khai |
-
-Prisma introspect **53 model** từ schema thật; `codementor-infra` đang giữ **29 migration**.
-
-Cổng 3005 bỏ trống: `document-service` đã **xoá** ngày 2026-09-16. Nó chỉ là skeleton
-(health + wiring), không route Kong, không ai gọi, trong khi `group_documents` từ đầu đã do
-`workspace-service` đọc ghi. Bốn topic `*.document.*` trong `libs/contracts` vẫn được khai báo
-nhưng hiện không service nào phát hay nghe.
-
-**Không bảng nào có hai chủ, không bảng nào vô chủ.**
-
-`judge` và `ai` là **stateless worker**: không sở hữu bảng quan hệ, không ghi thẳng vào bảng của
-service khác. Nếu judge tự ghi `submissions.verdict` thì hai service cùng công bố trạng thái bài
-nộp — mất điểm kiểm soát duy nhất.
-
-Health endpoint **không** đồng dạng: 8 service NestJS dùng `/api/v1/health`, judge-service dùng
-`/api/v1/judge/health`. Viết healthcheck cho compose/Ansible thì nhớ khác biệt này.
-
----
-
-## Cấu trúc
-
-```text
-apps/                       10 deployment unit (8 NestJS + ai-service, judge-service bằng Python)
-  <service>/src/
-    main.ts                 gọi bootstrapService() dùng chung
-    app.module.ts
-    contexts/<ctx>/         1 service CÓ THỂ chứa nhiều bounded context
-      domain/               ⛔ không import NestJS / Prisma / Kafka
-      application/          use case, không phụ thuộc HTTP
-      infrastructure/       repository, adapter
-      presentation/http/    REST cho frontend
-      presentation/messaging/  Kafka consumer
-
-libs/
-  kernel/                   Entity, AggregateRoot, ValueObject, Result, DomainError
-  platform/                 config, logging, prisma, mongo, http filter, auth, bootstrap
-  messaging/                Kafka client, EventBus, outbox, consumer khử trùng
-  contracts/                ⭐ THỨ DUY NHẤT được chia sẻ giữa các service
-```
-
-> **Bounded context ≠ service.** Service là đơn vị *triển khai*; context là ranh giới *mô hình*.
-> Một service chứa 1–n context. Đây là điểm phân biệt Service-Based với Microservices.
-
----
-
-## Ranh giới được cưỡng chế, không chỉ ghi trong tài liệu
-
-`npm run lint` **chặn** bốn loại vi phạm sau — đã kiểm chứng bằng cách cố tình viết code sai:
-
-| Vi phạm | Thông báo |
+| Command | What it does |
 | --- | --- |
-| Service import code service khác | *Dùng HTTP client hoặc Kafka event trong `libs/contracts`* |
-| `libs/kernel` import hạ tầng | *kernel phải thuần TypeScript* |
-| `domain/` import `kafkajs` | *phát event qua port `EventBus`* |
-| `domain/` import NestJS / Prisma / Mongoose / platform | *domain không phụ thuộc framework* |
+| `npm run start:<service>` | Run one NestJS service in watch mode (`core`, `learning`, `exercise`, `workspace`, `submission`, `realtime`, `notification`, `recommendation`) |
+| `npm run ai:start` · `npm run judge:dev` | Run the two Python services |
+| `npm run judge:images` | Build the 6 sandbox images — required before judging |
+| `npm run build:all` | Build the 8 NestJS services |
+| `npm run services start\|stop\|status` | Start or stop the built services |
+| `npm run lint` | Lint and **enforce architecture boundaries** |
+| `npm test` · `npm run test:cov` | Unit tests · coverage (thresholds apply to `domain/model` only) |
+| `npm run smoke` | Exercise the main flows through the gateway |
+| `npm run db:sync` | Introspect the schema and generate the Prisma client |
+| `npm run verify:smtp` | Check the email configuration |
 
-Tầng thứ hai là **quyền của PostgreSQL**: mỗi service một DB user, chỉ `GRANT` trên bảng mình
-sở hữu. ESLint chặn người vô ý; quyền CSDL chặn cả khi cố tình, cả script chạy tay.
+### Architecture boundaries enforced by lint
 
----
-
-## Kafka
-
-Quy ước tên: `cmd.*` = yêu cầu làm việc (đúng **một** consumer group) · `evt.*` = sự việc đã xảy
-ra (fan-out). **26 topic**, tất cả khai báo tại `libs/contracts/src/events/topics.ts` — **cấm
-hard-code chuỗi**, gõ sai một ký tự sẽ tạo topic mới một cách im lặng.
-
-Luồng chấm bài — chú ý **judge không phát `submission.evaluated`**:
-
-```text
-submission ──cmd.judge.run──▶ judge ──evt.judge.started──▶ realtime
-                                │
-                                └──evt.judge.completed──▶ submission
-                                                            │ ghi verdict (bảng mình sở hữu)
-                                                            └─evt.submission.evaluated─┬─▶ exercise
-                                                                                        ├─▶ core (XP, streak)
-                                                                                        └─▶ realtime
-```
-
-Ba thứ bắt buộc khi làm việc với Kafka ở đây:
-
-| | Vì sao |
+| Violation | Do this instead |
 | --- | --- |
-| **`eventId` + bảng `processed_events`** | Kafka là *at-least-once*. Không khử trùng thì "cộng 50 XP" chạy hai lần là chuyện sớm muộn |
-| **`PARTITION_KEY` đúng cho từng topic** | Kafka chỉ đảm bảo thứ tự *trong* một partition. Sai key thì chạy đúng lúc dev (1 partition), sai khi scale |
-| **Outbox cho luồng quan trọng** | `INSERT submissions` rồi `kafka.send()` là hai hệ thống. Chết ở giữa → bài nộp treo mãi ở `pending` |
-
-Outbox chỉ bật ở service cần (`enableOutbox: true`) và dùng qua `OUTBOX_EVENT_BUS`. Vì cùng
-interface `EventBus`, chuyển một luồng sang outbox không sửa use case.
-
-### Kafka là phụ thuộc cứng lúc khởi động — đã đo
-
-`KafkaClient.onModuleInit()` gọi `producer.connect()` không bọc try/catch. kafkajs thử lại 8 lần
-rồi ném `KafkaJSNumberOfRetriesExceeded`; lỗi thoát ra khỏi `onModuleInit` và **giết tiến trình**.
-
-Đo ngày 2026-09-16, `KAFKA_BROKERS` trỏ vào host không tồn tại:
-
-| Service | Kafka chết | Kết quả |
-| --- | --- | --- |
-| 7 service gọi `MessagingModule.forRoot` (core, learning, exercise, workspace, submission, realtime, notification) | có | **exit 1 sau ~75 s** |
-| `recommendation-service` (không import `MessagingModule`) | có | chạy bình thường |
-| `ai-service` | có | chạy bình thường — không dùng Kafka |
-| `judge-service` | có | **chạy bình thường**, health 200 — `lifespan` đã bọc try/except, đường HTTP vẫn chấm được |
-
-judge-service (Python) làm đúng, 7 service NestJS thì không. Hệ quả khi triển khai: Kafka phải
-`service_healthy` **trước** mọi service NestJS, và một lần Kafka restart là 7 container cùng chết
-rồi phụ thuộc `restart: unless-stopped` để bò dậy.
-
-Muốn đổi sang degrade thay vì chết, sửa một chỗ duy nhất trong `libs/messaging/src/kafka.client.ts`:
-
-```ts
-async onModuleInit(): Promise<void> {
-  try {
-    await this.producer.connect();
-    this.logger.log(`Kafka producer đã kết nối (${this.options.serviceName})`);
-  } catch (err) {
-    // Kafka chưa lên không được phép làm chết cả service: đường HTTP đọc vẫn phục vụ được.
-    // `producer.send()` sau đó sẽ tự kết nối lại, nên không cần vòng retry riêng.
-    this.logger.error(`không kết nối được Kafka — chỉ còn đường HTTP: ${err}`);
-  }
-}
-```
-
-Đánh đổi phải biết trước khi chọn: publish lúc Kafka còn chết sẽ **ném lỗi ở tầng use case** thay
-vì service từ chối khởi động. Luồng nào bắt buộc không mất message thì phải bật outbox
-(`enableOutbox: true`), vì outbox ghi vào PostgreSQL trước rồi mới đẩy đi.
-
----
-
-## Xác thực
-
-**Keycloak là nhà cung cấp danh tính**; backend là *resource server* — chỉ xác minh chữ ký
-RS256 qua JWKS. Chi tiết: [`docs/01-identity-keycloak.md`](docs/01-identity-keycloak.md)
-
-Backend **không có** `/login`, `/register`, `/refresh`, không giữ mật khẩu. Thấy ai thêm vào là
-dấu hiệu ranh giới bị phá. Đăng nhập bằng Google/GitHub/Facebook cấu hình ở Keycloak, backend
-không phải sửa gì.
-
-Hồ sơ nội bộ được tạo **just-in-time** lần đầu một tài khoản Keycloak gọi API, liên kết qua
-`users.external_id`.
-
----
+| A service imports another service's code | Call it over HTTP or publish an event from `libs/contracts` |
+| `libs/kernel` imports infrastructure | Keep the kernel plain TypeScript |
+| `domain/` imports NestJS, Prisma, Mongoose or Kafka | Go through a port (repository, `EventBus`) |
 
 ## Database
 
-> **`codementor-infra` sở hữu schema. Repo này chỉ đọc.**
+> **The schema belongs to `codementor-infra`. This repository only reads it.**
 
-Schema có **28 trigger, 5 hàm PL/pgSQL, 79 CHECK** đang giữ các bất biến (chống chu trình phụ
-thuộc, cache tiến độ). **`prisma migrate` sẽ xoá sạch chúng** ngay lần chạy đầu.
+The schema enforces invariants with triggers, PL/pgSQL functions and CHECK constraints (dependency
+cycle prevention, cached progress, …). `prisma migrate` would drop them.
 
-| Việc | Cách làm |
+| Task | How |
 | --- | --- |
-| Đổi schema | Viết SQL migration trong `codementor-infra/database/postgres/migrations/` |
-| Đồng bộ backend | `npm run db:sync` (= `db pull` + `generate`) |
-| **Cấm** | `prisma migrate dev` / `migrate deploy` |
+| Change the schema | Add a new SQL file under `codementor-infra/database/postgres/migrations/` |
+| Sync the backend | `npm run db:sync` |
+| **Never** | `prisma migrate dev` / `prisma migrate deploy` |
 
-Ràng buộc vẫn ở CSDL; backend **không nhân bản** mà chỉ dịch SQLSTATE thành lỗi domain —
-ví dụ `23514` + thông điệp cycle → `CircularDependencyError` → HTTP 422.
+## Authentication
 
----
+Keycloak is the identity provider; the backend is a **resource server** that only verifies JWTs
+(RS256 via JWKS). There is no `/login` or `/register` and no password storage. An internal profile
+is provisioned just-in-time on the first request and linked through `users.external_id`. Accounts
+suspended in CodeMentor are rejected on every request with `403 ACCOUNT_SUSPENDED`.
 
-## Lệnh
+Details: [`docs/01-identity-keycloak.md`](docs/01-identity-keycloak.md) ·
+[`docs/email-verification.md`](docs/email-verification.md).
 
-| Lệnh | Việc |
-| --- | --- |
-| `npm run start:<tên>` | chạy 1 service NestJS ở chế độ watch (`core`, `learning`, `exercise`, `workspace`, `submission`, `realtime`, `notification`, `recommendation`) |
-| `npm run ai:start` / `npm run judge:dev` | 2 service Python (uv) |
-| `npm run judge:images` | build 6 image sandbox `codementor-runner-{python,cpp,java,node,go,php}:1.0` — bắt buộc trước khi chấm bài |
-| `npm run build:all` | build 8 service NestJS |
-| `npm run services start\|stop\|restart\|status` | chạy/dừng các service đã build, theo PID đang giữ cổng |
-| `npm run smoke` | gọi HTTP qua gateway kiểm các luồng chính trên hạ tầng thật |
-| `npm run lint` | lint + **kiểm tra ranh giới kiến trúc** |
-| `npm test` | unit test |
-| `npm run test:cov` | coverage (ngưỡng chỉ áp ở `domain/model`) |
-| `npm run db:sync` | introspect schema + sinh Prisma client |
+## Kafka
 
-Coverage cố ý **chỉ đặt ngưỡng ở `domain/model`** — phần lớn foundation là wiring DI/HTTP, ép
-coverage cao ở đó chỉ đẻ ra test vô nghĩa.
+Naming: `cmd.*` is a request for work (exactly one consumer group), `evt.*` is a fact that happened
+(fan-out). Every topic is declared in `libs/contracts/src/events/topics.ts` — never hard-code a
+topic string.
 
----
-
-## Docker
-
-`docker-compose.yml` chứa Kafka (KRaft, **không ZooKeeper**), Kafka UI, Kong, Keycloak dự phòng +
-DB riêng, và các service. Một `Dockerfile` build tất cả app NestJS; compose chọn app bằng
-`command` — build một lần thay vì tám lần. `ai-service` và `judge-service` có Dockerfile riêng.
-
-```bash
-docker compose up -d kafka kafka-ui kong       # hạ tầng local
-docker compose up -d                           # thêm các service
+```text
+submission ──cmd.judge.run──▶ judge ──evt.judge.completed──▶ submission
+                                                               └─evt.submission.evaluated─▶ exercise · core · realtime
 ```
 
-### Ba cái bẫy của đường Docker — đã kiểm chứng 2026-09-16
+- **At-least-once:** every event carries an `eventId`; consumers deduplicate through `processed_events`.
+- **Ordering:** pick the right `PARTITION_KEY` for each topic.
+- **No lost messages:** critical flows enable the outbox (`enableOutbox: true`).
 
-Đường này chưa từng được chạy thật trước đó; mọi thứ vẫn lên bằng `npm run services`.
+> Kafka is a startup dependency: a NestJS service that uses `MessagingModule` exits if it cannot
+> reach the broker. In Compose, Kafka must be `healthy` before the services start.
 
-1. **Entrypoint lồng hai lần.** `nest build` biên dịch cả `apps/` lẫn `libs/`, nên rootDir chung
-   là repo root và cây nguồn được giữ nguyên trong outDir. Đường thật là
-   `dist/apps/<svc>/apps/<svc>/src/main.js`, **không** phải `dist/apps/<svc>/main.js`.
-   `scripts/services.mjs` đã dùng đúng từ đầu; `Dockerfile` và `docker-compose.yml` thì sai —
-   đã sửa. Chạy sai đường thì container chết ngay với
-   `Error: Cannot find module '/app/dist/apps/core-service/main.js'`.
+## Deployment
 
-2. **`NODE_ENV` phải là `production` trong image.** `npm prune --omit=dev` xoá `pino-pretty`,
-   nhưng `LoggingModule` vẫn yêu cầu transport ấy khi `NODE_ENV !== 'production'`. Truyền
-   `--env-file .env` (file này có `NODE_ENV=development`) sẽ ghi đè `ENV` của Dockerfile và
-   service chết với `unable to determine transport target for "pino-pretty"`. Trong compose,
-   `environment:` thắng `env_file:` nên đã an toàn; chạy `docker run --env-file` thì phải
-   truyền `-e NODE_ENV=production` kèm.
+Production runs on two hosts:
 
-3. **`notification-service` chưa có trong `docker-compose.yml`** dù đã chạy thật ở cổng 3012.
-   Phải thêm trước khi triển khai.
-
-Kiểm chứng thực tế: với đường dẫn đúng + `NODE_ENV=production` + Kafka lên trước,
-**9/9 service NestJS (khi đó còn `document-service`) chạy và trả `/api/v1/health` = 200**; `ai-service` 200; `judge-service` 200
-tại `/api/v1/judge/health`.
-
-`judge-service` **chết lúc import** nếu thiếu `/var/run/docker.sock`
-(`docker.errors.DockerException`) — socket là bắt buộc, không phải tuỳ chọn.
-
----
-
-## Tài liệu
-
-| File | Nội dung |
+| Host | Runs |
 | --- | --- |
-| [`docs/02-service-architecture.md`](docs/02-service-architecture.md) | **bản chốt hiện hành** — service, Kafka topic, dependency, DB ownership |
-| [`docs/01-identity-keycloak.md`](docs/01-identity-keycloak.md) | Keycloak: ai sở hữu gì, JIT provisioning, bật social login |
-| [`docs/00-architecture-review.md`](docs/00-architecture-review.md) | review 3 repo + phân tích boundary bằng đếm FK thật. *Phần kiến trúc triển khai đã bị 02 thay thế* |
+| Data host | PostgreSQL, MongoDB, Keycloak — managed in `codementor-infra` |
+| Application host | Caddy, Kong, Kafka and every service — `docker-compose.yml` + `docker-compose.ec2.yml` |
 
----
+```bash
+SSH_KEY=<key.pem> ./scripts/bootstrap-ec2.sh     ec2-user@<host>        # first time: install Docker, clone
+SSH_KEY=<key.pem> ./scripts/push-env-ec2.sh      ec2-user@<host>        # copy .env (mode 0600)
+SSH_KEY=<key.pem> ./scripts/deploy-branch-ec2.sh ec2-user@<host> main   # pull a branch, build, restart
+```
 
-## Trạng thái
+Caddy issues TLS certificates automatically and routes `/socket.io` straight to `realtime-service`;
+everything else goes through Kong. Apply schema changes in `codementor-infra` **before** deploying
+the services that depend on them.
 
-Cập nhật 2026-09-16. Mọi dòng dưới đây đều đã chạy thật, không phải suy đoán.
+## Project structure
 
-**Đã kiểm chứng**
+```text
+apps/
+  <service>/src/
+    main.ts                    shared bootstrapService()
+    contexts/<context>/        one service may host several bounded contexts
+      domain/                  business model, framework-free
+      application/             use cases
+      infrastructure/          repositories, adapters
+      presentation/            REST controllers, Kafka consumers
+  ai-service/ · judge-service/ Python services (see their own READMEs)
+libs/
+  kernel/                      Entity, AggregateRoot, ValueObject, Result, DomainError
+  platform/                    config, logging, Prisma, Mongo, auth, HTTP filters
+  messaging/                   Kafka client, EventBus, outbox
+  contracts/                   the ONLY code shared between services
+content/                       course and article content (Markdown) used for seeding
+kong/ · caddy/                 gateway and TLS configuration
+prisma/schema.prisma           generated by db pull — do not edit by hand
+scripts/                       deployment, seeding, data migrations, verification
+```
 
-- `npm run lint` — 0 error, 3 warning (ranh giới kiến trúc sạch)
-- `npx jest` — **27 suite, 345 test, pass hết**
-- Build Docker: 3 image đều `EXIT=0` — `node` 792 MB, `ai` 1,03 GB, `judge` 972 MB
-- Chạy Docker: 9/9 NestJS health 200 (đo trước khi xoá `document-service`), `ai-service` 200, `judge-service` 200
-- Prisma introspect **53 model**; `libs/contracts` khai báo **26 topic**
-- `core-service` là mẫu DDD đầy đủ: value object, aggregate, port/adapter, use case, controller
-- `libs/messaging`: Kafka client, EventBus, outbox, consumer khử trùng
-- `judge-service`: 6 image sandbox, chạy bằng Docker-out-of-Docker, sống sót khi Kafka chết
-- `ai-service`: agent Lecter trên LangGraph + AG-UI, RAG tài liệu trong MongoDB
+## Documentation
 
-**Chưa xong**
+| Document | Covers |
+| --- | --- |
+| [`docs/02-service-architecture.md`](docs/02-service-architecture.md) | Current architecture: services, topics, dependencies, data ownership |
+| [`docs/01-identity-keycloak.md`](docs/01-identity-keycloak.md) | Keycloak, just-in-time provisioning, social sign-in |
+| [`docs/00-architecture-review.md`](docs/00-architecture-review.md) | The original review of the three repositories |
+| [`docs/commerce-sandbox.md`](docs/commerce-sandbox.md) · [`docs/vnpay-reconciliation-recovery.md`](docs/vnpay-reconciliation-recovery.md) | VNPAY payments and reconciliation |
+| [`docs/revenue-reporting.md`](docs/revenue-reporting.md) | Revenue reporting |
+| [`docs/email-reminders.md`](docs/email-reminders.md) · [`docs/email-verification.md`](docs/email-verification.md) | Study reminder email, email verification |
+| [`apps/ai-service/README.md`](apps/ai-service/README.md) · [`apps/judge-service/README.md`](apps/judge-service/README.md) | The two Python services |
 
-- **7 service NestJS chết khi Kafka không lên** — xem §Kafka. Cần quyết định fail-fast hay degrade
-- `notification-service` thiếu trong `docker-compose.yml`
-- `kong/kong.yml` thiếu route cho `realtime-service` (3009); mọi
-  upstream còn trỏ `host.docker.internal` nên chỉ dùng được ở máy dev, chưa dùng được trên EC2
-- `GRANT` theo service chưa viết — càng để lâu càng nhiều chỗ lỡ đọc bảng người khác
-- `libs/contracts/clients` mới có `workspace-ai.ts`; các service còn lại gọi nhau qua HTTP không có client dùng chung
-- Chưa có e2e test; chưa chạy luồng nộp-bài end-to-end trên hạ tầng triển khai thật
-- Chưa có CI — không có `.github/workflows/` trong repo này
+## Related repositories
+
+- **codementor-frontend** — three Next.js applications: learner, lecturer and admin.
+- **codementor-infra** — PostgreSQL schema, MongoDB, Keycloak and the data host stack.

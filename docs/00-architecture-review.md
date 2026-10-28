@@ -1,105 +1,108 @@
-# Review & Đề xuất kiến trúc Backend
+# Backend architecture review and proposal
 
-Viết **trước khi code**, sau khi rà soát `codementor-frontend`, `codementor-infra` (44 bảng
-PostgreSQL + 4 collection MongoDB) và bộ tài liệu phân tích actor/use-case.
-
----
-
-## 1. Hiện trạng ba repo
-
-| Repo | Trạng thái | Ảnh hưởng tới backend |
-| --- | --- | --- |
-| `codementor-frontend` | Gần hoàn thiện, chạy bằng mock. Các `lib/*/*-service.ts` được viết *"shaped like a future REST/GraphQL client"* | Đây là **hợp đồng API không chính thức** — backend nên bám shape này để frontend chỉ việc thay mock bằng `fetch` |
-| `codementor-infra` | **Schema đã hoàn chỉnh và đã kiểm chứng**: 44 bảng, 75 FK, 79 CHECK, 28 trigger, 5 hàm availability, 15 test pass | Backend **không được** tự sinh schema. Xem §5 |
-| `codementor-backend` | Rỗng (chỉ `README.md`) | Greenfield |
-
-**Điểm mấu chốt:** database có trước, và **đã chứa business logic** — trigger chống chu trình phụ
-thuộc, `fn_lesson_available`, trigger cập nhật cache tiến độ. Backend phải *tôn trọng* lớp này,
-không nhân bản cũng không bỏ qua.
+Written **before any code**, after reviewing `codementor-frontend`, `codementor-infra` (44
+PostgreSQL tables and 4 MongoDB collections) and the actor/use-case analysis.
 
 ---
 
-## 2. Phân tích boundary bằng dữ liệu, không bằng cảm tính
+## 1. State of the three repositories
 
-Đếm khoá ngoại cắt ngang các boundary đề xuất (chạy script trên catalog thật của database):
-
-| Chiều phụ thuộc | Số FK | Đánh giá |
+| Repository | State | Impact on the backend |
 | --- | --- | --- |
-| `group → identity` | 7 | OK — chỉ tham chiếu `user_id` |
+| `codementor-frontend` | Nearly complete, running on mocks. The `lib/*/*-service.ts` files are written *"shaped like a future REST/GraphQL client"* | This is the **informal API contract** — the backend should follow these shapes so the frontend only swaps mocks for `fetch` |
+| `codementor-infra` | **Schema complete and verified**: 44 tables, 75 FKs, 79 CHECKs, 28 triggers, 5 availability functions, 15 passing tests | The backend **must not** generate the schema. See §5 |
+| `codementor-backend` | Empty (only `README.md`) | Greenfield |
+
+**Key point:** the database came first and **already contains business logic** — the trigger that
+prevents dependency cycles, `fn_lesson_available`, triggers that maintain the progress cache. The
+backend must *respect* this layer, neither duplicating nor bypassing it.
+
+---
+
+## 2. Boundary analysis from data, not intuition
+
+Foreign keys crossing the proposed boundaries (counted by a script against the real database
+catalog):
+
+| Dependency direction | FKs | Assessment |
+| --- | --- | --- |
+| `group → identity` | 7 | OK — references `user_id` only |
 | `learning → identity` | 7 | OK |
 | `exercise → identity` | 4 | OK |
-| `exercise → taxonomy` | 3 | Taxonomy **chưa có chủ** trong đề xuất |
-| `learning → taxonomy` | 2 | như trên |
-| `content → identity/taxonomy` | 2 | `articles` **chưa có chủ** |
-| `learning → exercise` | 1 | OK — một chiều |
-| `submission → exercise/group/identity` | 3 | OK — một chiều |
-| **`exercise → group`** | 1 | **Phụ thuộc hai chiều** |
-| **`group → exercise`** | 1 | **Phụ thuộc hai chiều** |
+| `exercise → taxonomy` | 3 | Taxonomy has **no owner** in the proposal |
+| `learning → taxonomy` | 2 | as above |
+| `content → identity/taxonomy` | 2 | `articles` has **no owner** |
+| `learning → exercise` | 1 | OK — one-way |
+| `submission → exercise/group/identity` | 3 | OK — one-way |
+| **`exercise → group`** | 1 | **Two-way dependency** |
+| **`group → exercise`** | 1 | **Two-way dependency** |
 
-### 2.1 Vấn đề nghiêm trọng nhất: `Exercise ↔ Group` phụ thuộc hai chiều
+### 2.1 The most serious issue: `Exercise ↔ Group` depend on each other
 
 ```text
-exercises.owner_group_id     → study_groups(id)    Exercise phải biết Group tồn tại
-group_exercises.exercise_id  → exercises(id)       Group phải biết Exercise tồn tại
+exercises.owner_group_id     → study_groups(id)    Exercise must know Group exists
+group_exercises.exercise_id  → exercises(id)       Group must know Exercise exists
 ```
 
-Vòng phụ thuộc này khiến **không thể tách service nào ra trước** — đúng thứ mà mục tiêu
-*"sau này tách service mà không rewrite"* muốn tránh.
+This cycle makes it **impossible to split either service out first** — exactly what the goal of
+*"split services later without a rewrite"* is meant to avoid.
 
-**Đề xuất sửa** (một migration nhỏ, nên làm sớm khi chưa có dữ liệu thật):
+**Proposed fix** (one small migration, best done early before real data exists):
 
 ```text
 ALTER TABLE exercises DROP COLUMN owner_group_id;
 ALTER TABLE exercises ADD COLUMN visibility exercise_visibility NOT NULL DEFAULT 'public';
 ```
 
-`public` = catalog chung, `group` = riêng tư. Câu hỏi *"nhóm nào sở hữu"* do `group_exercises`
-trả lời. Sau đó phụ thuộc chỉ còn **một chiều `Group → Exercise`**.
+`public` = the shared catalog, `group` = private. The question *"which group owns it"* is answered
+by `group_exercises`. The dependency then becomes **one-way: `Group → Exercise`**.
 
-### 2.2 `technologies` / `tags` / `companies` không có chủ
+### 2.2 `technologies` / `tags` / `companies` have no owner
 
-6 FK trỏ tới từ hai service khác nhau. Đây là **Shared Kernel** kinh điển:
+Six FKs point at them from two different services. This is a classic **Shared Kernel**:
 
-| Cách | Đánh giá |
+| Option | Assessment |
 | --- | --- |
-| Nhét vào Learning | Exercise phải gọi Learning chỉ để lấy danh sách tag |
-| Service "Catalog" riêng | Đúng lý thuyết, nhưng 3 bảng read-mostly thành 1 service là over-engineer |
-| **Shared Kernel module** *(chọn)* | Bounded context nhỏ, **chỉ đọc** với mọi service, chỉ Admin được ghi |
+| Put it in Learning | Exercise would have to call Learning just to list tags |
+| A separate "Catalog" service | Correct in theory, but a service for 3 read-mostly tables is over-engineering |
+| **Shared Kernel module** *(chosen)* | A small bounded context, **read-only** for every service, writable by Admin only |
 
-Shared Kernel là pattern DDD hợp lệ — miễn là **ghi rõ ai được ghi**.
+A Shared Kernel is a valid DDD pattern — as long as **who may write is stated explicitly**.
 
-### 2.3 `articles` không có chủ
+### 2.3 `articles` has no owner
 
-Một bảng, vòng đời độc lập với phân cấp học tập, không ai FK tới nó.
-**Đề xuất:** đưa vào `Learning` như module tách biệt. Sau này tách ra rẻ vì không có FK đến.
+One table, a lifecycle independent from the learning hierarchy, and no FKs pointing at it.
+**Proposal:** put it in `Learning` as a separate module. Splitting it out later is cheap because
+nothing references it.
 
 ---
 
-## 3. Danh sách service chốt
+## 3. Final list of services
 
-| # | Service | Bounded context | Sở hữu |
+| # | Service | Bounded context | Owns |
 | --- | --- | --- | --- |
-| 1 | **Identity** | Hồ sơ người dùng, cá nhân hoá. **Xác thực do Keycloak** — xem [01-identity-keycloak.md](01-identity-keycloak.md) | `users`, `user_stats`, `learning_preferences`, `study_schedule_slots` |
-| 2 | **Catalog** *(shared kernel)* | Từ vựng dùng chung | `technologies`, `tags`, `companies` |
-| 3 | **Learning** | Lộ trình → khoá → chương → bài, phụ thuộc, ghi danh, tiến độ, bài viết | 18 bảng `roadmap*`, `course*`, `chapters`, `lessons`, `*_prerequisites`, `*_enrollments`, `lesson_progress`, `articles` |
-| 4 | **Exercise** | Bài tập, bộ bài tập, phụ thuộc, trạng thái luyện tập | `exercises`, `exercise_*` — 9 bảng |
-| 5 | **Group** | Nhóm, thành viên, phân quyền nhóm, tài liệu, giao bài | `study_groups`, `group_*`, `assignments` — 8 bảng |
-| 6 | **Submission** | Bài nộp, điều phối chấm | `submissions` |
-| 7 | **AI** | Tích hợp AI: hỏi đáp, phân tích lỗi, tiền kiểm tài liệu | *(chưa có bảng — §3.2)* |
+| 1 | **Identity** | User profiles and personalisation. **Authentication is Keycloak's** — see [01-identity-keycloak.md](01-identity-keycloak.md) | `users`, `user_stats`, `learning_preferences`, `study_schedule_slots` |
+| 2 | **Catalog** *(shared kernel)* | Shared vocabulary | `technologies`, `tags`, `companies` |
+| 3 | **Learning** | Path → course → chapter → lesson, dependencies, enrollment, progress, articles | 18 tables: `roadmap*`, `course*`, `chapters`, `lessons`, `*_prerequisites`, `*_enrollments`, `lesson_progress`, `articles` |
+| 4 | **Exercise** | Exercises, exercise sets, dependencies, practice state | `exercises`, `exercise_*` — 9 tables |
+| 5 | **Group** | Groups, members, group permissions, documents, assignments | `study_groups`, `group_*`, `assignments` — 8 tables |
+| 6 | **Submission** | Submissions, judging orchestration | `submissions` |
+| 7 | **AI** | AI integration: Q&A, error analysis, document pre-checks | *(no tables yet — §3.2)* |
 
-### 3.1 Điều chỉnh so với đề xuất ban đầu
+### 3.1 Adjustments to the original proposal
 
-| Đề xuất của bạn | Điều chỉnh | Lý do |
+| Original proposal | Adjustment | Reason |
 | --- | --- | --- |
-| 6 service | **7** (thêm Catalog) | Taxonomy có 6 FK cắt ngang mà không ai sở hữu |
-| Submission gồm *"Code Execution"* | Code Execution là **port ra ngoài**, không nằm trong service | Chạy code không tin cậy là sandbox riêng biệt. Submission chỉ *điều phối*. Khớp actor "Hệ thống chấm bài" |
-| AI là service ngang hàng | AI là **thin integration + anti-corruption layer** | Theo phân tích actor, AI **không bao giờ tự khởi xướng**. Đừng dựng aggregate/domain service cho thứ chỉ gọi API ngoài |
-| Group gồm *"Group Owner"* | Owner là **vai trò**, không phải entity | Đã phân tích ở tài liệu actor |
+| 6 services | **7** (adds Catalog) | Taxonomy has 6 crossing FKs and no owner |
+| Submission includes *"Code Execution"* | Code execution is an **outbound port**, not part of the service | Running untrusted code is a separate sandbox. Submission only *orchestrates*. Matches the "grading system" actor |
+| AI as a peer service | AI is a **thin integration + anti-corruption layer** | Per the actor analysis, AI **never initiates** anything. Do not build aggregates or domain services for something that only calls an external API |
+| Group includes *"Group Owner"* | Owner is a **role**, not an entity | Covered in the actor document |
 
-### 3.2 Lỗ hổng: AI chưa có nơi lưu dữ liệu
+### 3.2 Gap: AI has nowhere to store data
 
-Frontend có `/ai-tutor` với hội thoại, schema có `ai_verdict` cho tài liệu — nhưng **không có
-bảng/collection nào lưu hội thoại hoặc ngữ cảnh AI**. Cần bổ sung ở MongoDB (shape đổi theo provider):
+The frontend has `/ai-tutor` with conversations and the schema has `ai_verdict` on documents — but
+**no table or collection stores AI conversations or context**. Add them in MongoDB (their shape
+varies by provider):
 
 ```text
 ai_conversations  { userId, contextType, contextId, messages[], model, createdAt }
@@ -108,136 +111,142 @@ ai_analyses       { targetType, targetId, verdict, findings[], model, promptVers
 
 ---
 
-## 4. Ranh giới được cưỡng chế bằng gì?
+## 4. What enforces the boundaries?
 
-Nói "có service boundary" mà không có cơ chế chặn thì vài tháng sau sẽ có `import` xuyên context.
-Ba lớp:
+Claiming "service boundaries" without a mechanism to enforce them means cross-context imports
+within months. Three layers:
 
-| Lớp | Cơ chế |
+| Layer | Mechanism |
 | --- | --- |
-| **Compile-time** | ESLint `import/no-restricted-paths`: cấm import chéo `contexts/*` trừ qua `*.public.ts` |
-| **Kiến trúc** | `domain/` không được import NestJS / Prisma / Mongoose — cũng bằng ESLint zone |
-| **Runtime** | Mỗi context chỉ inject repository của chính nó. Ghi dữ liệu context khác **chỉ qua domain event** |
+| **Compile time** | ESLint `import/no-restricted-paths`: no imports across `contexts/*` except through `*.public.ts` |
+| **Architecture** | `domain/` must not import NestJS / Prisma / Mongoose — also ESLint zones |
+| **Runtime** | Each context injects only its own repositories. Another context's data is written **only through domain events** |
 
-### 4.1 Ghi chéo service — dùng domain event, không gọi thẳng
+### 4.1 Cross-service writes — use domain events, not direct calls
 
-Schema hiện tại có hai chỗ ghi chéo:
+The current schema has two cross writes:
 
-| Bảng | Chủ sở hữu | Ai kích hoạt ghi | Giải pháp |
+| Table | Owner | Who triggers the write | Solution |
 | --- | --- | --- | --- |
-| `exercise_progress` | Exercise | Submission (khi chấm đạt) | Submission phát `SubmissionAccepted` → Exercise xử lý |
-| `user_stats` | Identity | Submission (XP, streak) | Cùng event, Identity là handler thứ hai |
+| `exercise_progress` | Exercise | Submission (on an accepted verdict) | Submission publishes `SubmissionAccepted` → Exercise handles it |
+| `user_stats` | Identity | Submission (XP, streak) | Same event, Identity is the second handler |
 
-> **Đã thay đổi:** tài liệu này viết khi kiến trúc còn là modular monolith với in-process
-> event bus. Sau đó đã chuyển sang **9 service + Kafka** —
-> xem [`02-service-architecture.md`](02-service-architecture.md) là bản chốt hiện hành.
-> Phần phân tích boundary (§2) và quyết định về migration (§5) vẫn còn hiệu lực.
+> **Superseded:** this document was written when the architecture was a modular monolith with an
+> in-process event bus. It later moved to **independent services + Kafka** — see
+> [`02-service-architecture.md`](02-service-architecture.md), the current reference. The boundary
+> analysis (§2) and the migration decision (§5) still stand.
 
 ---
 
-## 5. Quyết định quan trọng: ai sở hữu migration?
+## 5. Key decision: who owns migrations?
 
-> **`codementor-infra` sở hữu schema. Backend chỉ đọc.**
+> **`codementor-infra` owns the schema. The backend only reads it.**
 
-Schema đã có 28 trigger, 5 hàm PL/pgSQL, 79 CHECK và bộ `verify.sql` 15 test. Prisma Migrate
-**không diễn đạt được** những thứ này — lần `migrate dev` đầu tiên sẽ **xoá sạch trigger và hàm**.
+The schema already has 28 triggers, 5 PL/pgSQL functions, 79 CHECKs and a 15-test `verify.sql`.
+Prisma Migrate **cannot express** these — the first `migrate dev` would **wipe every trigger and
+function**.
 
-| Việc | Cách làm |
+| Task | How |
 | --- | --- |
-| Đổi schema | Viết SQL migration trong `codementor-infra/database/postgres/migrations/` |
-| Backend đồng bộ | `prisma db pull` (introspect) → `prisma generate` |
-| CI | Chạy `verify.sql` sau migration; `db pull --print` để phát hiện schema lệch |
-| **Cấm** | `prisma migrate dev` / `migrate deploy` trong repo backend |
+| Change the schema | Write a SQL migration in `codementor-infra/database/postgres/migrations/` |
+| Sync the backend | `prisma db pull` (introspect) → `prisma generate` |
+| CI | Run `verify.sql` after migrating; `db pull --print` to detect schema drift |
+| **Forbidden** | `prisma migrate dev` / `migrate deploy` in the backend repository |
 
-Bất biến vẫn nằm ở CSDL (đúng nguyên tắc của `04-design-decisions.md`); backend **không nhân bản**
-chúng, chỉ dịch SQLSTATE thành lỗi domain dễ hiểu — ví dụ `23514` → `CircularDependencyError`.
+Invariants stay in the database (per `04-design-decisions.md`); the backend **does not duplicate**
+them and only translates SQLSTATE into readable domain errors — e.g. `23514` →
+`CircularDependencyError`.
 
 ---
 
-## 6. Tech stack chốt
+## 6. Technology choices
 
-| Thành phần | Chọn | Ghi chú |
+| Component | Choice | Notes |
 | --- | --- | --- |
-| Runtime | Node 24 | máy đang chạy v24.12 |
-| Framework | **NestJS 11** + **Fastify 5** | mới nhất ổn định |
-| Ngôn ngữ | TypeScript 5, `strict` | |
-| PostgreSQL | **Prisma 6.19.x** *(không phải 7)* | xem §6.1 |
+| Runtime | Node 24 | the development machine runs v24.12 |
+| Framework | **NestJS 11** + **Fastify 5** | latest stable |
+| Language | TypeScript 5, `strict` | |
+| PostgreSQL | **Prisma 6.19.x** *(not 7)* | see §6.1 |
 | MongoDB | **Mongoose 9** | |
-| API doc | `@nestjs/swagger` 11 | |
-| Validation | `class-validator` ở biên HTTP, **zod** cho config | |
-| Xác thực | **Keycloak 26** (OIDC, RS256 qua JWKS) | hỗ trợ đăng nhập nhiều mạng xã hội |
-| Log | `nestjs-pino` | structured, có request-id |
-| Test | Jest + Supertest | |
-| Event | `@nestjs/event-emitter` | **không Kafka** giai đoạn này |
+| API docs | `@nestjs/swagger` 11 | |
+| Validation | `class-validator` at the HTTP edge, **zod** for configuration | |
+| Authentication | **Keycloak 26** (OIDC, RS256 via JWKS) | supports several social sign-ins |
+| Logging | `nestjs-pino` | structured, with a request id |
+| Testing | Jest + Supertest | |
+| Events | `@nestjs/event-emitter` | **no Kafka** at this stage (since superseded) |
 
-### 6.1 Vì sao Prisma 6 chứ không phải 7 (bản mới nhất)
+### 6.1 Why Prisma 6 rather than 7
 
-Prisma 7 vừa phát hành và đang **thay đổi mô hình cấu hình**: chuyển từ `schema.prisma` + `env()`
-sang `prisma.config.ts`, driver adapters, song song đó là dòng "Prisma Next" đang phát triển.
-Với bối cảnh KLTN:
+Prisma 7 had just been released and was **changing its configuration model**: from
+`schema.prisma` + `env()` to `prisma.config.ts` and driver adapters, alongside the in-progress
+"Prisma Next" line. For this thesis project:
 
-- Ta **không dùng** Prisma Migrate (điểm mạnh chính của v7), chỉ cần introspection + client
-  type-safe — phần này v6 đã ổn định nhiều năm.
-- Tài liệu/ví dụ tích hợp NestJS hiện chủ yếu cho v5/v6.
-- Rủi ro gặp breaking change giữa kỳ làm luận văn không đáng đánh đổi.
+- We **do not use** Prisma Migrate (v7's main strength); we only need introspection and a
+  type-safe client — which v6 has offered reliably for years.
+- NestJS integration docs and examples mostly targeted v5/v6.
+- The risk of breaking changes mid-thesis was not worth it.
 
-Nâng lên v7 sau này rẻ, vì `domain/` không biết Prisma tồn tại — chỗ cần đổi chỉ nằm trong
-`shared/database/`. **Nếu bạn muốn v7 ngay, nói một tiếng.**
+Upgrading to v7 later is cheap, because `domain/` does not know Prisma exists — the change is
+confined to the database infrastructure layer.
 
 ---
 
-## 7. Cấu trúc thư mục đề xuất
+## 7. Proposed folder structure
 
 ```text
 src/
 ├── main.ts
 ├── app.module.ts
 │
-├── shared/                     # hạ tầng dùng chung — KHÔNG chứa business logic
-│   ├── kernel/                 # building block DDD, thuần TypeScript
+├── shared/                     # shared infrastructure — NO business logic
+│   ├── kernel/                 # DDD building blocks, plain TypeScript
 │   │   ├── entity.ts, aggregate-root.ts, value-object.ts
 │   │   ├── domain-event.ts, result.ts, domain-error.ts
 │   │   └── repository.port.ts
-│   ├── config/                 # env validate bằng zod
+│   ├── config/                 # env validated with zod
 │   ├── database/
-│   │   ├── prisma/             # PrismaService + ánh xạ lỗi SQLSTATE
-│   │   └── mongo/              # kết nối Mongoose
-│   ├── http/                   # exception filter, response interceptor, pipe
+│   │   ├── prisma/             # PrismaService + SQLSTATE error mapping
+│   │   └── mongo/              # Mongoose connection
+│   ├── http/                   # exception filters, response interceptor, pipes
 │   ├── logging/
-│   ├── events/                 # EventBus port + adapter in-process
-│   └── auth/                   # JWT strategy, guard, decorator
+│   ├── events/                 # EventBus port + in-process adapter
+│   └── auth/                   # JWT strategy, guards, decorators
 │
 ├── contexts/
 │   ├── identity/
-│   │   ├── domain/             # KHÔNG import NestJS/Prisma
-│   │   │   ├── model/          # User, Email, Password (value object)
+│   │   ├── domain/             # NO NestJS/Prisma imports
+│   │   │   ├── model/          # User, Email, Password (value objects)
 │   │   │   ├── event/
 │   │   │   └── port/           # UserRepository (interface)
-│   │   ├── application/        # use case — không phụ thuộc HTTP
+│   │   ├── application/        # use cases — independent of HTTP
 │   │   ├── infrastructure/     # PrismaUserRepository, hashing adapter
-│   │   ├── presentation/       # controller v1 + DTO
-│   │   ├── identity.public.ts  # hợp đồng DUY NHẤT cho context khác
+│   │   ├── presentation/       # v1 controllers + DTOs
+│   │   ├── identity.public.ts  # the ONLY contract for other contexts
 │   │   └── identity.module.ts
 │   └── catalog/ learning/ exercise/ group/ submission/ ai/
 │
 └── test/
 ```
 
-**Quy tắc vàng:** context khác **chỉ được** import từ `<context>.public.ts`. Mọi thứ còn lại là
-nội bộ. Khi tách microservice, `*.public.ts` chính là chỗ đổi từ gọi hàm sang gọi HTTP/gRPC.
+**Golden rule:** other contexts **may only** import from `<context>.public.ts`. Everything else is
+internal. When a context is split into its own service, `*.public.ts` is exactly where function
+calls become HTTP/gRPC calls.
+
+> The final layout is per service (`apps/<service>/src/contexts/…`) with shared code in `libs/` —
+> see the repository README.
 
 ---
 
-## 8. Tóm tắt điểm cần điều chỉnh
+## 8. Summary of required adjustments
 
-| # | Vấn đề | Mức độ | Đề xuất |
+| # | Issue | Severity | Proposal |
 | --- | --- | --- | --- |
-| 1 | `Exercise ↔ Group` phụ thuộc hai chiều | **Cao** | Bỏ `exercises.owner_group_id`, thêm `visibility` |
-| 2 | Taxonomy không có chủ | Vừa | Lập shared-kernel context `catalog` |
-| 3 | `articles` không có chủ | Thấp | Đưa vào Learning |
-| 4 | AI chưa có nơi lưu dữ liệu | Vừa | Thêm 2 collection MongoDB |
-| 5 | `companies`/`exercise_companies` không use case nào dùng | Thấp | Bỏ hoặc bổ sung use case |
-| 6 | Ghi chéo `exercise_progress`, `user_stats` | Vừa | Domain event thay vì gọi thẳng |
-| 7 | Prisma Migrate sẽ xoá trigger/function | **Cao** | Cấm migrate ở backend; infra sở hữu schema |
+| 1 | `Exercise ↔ Group` two-way dependency | **High** | Drop `exercises.owner_group_id`, add `visibility` |
+| 2 | Taxonomy has no owner | Medium | Create a shared-kernel `catalog` context |
+| 3 | `articles` has no owner | Low | Move it into Learning |
+| 4 | AI has nowhere to store data | Medium | Add 2 MongoDB collections |
+| 5 | `companies`/`exercise_companies` used by no use case | Low | Drop them or add a use case |
+| 6 | Cross writes to `exercise_progress`, `user_stats` | Medium | Domain events instead of direct calls |
+| 7 | Prisma Migrate would delete triggers/functions | **High** | Forbid migrations in the backend; infra owns the schema |
 
-**Chỉ #1 và #7 cần chốt trước khi code.** Còn lại xử lý dần.
+**Only #1 and #7 had to be settled before coding.** The rest were handled along the way.

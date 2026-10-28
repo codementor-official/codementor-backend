@@ -1,69 +1,73 @@
-# Khóa học trả phí — bản thử nghiệm
+# Paid courses — sandbox
 
-Không chuyển tiền thật. Các thao tác thương mại bị chặn khi `NODE_ENV=production`.
-Không triển khai migration hoặc thay đổi IAM/S3 trên production trong đợt triển khai này.
+No real money moves. Commerce operations are blocked when `NODE_ENV=production`.
+This rollout does not apply migrations or change IAM/S3 in production.
 
-## Kiến trúc
+## Architecture
 
-- Learning Service sở hữu context `commerce`, API `/api/v1/commerce`, transaction PostgreSQL và job kiểm tra mỗi phút.
-- Giá, người hưởng doanh thu, tỷ lệ chia và thời gian giữ tiền được chụp lại khi tạo đơn. VND dùng số nguyên; phần giảng viên làm tròn xuống, phần hệ thống nhận phần còn lại.
-- `course_access_grants` phân biệt legacy/free/purchase/manual. Migration giữ quyền của enrollment hiện có. Hoàn tiền chỉ thu hồi grant của đơn tương ứng.
-- Journal và entries cân đối, bất biến bằng trigger database. Số dư tính từ ledger; advisory lock bảo vệ ví và checkout, unique constraint bảo vệ idempotency.
-- Thanh toán thành công, quyền học, doanh thu và notification outbox được ghi cùng transaction. Notification Service nhận `COMMERCE_UPDATED`.
-- Adapter thu tiền VNPAY/MoMo độc lập với MockPayoutAdapter. Không dùng API hoàn tiền làm API rút tiền.
-- Timeout giữ tiền; chỉ giải phóng sau thất bại chắc chắn. Callback trùng không ghi thêm doanh thu/chi trả. Thanh toán thành công đến muộn hoặc trùng quyền sở hữu chuyển `review`, không cấp quyền lần nữa.
-- Hoàn tiền sau chi trả tạo khoản debt; thu nhập tương lai bù debt trước khi khả dụng. Không sửa lịch sử chi trả.
+- Learning Service owns the `commerce` context, the `/api/v1/commerce` API, the PostgreSQL transactions and a job that runs every minute.
+- Price, beneficiary, revenue split and holding period are snapshotted when an order is created. VND is stored as integers; the lecturer's share is rounded down and the platform takes the remainder.
+- `course_access_grants` distinguishes legacy/free/purchase/manual. The migration keeps access for existing enrollments. A refund revokes only the grant of that order.
+- Journals and entries are balanced and made immutable by database triggers. Balances are computed from the ledger; advisory locks protect wallets and checkout, and unique constraints protect idempotency.
+- A successful payment, the access grant, the revenue and the notification outbox are written in one transaction. Notification Service consumes `COMMERCE_UPDATED`.
+- The VNPAY/MoMo collection adapters are independent from `MockPayoutAdapter`. A refund API is never used as a payout API.
+- A timeout keeps the funds on hold; they are released only after a definite failure. Duplicate callbacks do not record revenue or payouts twice. A late or duplicate successful payment for an already-owned course moves to `review` and grants nothing again.
+- A refund after a payout creates a debt; future income pays off the debt before it becomes available. Payout history is never rewritten.
 
-## Cấu hình và migration
+## Configuration and migrations
 
-1. Dùng database local hoặc database sandbox riêng. Không dùng database ứng dụng đã deploy để thử.
-2. Thêm các biến từ `.env.commerce.example` vào môi trường local; mặc định `COMMERCE_MODE=mock`, không cần credential.
-3. Áp dụng baseline migration của infra theo hướng dẫn repository, sau đó lần lượt các migration commerce từ `database/postgres/migrations/0032_course_commerce.sql` đến `0035_course_promotion_approval.sql`.
-4. Runner tùy chọn: đặt `DATABASE_URL` trong môi trường shell rồi chạy `node scripts/migrate-commerce.mjs`. Runner không tự đọc `.env`, cần `psql` trên PATH, từ chối remote mặc định và production; các migration đã có bảng đích sẽ được bỏ qua an toàn.
-5. Áp dụng schema notification Mongo theo cơ chế migration hiện có (`scripts/migrate-notification-schema.mjs`), gồm enum `COMMERCE_UPDATED`.
-6. Khởi động Learning Service, Notification Service, outbox/infra và frontend như bình thường. Gateway phải có route commerce mới.
+1. Use a local database or a dedicated sandbox database. Never test against the deployed application database.
+2. Add the variables from `.env.commerce.example` to your local environment. The default `COMMERCE_MODE=mock` needs no credentials.
+3. Apply the infrastructure baseline migrations as described in that repository, then the commerce migrations from `database/postgres/migrations/0032_course_commerce.sql` to `0035_course_promotion_approval.sql`.
+4. Optional runner: set `DATABASE_URL` in the shell and run `node scripts/migrate-commerce.mjs`. The runner does not read `.env`, needs `psql` on the `PATH`, refuses remote and production databases by default, and safely skips migrations whose tables already exist.
+5. Apply the Mongo notification schema through the existing migration script (`scripts/migrate-notification-schema.mjs`), which includes the `COMMERCE_UPDATED` enum value.
+6. Start Learning Service, Notification Service, the outbox/infrastructure and the frontend as usual. The gateway must route the commerce paths.
 
-Trước khi áp dụng trên EC2: tạo snapshot PostgreSQL, xác nhận database đích chưa có bảng
-`commerce_orders`, chạy thử hai migration trên bản sao schema, sau đó mới mở maintenance window.
-Không chạy runner local với `--allow-remote-sandbox` vào database production.
+Before applying on EC2: snapshot PostgreSQL, confirm the target database has no `commerce_orders`
+table yet, dry-run both migrations on a schema copy, then open a maintenance window. Never point the
+local runner at production with `--allow-remote-sandbox`.
 
-Lưu ý baseline infra hiện có migration workspace phụ thuộc cột do script migrate-workspace-content tạo; không áp dụng mù toàn bộ chuỗi vào database trống. Kiểm thử commerce sử dụng baseline tương thích và migration 0030 trên PostgreSQL local riêng.
+Note that one existing workspace migration depends on a column created by the
+`migrate-workspace-content` script; do not blindly apply the whole chain to an empty database. The
+commerce tests use a compatible baseline plus migration 0030 on a separate local PostgreSQL.
 
-## Demo mock từ mua đến rút
+## Mock demo, from purchase to payout
 
-Chạy `scripts/seed-commerce-demo.sql` trên đúng database local `commerce_test` để tạo ba
-khóa 99.000đ, 199.000đ và 349.000đ. Script chạy lặp lại an toàn; nếu đã có
-`lecturer1@test.local` thì các khóa được gắn vào tài khoản đó để kiểm tra trực tiếp danh
-sách học viên và doanh thu trên Lecturer, nếu chưa có thì dùng giảng viên demo nội bộ.
+Run `scripts/seed-commerce-demo.sql` against the local `commerce_test` database to create three
+courses at 99,000, 199,000 and 349,000 VND. The script is safe to re-run; if
+`lecturer1@test.local` exists, the courses are attached to that account so its learner list and
+revenue can be checked in the lecturer app; otherwise an internal demo lecturer is used.
 
-1. Admin mở `/commerce`, tab Chính sách: để demo ngay có thể đặt thời gian giữ bằng 0 ngày **trước khi tạo đơn**. Mặc định thực tế thử nghiệm là 7 ngày, chia 80/20, rút tối thiểu 100.000đ và cần duyệt.
-2. Giảng viên đặt giá 200.000đ trong studio của khóa nháp rồi gửi duyệt theo luồng hiện có. Admin duyệt khóa.
-3. Học viên khác mở khóa, bấm mua, tới `/purchases/[orderId]`, chọn kết quả mock thành công. Kiểm tra quyền học và lịch sử `/purchases`.
-4. Admin chạy job thử nghiệm hoặc chờ job. Thu nhập giảng viên 160.000đ chuyển từ chờ sang khả dụng khi đủ điều kiện. Phần hệ thống 40.000đ không bao gồm tiền phải trả giảng viên.
-5. Giảng viên mở `/earnings`, lưu người nhận thử nghiệm với mã `TEST-DEMO`, tạo yêu cầu rút 100.000đ. Chọn success/failure/pending/timeout để kiểm tra.
-6. Admin duyệt tại `/commerce`; job thực hiện mock payout. Với pending/timeout, tiền vẫn giữ; admin dùng điều khiển kết quả mock để kết thúc. Thử callback lặp không làm thay đổi số dư lần hai.
-7. Admin mở chi tiết đơn và hoàn toàn bộ, nhập lý do. Kiểm tra quyền học, bút toán bù trừ và debt nếu tiền đã chi trả.
+1. Admin opens `/commerce` → Policy. For an immediate demo, set the holding period to 0 days **before creating orders**. The test defaults are 7 days, an 80/20 split, a 100,000 VND minimum payout and manual approval.
+2. A lecturer sets a 200,000 VND price on a draft course in the studio and submits it for review. Admin approves the course.
+3. Another learner opens the course, buys it, lands on `/purchases/[orderId]` and chooses the successful mock result. Check access and the `/purchases` history.
+4. Admin runs the job or waits for it. The lecturer's 160,000 VND moves from pending to available once eligible. The platform's 40,000 VND excludes the amount owed to the lecturer.
+5. The lecturer opens `/earnings`, saves a test recipient with code `TEST-DEMO` and requests a 100,000 VND payout. Choose success/failure/pending/timeout to test each path.
+6. Admin approves in `/commerce`; the job performs the mock payout. For pending/timeout the funds stay on hold; admin uses the mock result control to finish. A repeated callback does not change the balance again.
+7. Admin opens the order and refunds it in full with a reason. Check access, the reversing entries and the debt if the money was already paid out.
 
-Các màn Client/Lecturer/Admin đã có ảnh bìa (kèm fallback), tìm kiếm, lọc, sắp xếp,
-phân trang dùng chung, xuất CSV và modal chi tiết. Lecturer có thể thiết lập ngân hàng,
-MoMo hoặc VNPAY; số tài khoản chỉ hiển thị bốn số cuối ngoài form chỉnh sửa.
+The client, lecturer and admin screens provide cover images (with fallbacks), search, filters,
+sorting, shared pagination, CSV export and detail modals. Lecturers can set up a bank account, MoMo
+or VNPAY; outside the edit form an account number shows only its last four digits.
 
-Không có quyền học từ return URL. Frontend luôn đọc kết quả backend.
+Access is never granted from the return URL. The frontend always reads the result from the backend.
 
-## Sandbox nhà cung cấp
+## Provider sandboxes
 
-Chỉ phương thức đủ cấu hình mới hiện. Đặt `COMMERCE_MODE=sandbox`, URL client local và HTTPS tunnel tới gateway local trong `COMMERCE_PUBLIC_API_URL` (kèm `/api/v1`).
+Only fully configured methods are shown. Set `COMMERCE_MODE=sandbox`, the local client URL, and an
+HTTPS tunnel to the local gateway in `COMMERCE_PUBLIC_API_URL` (including `/api/v1`).
 
-- VNPAY cần `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`; IPN GET `/api/v1/commerce/webhooks/vnpay`.
-- MoMo cần `MOMO_PARTNER_CODE`, `MOMO_ACCESS_KEY`, `MOMO_SECRET_KEY`; IPN POST `/api/v1/commerce/webhooks/momo`.
-- Hoàn tiền sandbox chỉ bật với `COMMERCE_SANDBOX_REFUNDS=true` khi tài khoản đối tác có quyền tương ứng.
-- Chỉ gọi endpoint sandbox cố định. Chưa kiểm thử kết nối merchant thật do không có credential sandbox; mock không chứng minh cấu hình nhà cung cấp hoạt động.
+- VNPAY needs `VNPAY_TMN_CODE` and `VNPAY_HASH_SECRET`; IPN is `GET /api/v1/commerce/webhooks/vnpay`.
+- MoMo needs `MOMO_PARTNER_CODE`, `MOMO_ACCESS_KEY` and `MOMO_SECRET_KEY`; IPN is `POST /api/v1/commerce/webhooks/momo`.
+- Sandbox refunds are enabled only with `COMMERCE_SANDBOX_REFUNDS=true` and when the partner account has that permission.
+- Only fixed sandbox endpoints are called. Real merchant connectivity has not been tested for lack of sandbox credentials; the mock does not prove a provider configuration works.
 
-Nguồn chính thức dùng xây adapter: [VNPAY thanh toán](https://sandbox.vnpayment.vn/apis/docs/thanh-toan-pay/pay.html), [VNPAY truy vấn/hoàn tiền](https://sandbox.vnpayment.vn/apis/docs/truy-van-hoan-tien/querydr%26refund.html), [MoMo thanh toán](https://developers.momo.vn/v3/vi/docs/payment/api/wallet/onetime/), [MoMo truy vấn](https://developers.momo.vn/v3/vi/docs/payment/api/payment-api/query/), [MoMo hoàn tiền](https://developers.momo.vn/v3/docs/payment/api/payment-api/refund/).
+Official references used for the adapters: [VNPAY payment](https://sandbox.vnpayment.vn/apis/docs/thanh-toan-pay/pay.html), [VNPAY query/refund](https://sandbox.vnpayment.vn/apis/docs/truy-van-hoan-tien/querydr%26refund.html), [MoMo payment](https://developers.momo.vn/v3/vi/docs/payment/api/wallet/onetime/), [MoMo query](https://developers.momo.vn/v3/vi/docs/payment/api/payment-api/query/), [MoMo refund](https://developers.momo.vn/v3/docs/payment/api/payment-api/refund/).
 
-## Kiểm thử
+## Testing
 
-`COMMERCE_TEST_DATABASE_URL` chỉ chấp nhận database `commerce_test` trên localhost; không fallback DATABASE_URL. Sau khi tạo schema local, chạy:
+`COMMERCE_TEST_DATABASE_URL` accepts only a `commerce_test` database on localhost; it never falls
+back to `DATABASE_URL`. After creating the local schema, run:
 
 ```powershell
 $env:COMMERCE_TEST_DATABASE_URL='postgresql://commerce_test@127.0.0.1:55439/commerce_test'
@@ -74,13 +78,15 @@ npm run build:all
 ```
 
 Frontend: `pnpm lint`, `pnpm typecheck`, `pnpm build`.
-HTTP E2E dùng controller, RolesGuard, validation và transaction PostgreSQL thật; chỉ identity boundary được stub trong module kiểm thử. Đây không phải kiểm thử đăng nhập Keycloak hoặc browser.
+The HTTP end-to-end tests use the real controllers, `RolesGuard`, validation and PostgreSQL
+transactions; only the identity boundary is stubbed in the test module. They do not test Keycloak
+sign-in or a browser.
 
-## Giới hạn trước vận hành tiền thật
+## Limits before handling real money
 
-- Chưa có payout thật, partial refund, retry refund đã thất bại cuối cùng, subscription hoặc kế toán thuế.
-- Nếu ví còn payout giữ tiền, yêu cầu hoàn tiền bị chặn cho tới khi đối soát payout; không tự thu hồi một payout chưa rõ kết quả.
-- Phí nhà cung cấp chưa xác định được hiển thị là chưa xác định; không coi ledger clearing là số dư ngân hàng. Dashboard đối soát là kiểm tra trạng thái và ledger nội bộ, chưa đối soát sao kê ngoài hệ thống.
-- Sandbox merchant, IPN tunnel, trường hợp trả lỗi thực tế và quyền hoàn tiền cần kiểm thử với đối tác trước phát hành.
-- Video trả phí phải nằm trong prefix private, anonymous GET bị chặn; chỉ đặt `COMMERCE_PRIVATE_MEDIA_READY=true` sau khi xác minh bucket/CDN. Không tự thay đổi IAM. Nội dung public đã phát hành trước đây không thể được bảo mật chỉ bằng ẩn nút; cần chuyển nguồn tài nguyên public sang private và rà soát liên kết nhúng.
-- Đã kiểm thử browser local có session cho ba vai trò với database commerce cô lập. Trước production vẫn cần smoke test lại trên bản sao dữ liệu EC2 và credential sandbox của nhà cung cấp.
+- No real payouts, partial refunds, retries of finally-failed refunds, subscriptions or tax accounting yet.
+- While a wallet has a payout on hold, refunds are blocked until that payout is reconciled; a payout with an unknown result is never clawed back automatically.
+- Unknown provider fees are shown as unknown; ledger clearing is not treated as a bank balance. The reconciliation dashboard checks internal states and the ledger, not external bank statements.
+- Merchant sandboxes, the IPN tunnel, real error responses and refund permissions must be tested with each partner before launch.
+- Paid video must live under a private prefix with anonymous GET blocked; set `COMMERCE_PRIVATE_MEDIA_READY=true` only after verifying the bucket/CDN. IAM is never changed automatically. Content that was previously public cannot be protected by hiding a button; move the public sources to private and review embedded links.
+- A local browser session was tested for all three roles against an isolated commerce database. Production still needs a smoke test on a copy of the EC2 data and with provider sandbox credentials.

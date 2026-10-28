@@ -1,35 +1,35 @@
 # judge-service
 
-Chạy và chấm code trong sandbox Docker. **Python/FastAPI**, không phải NestJS như 8 service
-còn lại.
+Runs and grades code in Docker sandboxes. **Python/FastAPI**, unlike the other eight NestJS
+services.
 
-Engine chấm được port từ `code-runner` — kể cả các comment ghi lại kết quả đo thật (vì sao
-`max_pool_size=128`, vì sao tmpfs là 256m, vì sao `peak_memory_mb` thường rỗng). Đừng gỡ
-chúng khi dọn code: mỗi con số ở đó là một lần đã thử và đã sai.
+The grading engine was ported from `code-runner`, including the comments that record real
+measurements (why `max_pool_size=128`, why tmpfs is 256m, why `peak_memory_mb` is usually empty).
+Keep them when tidying the code: every number there is something that was tried and failed.
 
-## Chạy
+## Running
 
-Judge **không** nằm trong `nest build`, `eslint` hay `jest` của monorepo — nó bị loại khỏi
-`nest-cli.json`, `build:all` và mảng `APPS` trong `eslint.config.mjs`. Mọi thứ đi qua script
-`judge:*` ở `codementor-backend/package.json`:
+The judge is **not** part of the monorepo's `nest build`, `eslint` or `jest` — it is excluded from
+`nest-cli.json`, `build:all` and the `APPS` array in `eslint.config.mjs`. Everything goes through
+the `judge:*` scripts in `codementor-backend/package.json`:
 
 ```bash
 npm run judge:install   # uv sync
-npm run judge:images    # build 6 image sandbox — chạy MỘT LẦN trước khi dev
-npm run judge:dev       # uvicorn --reload, cổng 3007
-npm run judge:test      # pytest (bỏ qua test cần Docker)
+npm run judge:images    # build the 6 sandbox images — run ONCE before development
+npm run judge:dev       # uvicorn --reload on port 3007
+npm run judge:test      # pytest (skips tests that need Docker)
 npm run judge:lint      # ruff
 ```
 
-Test cần container thật đánh dấu `docker`:
+Tests that need real containers are marked `docker`:
 
 ```bash
 cd apps/judge-service
-uv run pytest -m docker        # chấm thật, cần daemon + 6 image
-uv run pytest -m "not docker"  # chỉ chính sách chấm, chạy được ở CI không có daemon
+uv run pytest -m docker        # real grading; needs the daemon and the 6 images
+uv run pytest -m "not docker"  # grading policy only; runs in CI without a daemon
 ```
 
-## Hai cửa vào, một engine
+## Two entry points, one engine
 
 ```
 POST /api/v1/judge/run                 cmd.judge.run.v1  (Kafka)
@@ -39,124 +39,125 @@ POST /api/v1/judge/run                 cmd.judge.run.v1  (Kafka)
         └──────────► app.grading.grade() ◄───────┘
                               │
                     ┌─────────┴──────────┐
-              trả JSON ngay      ghi Mongo → evt.judge.completed.v1
+            return JSON now      write to Mongo → evt.judge.completed.v1
 ```
 
-`POST /run` là đường "chạy thử": trả kết quả đồng bộ, không ghi Mongo, không phát event. Nó
-tồn tại vì `submission-service` hiện còn rỗng — chưa ai phát `cmd.judge.run.v1`, nên nếu chỉ
-nghe Kafka thì judge không nhận được việc nào.
+`POST /run` is the "try it" path: it returns the result synchronously, writes nothing to Mongo
+and publishes no event.
 
-Kafka là đường bài nộp thật: nhận `cmd.judge.run.v1`, phát `started`, chấm, ghi
-`submission_run_details` trong Mongo, phát `completed` kèm `runDetailRef`.
+Kafka is the path for real submissions: consume `cmd.judge.run.v1`, publish `started`, grade,
+write `submission_run_details` to Mongo, then publish `completed` with a `runDetailRef`.
 
-## Hai chế độ chấm
+## Two grading modes
 
-Rẽ nhánh theo sự hiện diện của `spec` trong payload — **không** theo một cột `io_mode`. Bài
-soạn trước khi có chế độ hàm không mang `spec`, nên chúng chạy đúng đường cũ mà không phải
-migrate gì.
+The branch is chosen by whether the payload carries a `spec` — **not** by an `io_mode` column.
+Exercises written before function mode existed carry no `spec`, so they keep the old path without
+any migration.
 
-| | `stdin_stdout` (không có `spec`) | `function` (có `spec`) |
+| | `stdin_stdout` (no `spec`) | `function` (with `spec`) |
 |---|---|---|
-| Học viên viết | cả chương trình, kể cả phần đọc input | chỉ thân hàm |
-| Đầu vào | `input` dạng chuỗi, qua stdin | `args`, mảng theo vị trí |
-| Đáp án | so chuỗi stdout, bỏ khoảng trắng hai đầu | so **giá trị** theo `comparator.py` |
-| Container | một cho MỖI test case | một cho CẢ bài nộp |
-| stdout của học viên | *chính là* bài nộp | console gỡ lỗi, trả về ở `consoleOutput` |
-| Verdict riêng | — | `skipped` (container chết trước khi case chạy) |
+| The learner writes | the whole program, including input parsing | only the function body |
+| Input | an `input` string on stdin | `args`, a positional array |
+| Expected answer | stdout compared as a string, trimmed | compared **by value** in `comparator.py` |
+| Containers | one per test case | one for the whole submission |
+| Learner stdout | *is* the submission | a debug console, returned in `consoleOutput` |
+| Extra verdict | — | `skipped` (the container died before the case ran) |
 
-### Đáp án không vào sandbox
+### Expected answers never enter the sandbox
 
-Khác đặc tả gốc: `tests.json` mount vào container chỉ chứa `{id, args}`. Driver trả `actual`
-thô, so sánh chạy phía host. Hệ quả: trong container không có đáp án để lộ, và mỗi ngôn ngữ
-mới chỉ phải viết driver chứ không viết lại phần so sánh.
+Unlike the original spec, the `tests.json` mounted into the container holds only `{id, args}`.
+The driver returns the raw `actual` value and the comparison runs on the host. As a result there
+is no answer inside the container to leak, and a new language only needs a driver, not its own
+comparator.
 
-Driver vẫn xoá `tests.json` trước khi `import solution` — lớp phụ, không phải lớp chống đỡ
-chính.
+The driver still deletes `tests.json` before `import solution` — an extra layer, not the main
+defence.
 
-**Ceiling đã biết:** driver và code học viên chạy cùng tiến trình, nên học viên đủ quyết tâm
-vẫn ghi đè được `results.ndjson`. Chế độ stdin cũ không khá hơn (stdout của họ *là* đáp án
-nộp lên). Chặn thật cần tách tiến trình mỗi case hoặc lọc AST — làm khi judge phục vụ ngoài
-phạm vi lớp học.
+**Known ceiling:** the driver and the learner's code share a process, so a determined learner can
+still overwrite `results.ndjson`. The old stdin mode is no better (their stdout *is* the answer).
+Closing this properly needs a process per case or AST filtering — worth doing once the judge serves
+more than a classroom.
 
-### Tám ngôn ngữ, tám driver
+### Eight languages, eight drivers
 
-Mỗi ngôn ngữ là một module trong `app/services/langs/`, và module đó giữ **cả** bảng ánh xạ
-kiểu, **cả** starter code, **cả** driver. Đặt chung một chỗ vì chữ ký trong starter phải khớp
-tuyệt đối với chữ ký driver gọi — lệch một chút là học viên nhận bài không thể giải đúng.
+Each language is one module in `app/services/langs/`, and that module holds the type mapping, the
+starter code **and** the driver together. They live in one place because the signature in the
+starter must match the signature the driver calls exactly — any drift hands the learner an
+exercise that cannot be solved.
 
-| | Biên dịch | JSON | Timeout mỗi case | Ghi chú |
+| | Compile | JSON | Per-case timeout | Notes |
 |---|---|---|---|---|
 | Python | — | stdlib | `signal.setitimer` | |
-| JavaScript | — | stdlib | không | driver `new Function`, không `require` |
-| TypeScript | `tsc` | stdlib | không | dịch ra `solution.js` rồi dùng chung driver JS |
-| Java | `javac` | **Gson** (trong image) | không | bài là `class Solution`, driver là `Main` |
-| Go | `go build` | stdlib | goroutine + `select` | goroutine hết giờ không giết được |
-| PHP | `php -l` | stdlib | không | `-l` để lỗi cú pháp ra `compile_error` |
-| C | `gcc` | **cJSON** (apt) | `setitimer` + `sigsetjmp` | ánh xạ kiểu KHÔNG một-đối-một |
-| C++ | `g++` | **nlohmann** (header) | không | `siglongjmp` bỏ qua destructor nên không dùng |
+| JavaScript | — | stdlib | no | `new Function` driver, no `require` |
+| TypeScript | `tsc` | stdlib | no | compiled to `solution.js`, then shares the JS driver |
+| Java | `javac` | **Gson** (in the image) | no | the exercise is `class Solution`, the driver is `Main` |
+| Go | `go build` | stdlib | goroutine + `select` | a timed-out goroutine cannot be killed |
+| PHP | `php -l` | stdlib | no | `-l` turns syntax errors into `compile_error` |
+| C | `gcc` | **cJSON** (apt) | `setitimer` + `sigsetjmp` | type mapping is NOT one-to-one |
+| C++ | `g++` | **nlohmann** (header) | no | `siglongjmp` skips destructors, so it is not used |
 
-**C là ngoại lệ về kiểu:** `list<int>` thành hai tham số (`int* nums, int numsSize`), trả mảng
-thì thêm `int* returnSize`. Đây là quy ước LeetCode dùng cho C. `map` và `optional` không hỗ
-trợ — `POST /judge/starter` trả chúng trong `unsupported` để người ra đề biết ngay lúc soạn.
+**C is the type exception:** `list<int>` becomes two parameters (`int* nums, int numsSize`), and a
+returned array adds `int* returnSize` — the LeetCode convention for C. `map` and `optional` are
+not supported; `POST /judge/starter` lists them under `unsupported` so the author finds out while
+writing the exercise.
 
-### Giới hạn thời gian, hai tầng
+### Time limits, two layers
 
-Chỉ Python, Go và C cắt được một case đang chạy quá giờ → case đó `timeout`, các case sau
-**vẫn chạy**. Java, C++, JavaScript, TypeScript, PHP không có cơ chế đó; ở chúng một case
-*chậm* vẫn bị bắt nhờ đối chiếu `runtime_ms` phía host sau khi chạy xong.
+Only Python, Go and C can cut off a case that runs too long → that case is `timeout` and the
+following cases **still run**. Java, C++, JavaScript, TypeScript and PHP have no such mechanism;
+for them a *slow* case is still caught by checking `runtime_ms` on the host afterwards.
 
-Case treo hẳn thì container bị giết cứng (`time_limit × n + startup`) → case đầu tiên thiếu
-bản ghi nhận `timeout`/`memory_exceeded`, phần còn lại `skipped`. Driver flush sau mỗi case
-chính là để phần đã chạy xong không mất.
+A case that hangs completely gets the container killed (`time_limit × n + startup`) → the first
+case without a record gets `timeout`/`memory_exceeded` and the rest are `skipped`. The driver
+flushes after every case so finished results are not lost.
 
-### Mã khởi tạo cũng sinh ở đây
+### Starter code is generated here too
 
-`POST /api/v1/judge/starter` nhận chữ ký, trả mã khởi tạo cho từng ngôn ngữ. Frontend gọi nó
-thay vì tự sinh: một bảng ánh xạ kiểu thứ hai viết bằng TypeScript chắc chắn sẽ lệch với
-driver, và lúc lệch thì không ai phát hiện cho tới khi có học viên nộp bài.
+`POST /api/v1/judge/starter` takes a signature and returns starter code for each language. The
+frontend calls it instead of generating its own: a second type-mapping table written in TypeScript
+would drift from the drivers, and nobody would notice until a learner submitted.
 
-## Bảo mật
+## Security
 
-**Tiến trình này giữ `/var/run/docker.sock`, và đó là quyền tương đương root trên host.**
+**This process holds `/var/run/docker.sock`, which is equivalent to root on the host.**
 
-Code học viên không chạm được socket đó — nó chạy trong container ephemeral riêng, không có
-mạng, không phải root, rootfs chỉ đọc, bỏ hết capability, giới hạn pid/RAM/CPU. Nhưng bất kỳ
-lỗ hổng thực thi mã nào trong **chính judge** đều đổi được thành chiếm máy chủ. Ba ràng buộc,
-không cái nào là tuỳ chọn:
+Learner code cannot reach that socket — it runs in its own ephemeral container with no network,
+not as root, a read-only root filesystem, every capability dropped, and pid/RAM/CPU limits. But any
+code-execution bug in **the judge itself** turns into a host takeover. Three constraints, none
+optional:
 
-1. **`/run` bắt buộc xác thực.** Kong ở dự án này không có plugin JWT, nên judge tự kiểm token
-   Keycloak (`app/auth.py`, cùng JWKS endpoint mà `libs/platform/.../keycloak.strategy.ts`
-   dùng). Bỏ dependency `require_user` nghĩa là ai gọi được `:8000` cũng chạy được lệnh trên
-   máy chủ.
-2. **Giới hạn đầu vào** — `MAX_SOURCE_BYTES`, `MAX_TEST_CASES`, `MAX_TEST_CASE_BYTES` trong
-   `app/config.py`. Không có chúng thì một request là một cách làm cạn host.
-3. **Trên EC2, judge chạy máy riêng.** Cùng host với các service khác nghĩa là socket Docker
-   nằm cạnh dữ liệu người dùng.
+1. **`/run` requires authentication.** Kong in this project has no JWT plugin, so the judge
+   verifies the Keycloak token itself (`app/auth.py`, the same JWKS endpoint used by
+   `libs/platform/.../keycloak.strategy.ts`). Dropping the `require_user` dependency means anyone
+   who can reach `:8000` can run commands on the host.
+2. **Input limits** — `MAX_SOURCE_BYTES`, `MAX_TEST_CASES`, `MAX_TEST_CASE_BYTES` in
+   `app/config.py`. Without them a single request can exhaust the host.
+3. **Isolate the judge host where possible.** Sharing a host with other services puts the Docker
+   socket next to user data.
 
-Sandbox mỗi lần chạy: `network=none`, `user=1000:1000`, `cap_drop=ALL`,
-`no-new-privileges`, `read_only`, `tmpfs /tmp 256m`, `pids_limit=64`, `mem_limit` theo bài,
+Each sandbox run uses `network=none`, `user=1000:1000`, `cap_drop=ALL`, `no-new-privileges`,
+`read_only`, `tmpfs /tmp 256m`, `pids_limit=64`, a per-exercise `mem_limit` and
 `nano_cpus=0.5e9`.
 
-## Giới hạn đo lường
+## Measurement limits
 
-`memoryKb` **thường là 0**, và đó không phải lỗi. Docker chỉ trả số liệu tài nguyên qua
-`container.stats()`, mà lệnh đó mất 1–2 giây trong dockerd mới có số thật — trong khi
-container của một bài AC/WA/RE điển hình sống 200–700ms và đã biến mất trước đó. Bài chạy lâu
-(TLE) thì có số. Judge0 không vướng chuyện này vì `isolate` đọc cgroup đồng bộ ngay sau khi
-tiến trình thoát.
+`memoryKb` is **usually 0**, and that is not a bug. Docker only reports resource usage through
+`container.stats()`, which takes 1–2 seconds inside dockerd to produce real numbers — while a
+typical AC/WA/RE container lives 200–700 ms and is gone by then. Long runs (TLE) do get numbers.
+Judge0 avoids this because `isolate` reads the cgroup synchronously as soon as the process exits.
 
-`memory_exceeded` thì vẫn phát hiện được: nó đọc cờ `OOMKilled` của daemon, không phụ thuộc
-vào việc lấy mẫu kịp hay không.
+`memory_exceeded` is still detected: it reads the daemon's `OOMKilled` flag, which does not
+depend on sampling in time.
 
 ## Judge0
 
-`app/services/judge0_client.py` được giữ nguyên và cấu hình sẵn (`JUDGE0_URL`), nhưng
-**không ai gọi**: `EXECUTION_ENGINE` mặc định là `docker`. Judge0 dựa vào `isolate`, mà
-`isolate` cần cgroup v1 trong khi máy dev hiện tại chạy cgroup v2. Đổi `EXECUTION_ENGINE=judge0`
-là đủ để bật lại khi có host hợp lệ — `app/services/execution_engine.py` chỉ import engine
-được chọn, nên chọn cái này không bao giờ khởi tạo cái kia.
+`app/services/judge0_client.py` is kept and configurable (`JUDGE0_URL`), but **nothing calls it**:
+`EXECUTION_ENGINE` defaults to `docker`. Judge0 relies on `isolate`, which needs cgroup v1, while
+the current hosts run cgroup v2. Setting `EXECUTION_ENGINE=judge0` is enough to turn it back on
+once a suitable host exists — `app/services/execution_engine.py` imports only the selected engine,
+so choosing one never initialises the other.
 
-## Ngôn ngữ hỗ trợ
+## Supported languages
 
-`python`, `c`, `cpp`, `java`, `javascript`, `typescript`, `go`, `php` — bảng ở
-`app/services/execution_config.py`. Tag image ở đó phải khớp với `scripts/build-images.sh`.
+`python`, `c`, `cpp`, `java`, `javascript`, `typescript`, `go`, `php` — listed in
+`app/services/execution_config.py`. The image tags there must match `scripts/build-images.sh`.
