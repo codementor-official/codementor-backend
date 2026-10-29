@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AlreadyExists, BusinessRuleViolation, NotFound } from '@codementor/kernel';
-import { CommerceStore, audit, lock } from '../../commerce/infrastructure/commerce.store';
+import { CommerceStore, audit, journal, lock } from '../../commerce/infrastructure/commerce.store';
+import { notifyCommerce } from '../../commerce/infrastructure/commerce-notification';
 import { entitlementsOf, orderView, type EffectiveRow, type OrderRow, type SubscriptionRow } from '../infrastructure/billing.rows';
 import { SubscriptionsService } from './subscriptions.service';
-import type { AdjustmentDto, BillingPage, CouponDto, SettingsDto, SubscriberQuery } from '../presentation/workspace-billing.dto';
+import type { AdjustmentDto, BillingPage, CouponDto, RefundDto, SettingsDto, SubscriberQuery } from '../presentation/workspace-billing.dto';
 
 /** SQL twin of `subscriptionState()`; `s` is a subscription, `t` its term summary. */
 const STATE_SQL = Prisma.sql`CASE
@@ -214,6 +215,50 @@ export class BillingAdminService {
       page: q.page,
       limit: 20,
     };
+  }
+
+  /**
+   * Records a full refund made through the gateway. The ledger gets a compensating entry, the
+   * order becomes `refunded`, and a term that has not ended yet ends the subscription now —
+   * the customer keeps their data, not the paid limits they were refunded for.
+   */
+  async refundOrder(actorId: string, orderId: string, dto: RefundDto) {
+    return this.store.transaction(async (tx) => {
+      const [frozen] = await tx.$queryRaw<OrderRow[]>`SELECT * FROM workspace_orders WHERE id = ${orderId}::uuid`;
+      if (!frozen) throw new NotFound('Đơn gói Workspace', orderId);
+      await lock(tx, `ws-billing:${frozen.buyer_id}`);
+      const [order] = await tx.$queryRaw<OrderRow[]>`SELECT * FROM workspace_orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+      if (order.status !== 'paid' && order.status !== 'review')
+        throw new BusinessRuleViolation('Chỉ hoàn tiền được đơn đã thanh toán hoặc đang chờ kiểm tra.');
+      const [payment] = await tx.$queryRaw<{ id: string; status: string }[]>`
+        SELECT id, status FROM commerce_payments WHERE workspace_order_id = ${orderId}::uuid FOR UPDATE`;
+      if (payment?.status !== 'succeeded') throw new BusinessRuleViolation('Đơn này chưa có khoản thanh toán thành công.');
+      await journal(tx, `ws-refund:${orderId}`, [
+        { account: 'platform', amount: -order.amount_vnd },
+        { account: 'clearing', amount: order.amount_vnd },
+      ], { workspaceOrder: orderId });
+      await tx.$executeRaw`UPDATE workspace_orders SET status = 'refunded' WHERE id = ${orderId}::uuid`;
+      let endedSubscription = false;
+      if (order.status === 'paid' && order.result_subscription_id) {
+        const [term] = await tx.$queryRaw<{ ends_at: Date }[]>`
+          SELECT ends_at FROM workspace_subscription_terms WHERE order_id = ${orderId}::uuid`;
+        if (term && term.ends_at > new Date()) {
+          const ended = await tx.$executeRaw`UPDATE workspace_subscriptions SET ended_at = now(), end_reason = 'refunded', updated_at = now()
+            WHERE id = ${order.result_subscription_id}::uuid AND ended_at IS NULL`;
+          endedSubscription = ended > 0;
+        }
+      }
+      await audit(tx, 'workspace_order.refunded', orderId, actorId, {
+        amountVnd: order.amount_vnd,
+        reason: dto.reason,
+        gatewayReference: dto.gatewayReference ?? null,
+        endedSubscription,
+      });
+      await notifyCommerce(tx, order.buyer_id, orderId, 'Đã hoàn tiền gói Workspace',
+        `Khoản ${order.amount_vnd.toLocaleString('vi-VN')} ₫ cho gói ${order.quote.plan.name} đã được hoàn.${endedSubscription ? ' Tài khoản trở về hạn mức Free; dữ liệu vẫn được giữ nguyên.' : ''}`,
+        '/workspace/billing');
+      return { refunded: true, endedSubscription };
+    });
   }
 
   async coupons() {

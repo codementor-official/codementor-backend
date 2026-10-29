@@ -14,6 +14,7 @@ import {
   PublishVersionDto,
   QuoteDto,
   ReasonDto,
+  RefundDto,
   ScheduleChangeDto,
   SettingsDto,
   SubscriberQuery,
@@ -146,6 +147,13 @@ export class WorkspaceBillingController {
   @Post('admin/orders/:id/reconcile') @Roles('admin') async adminReconcile(@Param('id', ParseUUIDPipe) id: string) {
     await this.subscriptions.reconcile(id);
     return this.subscriptions.order(null, id);
+  }
+  @Post('admin/orders/:id/refund') @Roles('admin') refund(
+    @CurrentUser() u: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() b: RefundDto,
+  ) {
+    return this.admin.refundOrder(requireHumanId(u), id, b);
   }
   @Get('admin/coupons') @Roles('admin') coupons() {
     return this.admin.coupons();

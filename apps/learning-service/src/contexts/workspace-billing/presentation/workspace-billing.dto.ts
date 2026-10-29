@@ -90,6 +90,11 @@ export class ReasonDto {
   @IsString() @Length(5, 500) reason!: string;
 }
 
+export class RefundDto extends ReasonDto {
+  /** Reference of the refund made in the gateway portal, for reconciliation. */
+  @IsOptional() @IsString() @Length(1, 100) gatewayReference?: string;
+}
+
 export class AdjustmentDto extends ReasonDto {
   @IsIn(['max_owned_groups', 'max_members_per_group', 'max_storage_bytes', 'max_upload_bytes', 'monthly_ai_requests'])
   entitlement!: string;

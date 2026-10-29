@@ -28,7 +28,9 @@ this page covers behaviour, the API and operations.
 - The version **on sale** is the newest published one whose `available_from` has passed.
 - Feature flags are a closed list (`priority_support`, `advanced_assignments`,
   `detailed_analytics`). The last two are marked *planned* and grant nothing yet.
-- `monthly_ai_requests` is stored and shown as *not yet enforced*.
+- `monthly_ai_requests` limits Tutor questions in the owner's groups, per calendar month in
+  Vietnam time. ai-service charges one request through `POST /workspaces/:slug/ai/consume` after
+  the document gate, before the answer stream opens; a refusal is HTTP 429.
 
 ## Subscription lifecycle
 
@@ -100,7 +102,7 @@ Refusals return HTTP 422 with a specific `code` and `details` (`limit`, `used`, 
 `available`, `plan`):
 
 `WORKSPACE_GROUP_LIMIT_REACHED` · `WORKSPACE_MEMBER_LIMIT_REACHED` · `WORKSPACE_STORAGE_LIMIT_REACHED` ·
-`WORKSPACE_FILE_SIZE_EXCEEDED` · `WORKSPACE_ENTITLEMENT_UNAVAILABLE`
+`WORKSPACE_FILE_SIZE_EXCEEDED` · `WORKSPACE_AI_LIMIT_REACHED` · `WORKSPACE_ENTITLEMENT_UNAVAILABLE`
 
 Billing errors use `BUSINESS_RULE_VIOLATION` with `details.code`:
 `WORKSPACE_PLAN_CHANGE_CONFLICT` · `WORKSPACE_QUOTE_CHANGED` · `WORKSPACE_COUPON_INVALID` ·
@@ -144,7 +146,7 @@ new nullable column. Do not drop the new tables once a subscription has been pai
 | Task | How |
 | --- | --- |
 | Verify unconfirmed payments | runs every minute when `COMMERCE_JOBS_ENABLED=true`; admins can press *Đối soát* on an order |
-| Payments in `review` | inspect in Admin → Gói Workspace → Giao dịch and the audit log; refund through the gateway portal, then record the outcome |
+| Payments in `review` or a refund request | refund through the gateway portal, then Admin → Gói Workspace → Giao dịch → *Hoàn tiền* with the reason and gateway reference. The ledger gets `platform → clearing`; a term that has not ended ends the subscription now (reason `refunded`) |
 | Give a customer extra room | Admin → Người đăng ký → Điều chỉnh ngoại lệ (time-boxed, reasoned, audited) |
 | Change a price | edit the plan's draft and publish; existing subscribers keep their contract |
 | Owners over their limit | Admin overview lists them; nothing is deleted |
@@ -152,7 +154,13 @@ new nullable column. Do not drop the new tables once a subscription has been pai
 ## Not implemented yet
 
 - Automatic recurring charges (the gateways are used for one-off payments only).
-- Refund automation for subscription orders.
-- Enforcement of `monthly_ai_requests`; `advanced_assignments` and `detailed_analytics`.
-- Recipient acceptance before a group ownership transfer (the transfer is quota-checked and
-  atomic, but immediate).
+- Refunds through the gateway API (an administrator refunds in the gateway portal and records it).
+- `advanced_assignments` and `detailed_analytics` (shown as planned).
+
+## Ownership transfer
+
+Transferring a group is an **offer**. `POST /workspaces/:slug/transfer-ownership` checks the
+recipient's quotas and records a pending offer (one per group, valid 7 days); the recipient is
+notified. `POST …/transfer-ownership/:offerId/accept` re-checks the group and the recipient's
+quotas under both owners' locks and transfers atomically; `…/decline` and `…/cancel` close it.
+`GET /workspaces/ownership-offers` lists offers waiting for the current user.
