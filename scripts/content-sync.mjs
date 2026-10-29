@@ -4,6 +4,7 @@
 //   node --env-file=.env scripts/content-sync.mjs check   [đường dẫn…]   # lint + chạy lời giải qua judge
 //   node --env-file=.env scripts/content-sync.mjs push    [đường dẫn…]   # tạo/cập nhật + gửi duyệt
 //   node --env-file=.env scripts/content-sync.mjs approve [đường dẫn…]   # admin duyệt bản đang chờ
+//   node --env-file=.env scripts/content-sync.mjs cover   <slug>.png…    # chỉ thay ảnh bìa khoá học hoặc lộ trình
 //
 // Đường dẫn là thư mục bài (`content/exercises/<slug>`) hoặc khoá (`content/courses/<slug>`);
 // bỏ trống = toàn bộ `content/`. `push` đẩy bài code trước khoá học, vì khoá trỏ tới bài theo slug.
@@ -244,14 +245,14 @@ function renderRaster(file, frame) {
  * URL S3 của một ảnh đã render. Khoá cache là nội dung nguồn + khung: sửa ảnh là tải bản mới.
  * `file` = ảnh raster dựng sẵn; bỏ trống thì `name` là SVG trong content/illustrations.
  */
-async function uploadIllustration(call, courseId, name, frame, file) {
+async function uploadIllustration(call, courseId, name, frame, file, kind = 'courses') {
   const source = readFileSync(file ?? join(ILLUSTRATIONS, `${name}.svg`));
   const key = `${frame}:${name}:${createHash('sha256').update(source).update(JSON.stringify(FRAMES[frame])).digest('hex').slice(0, 16)}`;
   const cache = existsSync(UPLOADS) ? JSON.parse(readFileSync(UPLOADS, 'utf8')) : {};
   if (cache[key]) return cache[key];
   const body = file ? renderRaster(file, frame) : renderIllustration(source, frame);
   // Presign ảnh bìa là đường tải ảnh duy nhất của khoá học; ảnh trong bài cũng đi đường này.
-  const signed = await call('POST', `/courses/${courseId}/cover-upload-url`, {
+  const signed = await call('POST', `/${kind}/${courseId}/cover-upload-url`, {
     filename: `${name}.webp`, contentType: 'image/webp', sizeBytes: body.length,
   });
   const response = await fetch(signed.uploadUrl, { method: 'PUT', headers: signed.headers, body });
@@ -467,16 +468,20 @@ async function main() {
 
   // `cover <slug>.png | <slug>/cover.png ...`: chỉ thay ảnh bìa của khoá đã có (kể cả khoá soạn bằng studio, không có
   // course.yaml). Tên tệp (hoặc thư mục chứa cover.png) là slug. PATCH ảnh bìa không đổi trạng thái duyệt: khoá published vẫn published.
+  // Slug lộ trình (`/roadmaps/mine`) cũng nhận: cùng kiểu presign + PATCH coverImageUrl, lộ trình published vẫn published.
   if (command === 'cover') {
-    const mine = new Map((await all(author, '/courses/mine')).map((c) => [c.slug, c.id]));
+    const mine = new Map([
+      ...(await all(author, '/courses/mine')).map((c) => [c.slug, ['courses', c.id]]),
+      ...(await all(author, '/roadmaps/mine')).map((r) => [r.slug, ['roadmaps', r.id]]),
+    ]);
     for (const file of paths) {
       const name = basename(file).replace(RASTER, '');
       const slug = name === 'cover' ? basename(dirname(resolve(file))) : name;
-      const id = mine.get(slug);
-      if (!id) { report(false, `bìa ${slug}`, 'tài khoản này không có khoá với slug đó'); continue; }
+      const [kind, id] = mine.get(slug) ?? [];
+      if (!id) { report(false, `bìa ${slug}`, 'tài khoản này không có khoá hay lộ trình với slug đó'); continue; }
       try {
-        const url = await uploadIllustration(author, id, `${slug}-cover`, 'cover', resolve(file));
-        await author('PATCH', `/courses/${id}`, { coverImageUrl: url });
+        const url = await uploadIllustration(author, id, `${slug}-cover`, 'cover', resolve(file), kind);
+        await author('PATCH', `/${kind}/${id}`, { coverImageUrl: url });
         report(true, `bìa ${slug}`, url);
       } catch (error) {
         report(false, `bìa ${slug}`, error.message);
