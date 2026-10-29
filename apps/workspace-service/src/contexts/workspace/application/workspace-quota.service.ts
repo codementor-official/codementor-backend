@@ -22,6 +22,8 @@ export class WorkspaceQuotaService implements OnModuleInit, OnModuleDestroy {
     if (process.env.WORKSPACE_UPLOAD_JANITOR_ENABLED === 'false') return;
     this.timer = setInterval(() => void this.releaseAbandonedUploads().then(() => this.sweepOverage()), 10 * 60_000);
     this.timer.unref();
+    // Start the over-limit clock soon after a deploy instead of waiting for the first interval.
+    setTimeout(() => void this.sweepOverage(), 60_000).unref();
   }
 
   onModuleDestroy() {

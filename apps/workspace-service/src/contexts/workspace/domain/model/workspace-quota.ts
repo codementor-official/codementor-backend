@@ -134,19 +134,26 @@ export type OverageStage = 'notice' | 'read_only' | 'hidden';
 
 export interface LimitedGroup {
   id: string;
+  status: 'active' | 'archived';
   memberCount: number;
   lastActivityAt: Date;
 }
 
 /**
  * The groups above the owner's plan, with why. Storage is shared by every owned group, so excess
- * bytes hold all of them; past the group allowance the most recently active groups stay open.
+ * bytes hold all of them; past the group allowance the most recently active groups stay open
+ * (archived groups come last: nobody is using them).
  */
 export function overLimitGroups(e: OwnerEntitlements, u: OwnerUsage, groups: LimitedGroup[]): Map<string, OverageReason[]> {
   const result = new Map<string, OverageReason[]>();
   const add = (id: string, reason: OverageReason) => result.set(id, [...(result.get(id) ?? []), reason]);
   [...groups]
-    .sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime() || a.id.localeCompare(b.id))
+    .sort(
+      (a, b) =>
+        Number(a.status === 'archived') - Number(b.status === 'archived') ||
+        b.lastActivityAt.getTime() - a.lastActivityAt.getTime() ||
+        a.id.localeCompare(b.id),
+    )
     .slice(e.maxOwnedGroups)
     .forEach((g) => add(g.id, 'groups'));
   for (const g of groups) {

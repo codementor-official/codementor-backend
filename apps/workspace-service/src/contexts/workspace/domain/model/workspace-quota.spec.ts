@@ -90,9 +90,9 @@ describe('formatBytes', () => {
 describe('overLimitGroups', () => {
   const day = (d: number) => new Date(Date.UTC(2026, 9, d));
   const groups = [
-    { id: 'old', memberCount: 4, lastActivityAt: day(1) },
-    { id: 'busy', memberCount: 30, lastActivityAt: day(20) },
-    { id: 'mid', memberCount: 2, lastActivityAt: day(10) },
+    { id: 'old', status: 'active' as const, memberCount: 4, lastActivityAt: day(1) },
+    { id: 'busy', status: 'active' as const, memberCount: 30, lastActivityAt: day(20) },
+    { id: 'mid', status: 'active' as const, memberCount: 2, lastActivityAt: day(10) },
   ];
   it('keeps the most recently active groups open within the allowance', () => {
     const over = overLimitGroups(free, empty, groups);
@@ -100,6 +100,12 @@ describe('overLimitGroups', () => {
     expect(over.get('busy')).toEqual(['members']);
     expect(over.get('mid')).toEqual(['groups']);
     expect(over.get('old')).toEqual(['groups']);
+  });
+  it('never keeps an archived group open ahead of one in use', () => {
+    const shelved = { id: 'shelved', status: 'archived' as const, memberCount: 1, lastActivityAt: day(28) };
+    const over = overLimitGroups({ ...pro, maxOwnedGroups: 1 }, empty, [shelved, groups[0]]);
+    expect(over.get('shelved')).toEqual(['groups']);
+    expect(over.has('old')).toBe(false);
   });
   it('holds every group when shared storage is exceeded', () => {
     const over = overLimitGroups(pro, { ...empty, storedBytes: pro.maxStorageBytes + 1 }, groups);
