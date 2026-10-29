@@ -11,6 +11,7 @@ const free: OwnerEntitlements = {
   maxMembersPerGroup: 10,
   maxStorageBytes: 100 * 1024 ** 2,
   maxUploadBytes: 10 * 1024 ** 2,
+  monthlyAiRequests: 30,
 };
 const ownerId = '10000000-0000-4000-8000-000000000001';
 const userId = '10000000-0000-4000-8000-000000000002';
@@ -37,9 +38,12 @@ function setup(usage: OwnerUsage, activeMembers = 10) {
       guard(free, activeMembers);
       return 'membership';
     }),
-    transferOwnership: jest.fn(async (input: { guard: (s: unknown, g: unknown) => void }) =>
-      input.guard({ entitlements: free, usage }, { members: activeMembers, storedBytes: 0 }),
-    ),
+    ownedGroups: jest.fn().mockResolvedValue([{ id: group.id, memberCount: activeMembers, storedBytes: 0 }]),
+    offerOwnership: jest.fn().mockResolvedValue({ id: 'offer', groupId: group.id, toMembershipId: 'm2' }),
+    acceptOffer: jest.fn(async (_id: string, _user: string, guard: (s: unknown, g: unknown) => void) => {
+      guard({ entitlements: free, usage }, { members: activeMembers, storedBytes: 0 });
+      return { id: 'offer', groupId: group.id, toMembershipId: 'm2' };
+    }),
   };
   const service = new WorkspaceService(workspaces as never, quota as never, { publish: jest.fn() } as never);
   return { service, workspaces, quota };
@@ -72,11 +76,24 @@ describe('WorkspaceService plan limits', () => {
     expect(workspaces.createMember).not.toHaveBeenCalled();
   });
 
-  it('blocks a transfer to an owner without room and explains every reason', async () => {
-    const { service } = setup({ ownedGroups: 1, storedBytes: 0, reservedBytes: 0 }, 12);
+  it('refuses to offer a group the recipient could not take and explains every reason', async () => {
+    const { service, quota } = setup({ ownedGroups: 1, storedBytes: 0, reservedBytes: 0 }, 12);
     await expect(service.transferOwnership(ownerId, 'g', { memberId: 'm2' })).rejects.toMatchObject({
       code: 'WORKSPACE_GROUP_LIMIT_REACHED',
       details: { problems: [expect.anything(), expect.objectContaining({ code: 'WORKSPACE_MEMBER_LIMIT_REACHED' })] },
     });
+    expect(quota.offerOwnership).not.toHaveBeenCalled();
+  });
+
+  it('makes a transfer an offer: nothing changes hands until the recipient accepts', async () => {
+    const { service, quota } = setup({ ownedGroups: 0, storedBytes: 0, reservedBytes: 0 }, 5);
+    await expect(service.transferOwnership(ownerId, 'g', { memberId: 'm2' })).resolves.toMatchObject({ status: 'pending' });
+    expect(quota.offerOwnership).toHaveBeenCalledWith(expect.objectContaining({ fromUserId: ownerId, toUserId: userId }));
+    expect(quota.acceptOffer).not.toHaveBeenCalled();
+  });
+
+  it('re-checks the recipient on acceptance, after their usage may have changed', async () => {
+    const { service } = setup({ ownedGroups: 1, storedBytes: 0, reservedBytes: 0 }, 5);
+    await expect(service.acceptTransfer(userId, 'g', 'offer')).rejects.toMatchObject({ code: 'WORKSPACE_GROUP_LIMIT_REACHED' });
   });
 });

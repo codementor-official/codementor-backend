@@ -12,6 +12,7 @@ describe('Workspace AI authorization', () => {
   const findDocument = jest.fn();
   const listDocuments = jest.fn();
   const call = jest.fn();
+  const quota = { consumeAiRequest: jest.fn(), snapshot: jest.fn() };
   let service: WorkspaceAiService;
   const doc = {
     id: 'document', title: 'Stack', docType: 'TXT', storageKey: null, previewText: 'LIFO',
@@ -23,6 +24,7 @@ describe('Workspace AI authorization', () => {
       { detail } as unknown as WorkspaceService,
       { findDocument, listDocuments } as unknown as WorkspaceContentRepository,
       { call } as unknown as WorkspaceAiClient,
+      quota as never,
     );
     detail.mockResolvedValue({ id: 'workspace', currentMembership: { role: 'member', permissions: { view_doc: true } } });
     findDocument.mockResolvedValue(doc);
@@ -77,5 +79,28 @@ describe('Workspace AI authorization', () => {
     findDocument.mockResolvedValueOnce(doc).mockResolvedValueOnce({ ...doc, status: 'pending' });
     await expect(service.documentStates('member', 'slug', ['document', 'pending'], true)).rejects.toBeInstanceOf(NotFoundException);
     expect(call).not.toHaveBeenCalled();
+  });
+
+  it('charges Tutor questions to the group owner, not the asker', async () => {
+    detail.mockResolvedValue({ id: 'workspace', owner: { id: 'owner' }, currentMembership: { role: 'member', permissions: { view_doc: true } } });
+    quota.consumeAiRequest.mockResolvedValue({ used: 12 });
+    await expect(service.consume('member', 'g')).resolves.toEqual({ used: 12 });
+    expect(quota.consumeAiRequest).toHaveBeenCalledWith('owner');
+  });
+
+  it('refuses once the monthly allowance is used up, with the limit and plan', async () => {
+    detail.mockResolvedValue({ id: 'workspace', owner: { id: 'owner' }, currentMembership: { role: 'member', permissions: { view_doc: true } } });
+    quota.consumeAiRequest.mockResolvedValue({ refused: { limit: 30, used: 30 } });
+    quota.snapshot.mockResolvedValue({ entitlements: { planName: 'Free', monthlyAiRequests: 30 } });
+    await expect(service.consume('member', 'g')).rejects.toMatchObject({
+      code: 'WORKSPACE_AI_LIMIT_REACHED',
+      details: { limit: 30, used: 30, plan: 'Free' },
+    });
+  });
+
+  it('never charges someone who cannot read the documents', async () => {
+    detail.mockResolvedValue({ id: 'workspace', owner: { id: 'owner' }, currentMembership: { role: 'member', permissions: { view_doc: false } } });
+    await expect(service.consume('member', 'g')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(quota.consumeAiRequest).not.toHaveBeenCalled();
   });
 });

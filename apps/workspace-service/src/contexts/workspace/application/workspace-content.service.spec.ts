@@ -143,7 +143,7 @@ describe('WorkspaceContentService uploads against the owner plan', () => {
   const groupId = '20000000-0000-4000-8000-000000000002';
   const key = `docs/workspaces/${groupId}/file.pdf`;
   const permissions = Object.fromEntries(WORKSPACE_PERMISSIONS.map((p) => [p, true])) as EffectivePermissions;
-  const free = { source: 'free', planName: 'Free', maxOwnedGroups: 1, maxMembersPerGroup: 10, maxStorageBytes: 100 * MB, maxUploadBytes: 10 * MB };
+  const free = { source: 'free', planName: 'Free', maxOwnedGroups: 1, maxMembersPerGroup: 10, maxStorageBytes: 100 * MB, maxUploadBytes: 10 * MB, monthlyAiRequests: 30 };
 
   function setup(usage = { ownedGroups: 1, storedBytes: 0, reservedBytes: 0 }) {
     const workspaces = {

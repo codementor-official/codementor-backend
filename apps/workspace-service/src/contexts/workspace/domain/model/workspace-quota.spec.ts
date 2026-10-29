@@ -9,7 +9,7 @@ import {
 } from './workspace-quota';
 
 const MB = 1024 ** 2;
-const free: OwnerEntitlements = { source: 'free', planName: 'Free', maxOwnedGroups: 1, maxMembersPerGroup: 10, maxStorageBytes: 100 * MB, maxUploadBytes: 10 * MB };
+const free: OwnerEntitlements = { source: 'free', planName: 'Free', maxOwnedGroups: 1, maxMembersPerGroup: 10, maxStorageBytes: 100 * MB, maxUploadBytes: 10 * MB, monthlyAiRequests: 30 };
 const pro: OwnerEntitlements = { ...free, source: 'paid', planName: 'Pro', maxOwnedGroups: 20, maxMembersPerGroup: null, maxStorageBytes: 20 * 1024 * MB, maxUploadBytes: 250 * MB };
 const empty = { ownedGroups: 0, storedBytes: 0, reservedBytes: 0 };
 

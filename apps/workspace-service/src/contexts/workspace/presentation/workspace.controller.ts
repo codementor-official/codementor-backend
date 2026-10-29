@@ -602,13 +602,46 @@ export class WorkspaceController {
   }
 
   @Post(':slug/transfer-ownership')
-  @ApiOperation({ summary: 'Chuyển quyền Chủ nhóm' })
+  @ApiOperation({ summary: 'Đề nghị chuyển quyền Chủ nhóm (người nhận phải đồng ý)' })
   transferOwnership(
     @CurrentUser() user: AuthenticatedUser,
     @Param('slug') slug: string,
     @Body() dto: TransferOwnershipDto,
   ) {
     return this.workspaces.transferOwnership(requireHumanId(user), slug, dto);
+  }
+
+  @Get(':slug/transfer-ownership')
+  @ApiOperation({ summary: 'Lời đề nghị chuyển quyền đang chờ của nhóm' })
+  pendingTransfer(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.workspaces.pendingTransfer(requireHumanId(user), slug);
+  }
+
+  @Post(':slug/transfer-ownership/:offerId/accept')
+  acceptTransfer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('offerId', ParseUUIDPipe) offerId: string,
+  ) {
+    return this.workspaces.acceptTransfer(requireHumanId(user), slug, offerId);
+  }
+
+  @Post(':slug/transfer-ownership/:offerId/decline')
+  declineTransfer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('offerId', ParseUUIDPipe) offerId: string,
+  ) {
+    return this.workspaces.declineTransfer(requireHumanId(user), slug, offerId);
+  }
+
+  @Post(':slug/transfer-ownership/:offerId/cancel')
+  cancelTransfer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('offerId', ParseUUIDPipe) offerId: string,
+  ) {
+    return this.workspaces.cancelTransfer(requireHumanId(user), slug, offerId);
   }
 
   @Put(':slug/permissions/roles/:role')

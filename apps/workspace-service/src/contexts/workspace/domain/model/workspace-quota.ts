@@ -12,6 +12,7 @@ export interface OwnerEntitlements {
   maxMembersPerGroup: number | null;
   maxStorageBytes: number;
   maxUploadBytes: number;
+  monthlyAiRequests: number;
 }
 
 export interface OwnerUsage {
@@ -25,6 +26,7 @@ export const QUOTA_CODES = {
   members: 'WORKSPACE_MEMBER_LIMIT_REACHED',
   storage: 'WORKSPACE_STORAGE_LIMIT_REACHED',
   fileSize: 'WORKSPACE_FILE_SIZE_EXCEEDED',
+  ai: 'WORKSPACE_AI_LIMIT_REACHED',
   unavailable: 'WORKSPACE_ENTITLEMENT_UNAVAILABLE',
 } as const;
 
@@ -96,6 +98,15 @@ export function transferProblems(
       details: { limit: e.maxStorageBytes, used, requested: group.storedBytes, plan: e.planName },
     });
   return problems;
+}
+
+/** Refusal for an AI request; the counter itself is consumed atomically in SQL. */
+export function aiProblem(e: OwnerEntitlements, used: number): QuotaProblem {
+  return {
+    code: QUOTA_CODES.ai,
+    message: `Nhóm đã dùng hết ${e.monthlyAiRequests} lượt hỏi AI tài liệu của tháng này theo gói ${e.planName}.`,
+    details: { limit: e.monthlyAiRequests, used, plan: e.planName },
+  };
 }
 
 export type UsageLevel = 'ok' | 'info' | 'warning' | 'reached';

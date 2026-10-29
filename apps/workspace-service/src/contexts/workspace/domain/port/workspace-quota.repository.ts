@@ -19,6 +19,17 @@ export type QuotaGuard = (snapshot: QuotaSnapshot) => void;
 export type SeatGuard = (entitlements: OwnerEntitlements, activeMembers: number) => void;
 export type TransferGuard = (snapshot: QuotaSnapshot, group: { members: number; storedBytes: number }) => void;
 
+export interface TransferOffer {
+  id: string;
+  groupId: string;
+  fromUserId: string;
+  toUserId: string;
+  toMembershipId: string;
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled';
+  expiresAt: Date;
+  createdAt: Date;
+}
+
 export const WORKSPACE_QUOTA_REPOSITORY = Symbol('WORKSPACE_QUOTA_REPOSITORY');
 
 /**
@@ -38,13 +49,19 @@ export interface WorkspaceQuotaRepository {
     expiresAt: Date;
     guard: QuotaGuard;
   }): Promise<void>;
-  transferOwnership(input: {
-    groupId: string;
-    oldOwnerId: string;
-    newOwnerMembershipId: string;
-    newOwnerId: string;
-    guard: TransferGuard;
-  }): Promise<void>;
+  /**
+   * Charges one AI request to the owner's month (Vietnam time), or reports the allowance as used
+   * up. Never counts past the limit, even under concurrent requests.
+   */
+  consumeAiRequest(ownerId: string): Promise<{ used: number } | { refused: { limit: number; used: number } }>;
+  aiRequestsThisMonth(ownerId: string): Promise<number>;
+  /** Replaces any pending offer for the group. */
+  offerOwnership(input: { groupId: string; fromUserId: string; toUserId: string; toMembershipId: string }): Promise<TransferOffer>;
+  pendingOffer(groupId: string): Promise<TransferOffer | null>;
+  offersFor(userId: string): Promise<(TransferOffer & { groupSlug: string; groupName: string; fromName: string })[]>;
+  closeOffer(id: string, status: 'declined' | 'cancelled'): Promise<boolean>;
+  /** Accepts a pending offer: re-checks the group and the recipient's quotas, then transfers. */
+  acceptOffer(id: string, recipientId: string, guard: TransferGuard): Promise<TransferOffer>;
   /** Reservations whose upload was never confirmed, oldest first. */
   expiredReservations(limit: number): Promise<{ id: string; objectKey: string }[]>;
   deleteReservation(id: string): Promise<void>;

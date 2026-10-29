@@ -410,20 +410,76 @@ export class WorkspaceService {
     }
     return { removed: true };
   }
+  /**
+   * Offers the group to a member. Nothing changes hands until they accept; the recipient's
+   * quotas are checked now for early feedback and again, atomically, on acceptance.
+   */
   async transferOwnership(userId: string, slug: string, dto: TransferOwnershipDto) {
     const workspace = await this.requireOwner(userId, slug);
     const target = await this.workspaces.findMember(workspace.id, dto.memberId);
     if (!target) throw new NotFound('Người nhận quyền phải là thành viên đang hoạt động');
     if (target.userId === userId) throw new BusinessRuleViolation('Bạn đang là Chủ nhóm');
-    await this.quota.transferOwnership({
+    const [recipient, groups] = await Promise.all([this.quota.snapshot(target.userId), this.quota.ownedGroups(userId)]);
+    const group = groups.find((g) => g.id === workspace.id);
+    assertTransferable(
+      transferProblems(recipient.entitlements, recipient.usage, { members: group?.memberCount ?? workspace.memberCount, storedBytes: group?.storedBytes ?? 0 }),
+    );
+    const offer = await this.quota.offerOwnership({
       groupId: workspace.id,
-      oldOwnerId: userId,
-      newOwnerMembershipId: target.id,
-      newOwnerId: target.userId,
-      guard: (snapshot, group) => assertTransferable(transferProblems(snapshot.entitlements, snapshot.usage, group)),
+      fromUserId: userId,
+      toUserId: target.userId,
+      toMembershipId: target.id,
     });
-    await this.workspaces.recordActivity(workspace.id, userId, 'đã chuyển quyền Chủ nhóm', 'membership', target.id);
+    await this.workspaces.recordActivity(workspace.id, userId, 'đã đề nghị chuyển quyền Chủ nhóm', 'membership', target.id);
+    try {
+      await this.events.publish(TOPICS.WORKSPACE_ACTIVITY, {
+        groupId: workspace.id,
+        entityId: offer.id,
+        action: 'ownership_offered',
+        actorUserId: userId,
+        memberUserId: target.userId,
+      });
+    } catch (error) {
+      this.logger.error('Không phát được thông báo đề nghị chuyển quyền', error as Error);
+    }
+    return { status: 'pending' as const, offer };
+  }
+
+  /** The pending offer of a group, visible to its owner and to the recipient. */
+  async pendingTransfer(userId: string, slug: string) {
+    const workspace = await this.requireActive(slug);
+    const offer = await this.quota.pendingOffer(workspace.id);
+    if (!offer || (offer.fromUserId !== userId && offer.toUserId !== userId)) return null;
+    return offer;
+  }
+
+  myTransferOffers(userId: string) {
+    return this.quota.offersFor(userId);
+  }
+
+  async acceptTransfer(userId: string, slug: string, offerId: string) {
+    const workspace = await this.requireActive(slug);
+    const offer = await this.quota.acceptOffer(offerId, userId, (snapshot, group) =>
+      assertTransferable(transferProblems(snapshot.entitlements, snapshot.usage, group)),
+    );
+    if (offer.groupId !== workspace.id) throw new NotFound('Không tìm thấy lời đề nghị');
+    await this.workspaces.recordActivity(workspace.id, userId, 'đã nhận quyền Chủ nhóm', 'membership', offer.toMembershipId);
     return { transferred: true };
+  }
+
+  async declineTransfer(userId: string, slug: string, offerId: string) {
+    const offer = await this.pendingTransfer(userId, slug);
+    if (!offer || offer.id !== offerId || offer.toUserId !== userId) throw new NotFound('Không tìm thấy lời đề nghị');
+    await this.quota.closeOffer(offerId, 'declined');
+    return { declined: true };
+  }
+
+  async cancelTransfer(userId: string, slug: string, offerId: string) {
+    await this.requireOwner(userId, slug);
+    const offer = await this.pendingTransfer(userId, slug);
+    if (!offer || offer.id !== offerId) throw new NotFound('Không tìm thấy lời đề nghị');
+    await this.quota.closeOffer(offerId, 'cancelled');
+    return { cancelled: true };
   }
   async updateRolePermissions(
     userId: string,

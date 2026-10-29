@@ -32,9 +32,11 @@ class ToolCallError(Exception):
     trước khi mở stream (cổng quyền của Tutor) phải trả đúng 403/404 thay vì gộp hết thành 503.
     """
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, detail: str = ""):
         super().__init__(message)
         self.status = status
+        # The backend's own sentence, without our prefix — for routes that show it to a person.
+        self.detail = detail
 
 
 def auth_token(config: RunnableConfig) -> str:
@@ -91,6 +93,7 @@ async def call(
         raise ToolCallError(
             f"Dịch vụ từ chối yêu cầu ({response.status_code}): {clip(detail) or 'không rõ lý do'}",
             response.status_code,
+            detail,
         )
 
     if response.status_code == 204 or not response.content:

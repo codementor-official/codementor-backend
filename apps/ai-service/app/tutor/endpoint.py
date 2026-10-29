@@ -104,6 +104,20 @@ async def _prepare(slug: str, document_ids: list[str], request: Request) -> None
         )
 
 
+async def _consume(slug: str, request: Request) -> None:
+    """Trừ một lượt hỏi vào hạn mức tháng của Chủ nhóm, trước khi mở stream.
+
+    workspace-service giữ bộ đếm và từ chối nguyên tử khi hết lượt (422 WORKSPACE_AI_LIMIT_REACHED);
+    ở đây đổi thành 429 với đúng câu của nó để trình duyệt hiện cho người hỏi.
+    """
+    try:
+        await http.workspace("POST", f"/api/v1/workspaces/{slug}/ai/consume", _config(request))
+    except ToolCallError as exc:
+        if exc.status == 422:
+            raise HTTPException(429, exc.detail or "Nhóm đã dùng hết lượt hỏi AI của tháng này.") from None
+        raise HTTPException(exc.status or 503, str(exc)) from None
+
+
 @router.post("/workspace/{slug}/run")
 async def run(
     slug: str,
@@ -116,6 +130,7 @@ async def run(
         raise HTTPException(400, "Hội thoại đã đủ 50 lượt. Hãy tạo hội thoại mới.")
     workspace_id = await _workspace_id(slug, request)
     await _prepare(slug, [document["id"] for document in documents], request)
+    await _consume(slug, request)
     stored = await sessions.read(
         request.app.state.db,
         claims["sub"],

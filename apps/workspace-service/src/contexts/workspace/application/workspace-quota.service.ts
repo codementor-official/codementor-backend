@@ -30,18 +30,20 @@ export class WorkspaceQuotaService implements OnModuleInit, OnModuleDestroy {
 
   /** The owner's own view: limits, consumption and where each limit stands. */
   async usage(ownerId: string) {
-    const [{ entitlements, usage }, groups] = await Promise.all([
+    const [{ entitlements, usage }, groups, aiUsed] = await Promise.all([
       this.quota.snapshot(ownerId),
       this.quota.ownedGroups(ownerId),
+      this.quota.aiRequestsThisMonth(ownerId),
     ]);
     const storage = usage.storedBytes + usage.reservedBytes;
     return {
       plan: { name: entitlements.planName, source: entitlements.source },
       entitlements,
-      usage: { ...usage, totalBytes: storage },
+      usage: { ...usage, totalBytes: storage, aiRequestsThisMonth: aiUsed },
       levels: {
         groups: usageLevel(usage.ownedGroups, entitlements.maxOwnedGroups),
         storage: usageLevel(storage, entitlements.maxStorageBytes),
+        ai: usageLevel(aiUsed, entitlements.monthlyAiRequests),
       },
       overLimit: {
         groups: usage.ownedGroups > entitlements.maxOwnedGroups,

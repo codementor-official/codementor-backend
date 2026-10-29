@@ -81,6 +81,14 @@ export class WorkspaceActivityNotifications {
         targets = targets.filter((m) => m.role === 'owner');
         type = 'WORKSPACE_JOIN_REQUESTED'; title = 'Có yêu cầu tham gia nhóm';
         message = `${name} muốn tham gia nhóm “${workspace.name}”.`;
+      } else if (payload.action === 'ownership_offered') {
+        // Only the recipient is told; the owner already knows they made the offer.
+        if (!changed?.external_id || !members.some((m) => m.user_id === payload.memberUserId && m.status === 'active')) return;
+        const owner = payload.actorUserId ? await this.recipients.recipient(payload.actorUserId) : undefined;
+        targets = [{ user_id: payload.memberUserId!, external_id: changed.external_id, display_name: changed.display_name, role: 'member', status: 'active', can_view_doc: true, can_approve_doc: false }];
+        type = 'WORKSPACE_MEMBER_ROLE_CHANGED'; title = 'Lời mời nhận quyền Chủ nhóm';
+        message = `${owner?.display_name ?? 'Chủ nhóm'} muốn chuyển quyền Chủ nhóm “${workspace.name}” cho bạn. Mở nhóm để đồng ý hoặc từ chối trong 7 ngày.`;
+        actionUrl = `/workspace/${workspace.slug}`;
       } else if (payload.action === 'member_joined') {
         if (!members.some((m) => m.user_id === payload.memberUserId && m.status === 'active')) return;
         targets = targets.filter((m) => m.user_id !== payload.memberUserId);
