@@ -20,7 +20,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import * as yaml from 'js-yaml';
 import { markdownToHtml, proseWords, splitFrontmatter } from './content/markdown.mjs';
 
@@ -149,7 +149,9 @@ function lintCourse(course, tags, exerciseSlugs) {
   else if (lessons.length < minLe) (external ? warnings : errors).push(`${lessons.length} bài (cần ≥ ${minLe})`);
   for (const tag of meta.tags ?? []) if (!tags.has(tag)) errors.push(`tag không tồn tại: ${tag}`);
   if (!meta.cover) errors.push('thiếu "cover" (ảnh bìa trong content/illustrations)');
-  else if (!hasIllustration(meta.cover)) errors.push(`ảnh bìa không có: illustrations/${meta.cover}.svg`);
+  else if (RASTER.test(meta.cover) ? !existsSync(join(course.dir, meta.cover)) : !hasIllustration(meta.cover)) {
+    errors.push(`ảnh bìa không có: ${RASTER.test(meta.cover) ? meta.cover : `illustrations/${meta.cover}.svg`}`);
+  }
   for (const chapter of chapters) {
     if (!external && !chapter.lessons.some((l) => l.kind === 'exercise')) errors.push(`chương "${chapter.title}" không có bài code`);
     if (!chapter.lessons.some((l) => l.kind !== 'todo')) {
@@ -220,6 +222,8 @@ function attribution(lesson, meta) {
 // --- ảnh ---------------------------------------------------------------------
 
 const hasIllustration = (name) => existsSync(join(ILLUSTRATIONS, `${name}.svg`));
+/** `cover: cover.png` = ảnh bìa dựng sẵn cạnh course.yaml (course-seed/thumbnails), không phải unDraw. */
+const RASTER = /\.(png|jpe?g|webp)$/i;
 
 // ponytail: gọi công cụ hệ thống thay vì thêm `sharp` vào backend chỉ cho một script soạn nội dung.
 function renderIllustration(svg, frame) {
@@ -229,13 +233,23 @@ function renderIllustration(svg, frame) {
     '-extent', `${width}x${height}`, '-quality', '85', 'webp:-'], { input: png });
 }
 
-/** URL S3 của một ảnh đã render. Khoá cache là nội dung SVG + khung: sửa SVG là tải bản mới. */
-async function uploadIllustration(call, courseId, name, frame) {
-  const svg = readFileSync(join(ILLUSTRATIONS, `${name}.svg`));
-  const key = `${frame}:${name}:${createHash('sha256').update(svg).update(JSON.stringify(FRAMES[frame])).digest('hex').slice(0, 16)}`;
+/** Ảnh dựng sẵn: chỉ ép về đúng khung và đổi sang WebP, không thêm nền. */
+function renderRaster(file, frame) {
+  const { width, height } = FRAMES[frame];
+  return execFileSync('magick', [file, '-resize', `${width}x${height}^`, '-gravity', 'center',
+    '-extent', `${width}x${height}`, '-quality', '85', 'webp:-']);
+}
+
+/**
+ * URL S3 của một ảnh đã render. Khoá cache là nội dung nguồn + khung: sửa ảnh là tải bản mới.
+ * `file` = ảnh raster dựng sẵn; bỏ trống thì `name` là SVG trong content/illustrations.
+ */
+async function uploadIllustration(call, courseId, name, frame, file) {
+  const source = readFileSync(file ?? join(ILLUSTRATIONS, `${name}.svg`));
+  const key = `${frame}:${name}:${createHash('sha256').update(source).update(JSON.stringify(FRAMES[frame])).digest('hex').slice(0, 16)}`;
   const cache = existsSync(UPLOADS) ? JSON.parse(readFileSync(UPLOADS, 'utf8')) : {};
   if (cache[key]) return cache[key];
-  const body = renderIllustration(svg, frame);
+  const body = file ? renderRaster(file, frame) : renderIllustration(source, frame);
   // Presign ảnh bìa là đường tải ảnh duy nhất của khoá học; ảnh trong bài cũng đi đường này.
   const signed = await call('POST', `/courses/${courseId}/cover-upload-url`, {
     filename: `${name}.webp`, contentType: 'image/webp', sizeBytes: body.length,
@@ -384,7 +398,9 @@ async function pushCourse(call, input, tags, exerciseIds) {
   await call('PATCH', `/courses/${record.id}`, {
     title: meta.title, level: meta.level, description: meta.description,
     prerequisiteNote: meta.prerequisiteNote ?? null, tagIds: meta.tags.map((t) => tags.get(t)),
-    coverImageUrl: await uploadIllustration(call, record.id, meta.cover, 'cover'),
+    coverImageUrl: RASTER.test(meta.cover)
+      ? await uploadIllustration(call, record.id, `${course.slug}-cover`, 'cover', join(input.dir, meta.cover))
+      : await uploadIllustration(call, record.id, meta.cover, 'cover'),
   });
 
   // Giữ id bài học cũ khi trùng (chương, tên bài): xoá bài là xoá luôn tiến độ của học viên.
@@ -442,15 +458,36 @@ async function pushCourse(call, input, tags, exerciseIds) {
 
 async function main() {
   const [command = 'check', ...paths] = process.argv.slice(2);
-  const { exercises, courses } = units(paths);
   const author = await client(process.env.CONTENT_AUTHOR_USER, process.env.CONTENT_AUTHOR_PASSWORD);
-  const tags = await tagIndex(author);
-  const knownExercises = new Set(existsSync(join(ROOT, 'exercises')) ? readdirSync(join(ROOT, 'exercises')) : []);
   let failed = false;
   const report = (ok, label, detail = '') => {
     if (!ok) failed = true;
     console.log(`${ok ? 'ok  ' : 'LỖI '} ${label}${detail ? `  — ${detail}` : ''}`);
   };
+
+  // `cover <slug>.png | <slug>/cover.png ...`: chỉ thay ảnh bìa của khoá đã có (kể cả khoá soạn bằng studio, không có
+  // course.yaml). Tên tệp (hoặc thư mục chứa cover.png) là slug. PATCH ảnh bìa không đổi trạng thái duyệt: khoá published vẫn published.
+  if (command === 'cover') {
+    const mine = new Map((await all(author, '/courses/mine')).map((c) => [c.slug, c.id]));
+    for (const file of paths) {
+      const name = basename(file).replace(RASTER, '');
+      const slug = name === 'cover' ? basename(dirname(resolve(file))) : name;
+      const id = mine.get(slug);
+      if (!id) { report(false, `bìa ${slug}`, 'tài khoản này không có khoá với slug đó'); continue; }
+      try {
+        const url = await uploadIllustration(author, id, `${slug}-cover`, 'cover', resolve(file));
+        await author('PATCH', `/courses/${id}`, { coverImageUrl: url });
+        report(true, `bìa ${slug}`, url);
+      } catch (error) {
+        report(false, `bìa ${slug}`, error.message);
+      }
+    }
+    return failed;
+  }
+
+  const { exercises, courses } = units(paths);
+  const tags = await tagIndex(author);
+  const knownExercises = new Set(existsSync(join(ROOT, 'exercises')) ? readdirSync(join(ROOT, 'exercises')) : []);
 
   if (command === 'check' || command === 'push') {
     for (const ex of exercises) {
@@ -514,7 +551,7 @@ async function main() {
     return failed;
   }
 
-  throw new Error(`lệnh không biết: ${command} (check | push | approve)`);
+  throw new Error(`lệnh không biết: ${command} (check | push | approve | cover)`);
 }
 
 process.exitCode = (await main()) ? 1 : 0;
