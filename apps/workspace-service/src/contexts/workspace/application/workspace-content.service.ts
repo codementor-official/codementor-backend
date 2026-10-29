@@ -10,6 +10,11 @@ import {
   type WorkspaceContentRepository,
 } from '../domain/port/workspace-content.repository';
 import { WorkspaceService } from './workspace.service';
+import {
+  WORKSPACE_QUOTA_REPOSITORY,
+  type WorkspaceQuotaRepository,
+} from '../domain/port/workspace-quota.repository';
+import { assertWithinQuota, uploadProblem } from '../domain/model/workspace-quota';
 import type {
   AttachWorkspaceExerciseDto,
   CreateWorkspaceExerciseDto,
@@ -34,6 +39,7 @@ export class WorkspaceContentService {
   constructor(
     private readonly workspaces: WorkspaceService,
     @Inject(WORKSPACE_CONTENT_REPOSITORY) private readonly content: WorkspaceContentRepository,
+    @Inject(WORKSPACE_QUOTA_REPOSITORY) private readonly quota: WorkspaceQuotaRepository,
     private readonly storage: ObjectStorageService,
     @InjectConnection() private readonly mongo: Connection,
     @Inject(EVENT_BUS) private readonly events: EventBus,
@@ -44,15 +50,34 @@ export class WorkspaceContentService {
     return this.content.assignmentSubmissionContext(assignmentId, userId);
   }
 
+  /**
+   * What an upload may weigh right now: the smallest of the platform cap, the group owner's
+   * per-file limit and the owner's remaining storage. Owner-only figures stay with the owner.
+   */
   async uploadConfig(userId: string, slug: string) {
     const detail = await this.workspaces.detail(userId, slug);
     this.require(detail, 'upload_doc');
+    const { entitlements, usage } = await this.quota.snapshot(detail.owner.id);
+    const remaining = Math.max(0, entitlements.maxStorageBytes - usage.storedBytes - usage.reservedBytes);
+    const isOwner = detail.currentMembership.role === 'owner';
     return {
       enabled: this.storage.isConfigured,
-      maxBytes: this.storage.maxDocumentUploadBytes,
+      maxBytes: Math.min(this.storage.maxDocumentUploadBytes, entitlements.maxUploadBytes, remaining),
       acceptedTypes: DOCUMENT_CONTENT_TYPES,
+      quota: {
+        planName: entitlements.planName,
+        maxUploadBytes: entitlements.maxUploadBytes,
+        platformMaxUploadBytes: this.storage.maxDocumentUploadBytes,
+        remainingBytes: remaining,
+        storageFull: remaining === 0,
+        ...(isOwner && { usedBytes: usage.storedBytes + usage.reservedBytes, maxStorageBytes: entitlements.maxStorageBytes }),
+      },
     };
   }
+  /**
+   * Reserves the bytes before handing out the URL. The size is part of the S3 signature, so the
+   * stored object cannot be larger than what was reserved.
+   */
   async presign(userId: string, slug: string, dto: DocumentUploadUrlDto) {
     const detail = await this.workspaces.detail(userId, slug);
     this.require(detail, 'upload_doc');
@@ -63,6 +88,15 @@ export class WorkspaceContentService {
       sizeBytes: dto.sizeBytes,
     });
     if (result.isFail) throw result.error;
+    await this.quota.reserveUpload({
+      ownerId: detail.owner.id,
+      groupId: detail.id,
+      objectKey: result.value.objectKey,
+      bytes: dto.sizeBytes,
+      // Long enough for a slow upload to finish after the URL expires; then the bytes return.
+      expiresAt: new Date(Date.now() + (this.storage.uploadUrlTtlSeconds + 15 * 60) * 1000),
+      guard: ({ entitlements, usage }) => assertWithinQuota(uploadProblem(entitlements, usage, dto.sizeBytes)),
+    });
     return result.value;
   }
   async presignAsset(userId: string, slug: string, dto: WorkspaceAssetUploadUrlDto) {
@@ -136,17 +170,28 @@ export class WorkspaceContentService {
     const prefix = `workspaces/${detail.id}`;
     if (!this.storage.isDocumentKeyFor(dto.storageKey, prefix))
       throw new BusinessRuleViolation('Tệp không thuộc Workspace này');
-    if (!(await this.storage.objectExists(dto.storageKey)))
-      throw new BusinessRuleViolation('Tệp chưa tồn tại trên storage');
-    const created = await this.content.createDocument(detail.id, {
-      title: dto.title.trim(),
-      docType: dto.docType.trim(),
-      topic: clean(dto.topic),
-      uploaderId: userId,
-      sizeBytes: dto.sizeBytes,
-      storageKey: dto.storageKey,
-      url: dto.url,
-    });
+    // The stored size is the truth; the size in the request body is never trusted.
+    const sizeBytes = await this.storage.objectSize(dto.storageKey);
+    if (sizeBytes === null) throw new BusinessRuleViolation('Tệp chưa tồn tại trên storage');
+    if (await this.quota.isDocumentKeyInUse(dto.storageKey))
+      throw new BusinessRuleViolation('Tệp này đã được thêm vào nhóm');
+    const created = await this.content.createDocument(
+      detail.id,
+      {
+        title: dto.title.trim(),
+        docType: dto.docType.trim(),
+        topic: clean(dto.topic),
+        uploaderId: userId,
+        sizeBytes,
+        storageKey: dto.storageKey,
+        url: dto.url,
+      },
+      {
+        ownerId: detail.owner.id,
+        // Its own reservation is released inside the transaction, so this re-checks the real size.
+        guard: ({ entitlements, usage }) => assertWithinQuota(uploadProblem(entitlements, usage, sizeBytes)),
+      },
+    );
     const result = detail.currentMembership.role === 'owner'
       ? await this.content.updateDocument(detail.id, created.id, { status: 'published', reviewedBy: userId })
       : created;

@@ -19,6 +19,8 @@ import type {
   WorkspaceContentRepository,
   WorkspaceDocumentRecord,
 } from '../domain/port/workspace-content.repository';
+import type { QuotaGuard } from '../domain/port/workspace-quota.repository';
+import { lockOwnerQuota } from './prisma-workspace-quota.repository';
 
 type DocumentRow = Prisma.group_documentsGetPayload<{
   include: { users_group_documents_uploader_idTousers: { select: { display_name: true } } };
@@ -104,20 +106,27 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       storageKey: string;
       url: string;
     },
+    quota: { ownerId: string; guard: QuotaGuard },
   ) {
-    const row = await this.prisma.group_documents.create({
-      data: {
-        group_id: groupId,
-        title: input.title,
-        doc_type: input.docType,
-        topic: input.topic,
-        uploader_id: input.uploaderId,
-        size_bytes: BigInt(input.sizeBytes),
-        storage_key: input.storageKey,
-        url: input.url,
-        status: document_status.pending,
-      },
-      include: { users_group_documents_uploader_idTousers: { select: { display_name: true } } },
+    const row = await this.prisma.$transaction(async (tx) => {
+      // The reservation becomes the document: drop it first so the bytes are not counted twice.
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${`ws-owner:${quota.ownerId}`}, 0))`;
+      await tx.$executeRaw`DELETE FROM workspace_storage_reservations WHERE object_key = ${input.storageKey}`;
+      quota.guard(await lockOwnerQuota(tx, quota.ownerId));
+      return tx.group_documents.create({
+        data: {
+          group_id: groupId,
+          title: input.title,
+          doc_type: input.docType,
+          topic: input.topic,
+          uploader_id: input.uploaderId,
+          size_bytes: BigInt(input.sizeBytes),
+          storage_key: input.storageKey,
+          url: input.url,
+          status: document_status.pending,
+        },
+        include: { users_group_documents_uploader_idTousers: { select: { display_name: true } } },
+      });
     });
     await this.activity(groupId, input.uploaderId, 'đã tải lên tài liệu', 'document', row.id);
     return this.document(row);

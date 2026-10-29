@@ -18,6 +18,17 @@ import {
   WORKSPACE_REPOSITORY,
   type WorkspaceRepository,
 } from '../domain/port/workspace.repository';
+import {
+  WORKSPACE_QUOTA_REPOSITORY,
+  type WorkspaceQuotaRepository,
+} from '../domain/port/workspace-quota.repository';
+import {
+  assertTransferable,
+  assertWithinQuota,
+  groupSlotProblem,
+  memberSeatProblem,
+  transferProblems,
+} from '../domain/model/workspace-quota';
 import type {
   CreateWorkspaceDto,
   JoinWorkspaceDto,
@@ -40,6 +51,7 @@ export class WorkspaceService {
 
   constructor(
     @Inject(WORKSPACE_REPOSITORY) private readonly workspaces: WorkspaceRepository,
+    @Inject(WORKSPACE_QUOTA_REPOSITORY) private readonly quota: WorkspaceQuotaRepository,
     @Inject(EVENT_BUS) private readonly events: EventBus,
   ) {}
 
@@ -188,7 +200,7 @@ export class WorkspaceService {
           description: trimOptional(dto.description),
           topic: trimOptional(dto.topic),
           ownerId: userId,
-        });
+        }, (snapshot) => assertWithinQuota(groupSlotProblem(snapshot.entitlements, snapshot.usage)));
         return this.detail(userId, created.slug);
       } catch (error) {
         if (attempt === 4 || !isUniqueViolation(error)) throw error;
@@ -260,22 +272,7 @@ export class WorkspaceService {
         workspaceSlug: workspace.slug,
       };
     }
-    let membershipId = existing?.id;
-    if (existing)
-      await this.workspaces.updateMember(existing.id, {
-        status: 'active',
-        role: 'member',
-        joinedAt: new Date(),
-      });
-    else membershipId = (await this.workspaces.createMember(workspace.id, userId)).id;
-    await this.workspaces.refreshMemberCount(workspace.id);
-    await this.workspaces.recordActivity(
-      workspace.id,
-      userId,
-      'đã tham gia nhóm học tập',
-      'membership',
-      membershipId,
-    );
+    await this.admit(workspace.id, userId);
     return { status: 'joined' as const, workspaceSlug: workspace.slug };
   }
   async leave(userId: string, slug: string) {
@@ -418,7 +415,14 @@ export class WorkspaceService {
     const target = await this.workspaces.findMember(workspace.id, dto.memberId);
     if (!target) throw new NotFound('Người nhận quyền phải là thành viên đang hoạt động');
     if (target.userId === userId) throw new BusinessRuleViolation('Bạn đang là Chủ nhóm');
-    await this.workspaces.transferOwnership(workspace.id, userId, target.id, target.userId);
+    await this.quota.transferOwnership({
+      groupId: workspace.id,
+      oldOwnerId: userId,
+      newOwnerMembershipId: target.id,
+      newOwnerId: target.userId,
+      guard: (snapshot, group) => assertTransferable(transferProblems(snapshot.entitlements, snapshot.usage, group)),
+    });
+    await this.workspaces.recordActivity(workspace.id, userId, 'đã chuyển quyền Chủ nhóm', 'membership', target.id);
     return { transferred: true };
   }
   async updateRolePermissions(
@@ -466,22 +470,7 @@ export class WorkspaceService {
     if (workspace.joinPolicy === 'invite_only')
       throw new NotAuthorized('Nhóm này chỉ nhận thành viên bằng mã mời');
     if (workspace.joinPolicy === 'open') {
-      let membershipId = existing?.id;
-      if (existing)
-        await this.workspaces.updateMember(existing.id, {
-          status: 'active',
-          role: 'member',
-          joinedAt: new Date(),
-        });
-      else membershipId = (await this.workspaces.createMember(workspace.id, userId)).id;
-      await this.workspaces.refreshMemberCount(workspace.id);
-      await this.workspaces.recordActivity(
-        workspace.id,
-        userId,
-        'đã tham gia nhóm học tập',
-        'membership',
-        membershipId,
-      );
+      await this.admit(workspace.id, userId);
       return { status: 'joined', workspaceSlug: slug };
     }
     const request = await this.workspaces.upsertJoinRequest(workspace.id, userId, dto.message);
@@ -510,25 +499,8 @@ export class WorkspaceService {
     const request = await this.workspaces.findJoinRequest(workspace.id, requestId);
     if (!request || request.status !== 'pending')
       throw new NotFound('Không tìm thấy yêu cầu đang chờ');
-    if (decision === 'approved') {
-      const existing = await this.workspaces.findMembershipAny(workspace.id, request.userId);
-      let membershipId = existing?.id;
-      if (existing)
-        await this.workspaces.updateMember(existing.id, {
-          status: 'active',
-          role: 'member',
-          joinedAt: new Date(),
-        });
-      else membershipId = (await this.workspaces.createMember(workspace.id, request.userId)).id;
-      await this.workspaces.refreshMemberCount(workspace.id);
-      await this.workspaces.recordActivity(
-        workspace.id,
-        request.userId,
-        'đã tham gia nhóm học tập',
-        'membership',
-        membershipId,
-      );
-    }
+    // A full group keeps the request pending: the owner can free a seat or upgrade, then approve.
+    if (decision === 'approved') await this.admit(workspace.id, request.userId);
     await this.workspaces.reviewJoinRequest(request.id, userId, decision);
     const memberExternalId = await this.workspaces.findUserExternalId(request.userId);
     if (memberExternalId) {
@@ -556,6 +528,8 @@ export class WorkspaceService {
     if (user.id === userId) throw new BusinessRuleViolation('Bạn đã là Chủ nhóm');
     const existing = await this.workspaces.findMembershipAny(workspace.id, user.id);
     if (existing?.status === 'active') throw new AlreadyExists('Thành viên');
+    const { entitlements } = await this.quota.snapshot(workspace.ownerId);
+    assertWithinQuota(memberSeatProblem(entitlements, workspace.memberCount));
     if (existing) {
       await this.workspaces.updateMember(existing.id, { status: 'invited', role: 'member' });
       return { invitationId: existing.id, user };
@@ -595,15 +569,7 @@ export class WorkspaceService {
     const workspace = await this.requireActive(slug);
     const invitation = await this.workspaces.findMember(workspace.id, invitationId, 'invited');
     if (!invitation || invitation.userId !== userId) throw new NotFound('Không tìm thấy lời mời');
-    await this.workspaces.updateMember(invitation.id, { status: 'active', joinedAt: new Date() });
-    await this.workspaces.refreshMemberCount(workspace.id);
-    await this.workspaces.recordActivity(
-      workspace.id,
-      userId,
-      'đã tham gia nhóm học tập',
-      'membership',
-      invitation.id,
-    );
+    await this.admit(workspace.id, userId);
     return this.detail(userId, slug);
   }
   async revokeInvitation(userId: string, slug: string, invitationId: string) {
@@ -618,6 +584,15 @@ export class WorkspaceService {
    * Tư cách xem danh sách và hồ sơ thành viên. Admin xem nhóm để kiểm duyệt (xem `detail`) được
    * coi như một thành viên thường: chỉ thông tin công khai, không quyền quản lý.
    */
+  /** The only way a membership becomes active: atomic seat check under the group lock. */
+  private async admit(groupId: string, userId: string) {
+    const membershipId = await this.quota.admitMember(groupId, userId, (entitlements, active) =>
+      assertWithinQuota(memberSeatProblem(entitlements, active)),
+    );
+    await this.workspaces.recordActivity(groupId, userId, 'đã tham gia nhóm học tập', 'membership', membershipId);
+    return membershipId;
+  }
+
   private async viewer(workspaceId: string, userId: string): Promise<{ role: WorkspaceRole }> {
     const membership = await this.workspaces.findMembership(workspaceId, userId);
     if (membership) return membership;

@@ -1,4 +1,4 @@
-import { NotAuthorized } from '@codementor/kernel';
+import { NotAuthorized, QuotaExceeded } from '@codementor/kernel';
 import {
   WORKSPACE_PERMISSIONS,
   type EffectivePermissions,
@@ -48,6 +48,7 @@ describe('WorkspaceContentService permission boundaries', () => {
       service: new WorkspaceContentService(
         workspaces as never,
         content as never,
+        {} as never,
         {} as never,
         {} as never,
         { publish: jest.fn() } as never,
@@ -133,5 +134,82 @@ describe('WorkspaceContentService permission boundaries', () => {
       service.updateExercise(userId, 'workspace', contentId, { title: 'Không được phép' }),
     ).rejects.toBeInstanceOf(NotAuthorized);
     expect(content.softDeleteExercise).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('WorkspaceContentService uploads against the owner plan', () => {
+  const MB = 1024 ** 2;
+  const ownerId = '10000000-0000-4000-8000-000000000009';
+  const groupId = '20000000-0000-4000-8000-000000000002';
+  const key = `docs/workspaces/${groupId}/file.pdf`;
+  const permissions = Object.fromEntries(WORKSPACE_PERMISSIONS.map((p) => [p, true])) as EffectivePermissions;
+  const free = { source: 'free', planName: 'Free', maxOwnedGroups: 1, maxMembersPerGroup: 10, maxStorageBytes: 100 * MB, maxUploadBytes: 10 * MB };
+
+  function setup(usage = { ownedGroups: 1, storedBytes: 0, reservedBytes: 0 }) {
+    const workspaces = {
+      detail: jest.fn().mockResolvedValue({
+        id: groupId,
+        owner: { id: ownerId },
+        currentMembership: { id: 'm', role: 'member', permissions },
+      }),
+    };
+    const content = { createDocument: jest.fn().mockResolvedValue({ id: 'doc' }) };
+    const quota = {
+      snapshot: jest.fn().mockResolvedValue({ entitlements: free, usage }),
+      // Run the guard the way the repository does: against the snapshot read under lock.
+      reserveUpload: jest.fn(async (input: { guard: (s: unknown) => void }) => input.guard({ entitlements: free, usage })),
+      isDocumentKeyInUse: jest.fn().mockResolvedValue(false),
+    };
+    const storage = {
+      presignDocumentUpload: jest.fn().mockResolvedValue({ isFail: false, value: { objectKey: key, uploadUrl: 'u' } }),
+      uploadUrlTtlSeconds: 900,
+      isDocumentKeyFor: jest.fn().mockReturnValue(true),
+      objectSize: jest.fn().mockResolvedValue(4 * MB),
+      maxDocumentUploadBytes: 50 * MB,
+    };
+    const service = new WorkspaceContentService(
+      workspaces as never,
+      content as never,
+      quota as never,
+      storage as never,
+      {} as never,
+      { publish: jest.fn() } as never,
+    );
+    return { service, content, quota, storage };
+  }
+
+  it('reserves the signed size against the group owner, not the uploader', async () => {
+    const { service, quota } = setup();
+    await service.presign('uploader', 'g', { filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: 4 * MB } as never);
+    expect(quota.reserveUpload).toHaveBeenCalledWith(expect.objectContaining({ ownerId, groupId, objectKey: key, bytes: 4 * MB }));
+  });
+
+  it('refuses a file above the plan limit before handing out a URL that works', async () => {
+    const { service } = setup();
+    await expect(
+      service.presign('uploader', 'g', { filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: 11 * MB } as never),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_FILE_SIZE_EXCEEDED' });
+  });
+
+  it('refuses when the remaining storage is too small', async () => {
+    const { service } = setup({ ownedGroups: 1, storedBytes: 98 * MB, reservedBytes: 0 });
+    await expect(
+      service.presign('uploader', 'g', { filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: 5 * MB } as never),
+    ).rejects.toBeInstanceOf(QuotaExceeded);
+  });
+
+  it('records the size stored in S3, not the size in the request', async () => {
+    const { service, content } = setup();
+    await service.createDocument('uploader', 'g', { title: 'T', docType: 'PDF', sizeBytes: 1, storageKey: key, url: 'u' } as never);
+    expect(content.createDocument).toHaveBeenCalledWith(groupId, expect.objectContaining({ sizeBytes: 4 * MB }), expect.objectContaining({ ownerId }));
+  });
+
+  it('refuses to register the same stored object twice', async () => {
+    const { service, quota, content } = setup();
+    quota.isDocumentKeyInUse.mockResolvedValue(true);
+    await expect(
+      service.createDocument('uploader', 'g', { title: 'T', docType: 'PDF', sizeBytes: 1, storageKey: key, url: 'u' } as never),
+    ).rejects.toThrow('đã được thêm');
+    expect(content.createDocument).not.toHaveBeenCalled();
   });
 });

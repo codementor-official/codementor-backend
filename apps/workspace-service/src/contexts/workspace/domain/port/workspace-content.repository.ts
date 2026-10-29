@@ -1,3 +1,4 @@
+import type { QuotaGuard } from './workspace-quota.repository';
 export interface ContentPage<T> {
   items: T[];
   page: number;
@@ -138,6 +139,7 @@ export interface WorkspaceContentRepository {
       storageKey: string;
       url: string;
     },
+    quota: { ownerId: string; guard: QuotaGuard },
   ): Promise<WorkspaceDocumentRecord>;
   updateDocument(
     groupId: string,

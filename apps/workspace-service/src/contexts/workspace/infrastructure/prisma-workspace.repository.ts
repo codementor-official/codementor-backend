@@ -29,6 +29,8 @@ import type {
   WorkspaceRepository,
   WorkspaceUser,
 } from '../domain/port/workspace.repository';
+import type { QuotaGuard } from '../domain/port/workspace-quota.repository';
+import { lockOwnerQuota } from './prisma-workspace-quota.repository';
 
 const ALL_PERMISSIONS = Object.values(group_permission) as WorkspacePermission[];
 
@@ -329,15 +331,19 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
     return row?.status === group_status.active ? this.toWorkspace(row) : null;
   }
 
-  async create(input: {
-    slug: string;
-    inviteCode: string;
-    name: string;
-    description: string | null | undefined;
-    topic: string | null | undefined;
-    ownerId: string;
-  }) {
+  async create(
+    input: {
+      slug: string;
+      inviteCode: string;
+      name: string;
+      description: string | null | undefined;
+      topic: string | null | undefined;
+      ownerId: string;
+    },
+    guard: QuotaGuard,
+  ) {
     const created = await this.prisma.$transaction(async (tx) => {
+      guard(await lockOwnerQuota(tx, input.ownerId));
       const workspace = await tx.study_groups.create({
         data: {
           slug: input.slug,
@@ -700,24 +706,6 @@ export class PrismaWorkspaceRepository implements WorkspaceRepository {
     };
   }
 
-  async transferOwnership(
-    groupId: string,
-    oldOwnerId: string,
-    newOwnerMembershipId: string,
-    newOwnerId: string,
-  ) {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.group_members.updateMany({
-        where: { group_id: groupId, user_id: oldOwnerId, role: group_role.owner },
-        data: { role: group_role.deputy },
-      });
-      await tx.group_members.update({
-        where: { id: newOwnerMembershipId },
-        data: { role: group_role.owner },
-      });
-      await tx.study_groups.update({ where: { id: groupId }, data: { owner_id: newOwnerId } });
-    });
-  }
   async setRolePermissions(
     groupId: string,
     role: ConfigurableWorkspaceRole,

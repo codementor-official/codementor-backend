@@ -1,3 +1,5 @@
+import { QuotaExceeded } from '@codementor/kernel';
+
 /**
  * Workspace plan limits. Pure decisions over a snapshot read inside the same transaction that
  * consumes the quota — the caller holds the lock, this module only says yes or why not.
@@ -115,4 +117,14 @@ export function formatBytes(bytes: number): string {
     unit++;
   }
   return `${Number.isInteger(value) ? value : value.toFixed(1)} ${units[unit]}`;
+}
+
+/** Turns a refusal into the error the HTTP layer maps to 422 with its specific code. */
+export function assertWithinQuota(problem: QuotaProblem | null): void {
+  if (problem) throw new QuotaExceeded(problem.code, problem.message, problem.details);
+}
+
+export function assertTransferable(problems: QuotaProblem[]): void {
+  if (problems.length)
+    throw new QuotaExceeded(problems[0].code, problems.map((p) => p.message).join(' '), { problems });
 }
