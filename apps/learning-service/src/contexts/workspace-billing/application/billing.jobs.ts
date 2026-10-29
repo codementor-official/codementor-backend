@@ -33,12 +33,13 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
   async tick() {
     if (this.busy) return { skipped: true };
     this.busy = true;
-    const result = { reconciled: 0, expired: 0, reminders: 0, graceNotices: 0, failures: 0 };
+    const result = { reconciled: 0, expired: 0, reminders: 0, graceNotices: 0, overageNotices: 0, failures: 0 };
     try {
       await this.reconcilePayments(result);
       result.expired = await this.expireOrders();
       result.reminders = await this.renewalReminders();
       result.graceNotices = await this.graceNotices();
+      result.overageNotices = await this.overageNotices();
     } catch (error) {
       result.failures++;
       this.logger.warn(`Workspace billing job failed: ${(error as Error).message}`);
@@ -116,14 +117,54 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
     return due.length;
   }
 
-  private async notifyOnce(subscriptionId: string, userId: string, action: string, paidThrough: Date, title: string, message: string) {
+  /**
+   * One message per stage of an over-limit episode (`workspace_owner_overage`, kept by
+   * workspace-service): when it starts, when groups turn read-only, when they are hidden.
+   */
+  private async overageNotices() {
+    const due = await this.store.db.$queryRaw<{ owner_id: string; over_since: Date; stage: string; read_only_at: Date; hidden_at: Date }[]>`
+      WITH o AS (
+        SELECT o.owner_id, o.over_since,
+          o.over_since + make_interval(days => s.overage_notice_days) AS read_only_at,
+          o.over_since + make_interval(days => s.overage_notice_days + s.overage_read_only_days) AS hidden_at
+        FROM workspace_owner_overage o CROSS JOIN workspace_billing_settings s)
+      SELECT owner_id, over_since, read_only_at, hidden_at,
+        CASE WHEN now() >= hidden_at THEN 'hidden' WHEN now() >= read_only_at THEN 'read_only' ELSE 'notice' END AS stage
+      FROM o WHERE NOT EXISTS (SELECT 1 FROM commerce_audit a WHERE a.action = 'workspace_subscription.overage_notice'
+        AND a.entity_id = o.owner_id
+        AND a.details->>'overSince' = to_char(o.over_since AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        AND a.details->>'stage' = CASE WHEN now() >= hidden_at THEN 'hidden' WHEN now() >= read_only_at THEN 'read_only' ELSE 'notice' END)
+      LIMIT 100`;
+    const text: Record<string, (r: (typeof due)[number]) => [string, string]> = {
+      notice: (r) => ['Workspace đang vượt hạn mức gói', `Nâng cấp gói hoặc dọn dẹp trước ${vnDate(r.read_only_at)}; sau ngày này các nhóm vượt hạn mức chuyển sang chỉ đọc.`],
+      read_only: (r) => ['Một số nhóm đã chuyển sang chỉ đọc', `Thành viên vẫn xem được tài liệu nhưng không thêm nội dung mới. Từ ${vnDate(r.hidden_at)} các nhóm này sẽ tạm ẩn với thành viên.`],
+      hidden: () => ['Một số nhóm đã tạm ẩn với thành viên', 'Dữ liệu vẫn được giữ nguyên. Nâng cấp gói hoặc dọn dẹp để mở lại ngay.'],
+    };
+    for (const r of due) {
+      const [title, message] = text[r.stage](r);
+      await this.notifyOnce(r.owner_id, r.owner_id, 'workspace_subscription.overage_notice', r.over_since, title, message, { stage: r.stage });
+    }
+    return due.length;
+  }
+
+  private async notifyOnce(
+    entityId: string,
+    userId: string,
+    action: string,
+    since: Date,
+    title: string,
+    message: string,
+    extra: Record<string, string> = {},
+  ) {
+    const key = action.endsWith('overage_notice') ? 'overSince' : 'paidThrough';
     await this.store.transaction(async (tx) => {
-      await lock(tx, `ws-billing-notice:${subscriptionId}`);
+      await lock(tx, `ws-billing-notice:${entityId}`);
       const [sent] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM commerce_audit WHERE action = ${action}
-        AND entity_id = ${subscriptionId}::uuid AND details->>'paidThrough' = ${paidThrough.toISOString()}`;
+        AND entity_id = ${entityId}::uuid AND details->>${key} = ${since.toISOString()}
+        AND (${extra.stage ?? null}::text IS NULL OR details->>'stage' = ${extra.stage ?? null})`;
       if (sent) return;
-      await audit(tx, action, subscriptionId, undefined, { paidThrough: paidThrough.toISOString() });
-      await notifyCommerce(tx, userId, subscriptionId, title, message, '/workspace/billing');
+      await audit(tx, action, entityId, undefined, { [key]: since.toISOString(), ...extra });
+      await notifyCommerce(tx, userId, entityId, title, message, '/workspace/billing');
     });
   }
 }

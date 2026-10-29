@@ -110,8 +110,9 @@ export class SubscriptionsService implements OnModuleInit {
     const [effective] = await this.store.db.$queryRaw<EffectiveRow[]>`SELECT * FROM workspace_effective_entitlements(${userId}::uuid)`;
     if (!effective) throw new BusinessRuleViolation('Chưa cấu hình gói Workspace.', { code: 'WORKSPACE_ENTITLEMENT_UNAVAILABLE' });
     const open = await this.openSubscription(this.store.db, userId, now);
-    const [settings] = await this.store.db.$queryRaw<{ grace_days: number; renewal_reminder_days: number }[]>`
-      SELECT grace_days, renewal_reminder_days FROM workspace_billing_settings`;
+    const [settings] = await this.store.db.$queryRaw<{
+      grace_days: number; renewal_reminder_days: number; overage_notice_days: number; overage_read_only_days: number;
+    }[]>`SELECT grace_days, renewal_reminder_days, overage_notice_days, overage_read_only_days FROM workspace_billing_settings`;
     const [pending] = await this.store.db.$queryRaw<OrderRow[]>`
       SELECT * FROM workspace_orders WHERE buyer_id = ${userId}::uuid AND status = 'pending' AND expires_at > now()`;
     const scheduled = open?.row.scheduled_plan_id
@@ -148,7 +149,13 @@ export class SubscriptionsService implements OnModuleInit {
         suspendedReason: open.row.suspended_reason,
       },
       pendingOrder: pending ? orderView(pending) : null,
-      policy: { graceDays: settings.grace_days, renewalReminderDays: settings.renewal_reminder_days, autoRenew: false },
+      policy: {
+        graceDays: settings.grace_days,
+        renewalReminderDays: settings.renewal_reminder_days,
+        overageNoticeDays: settings.overage_notice_days,
+        overageReadOnlyDays: settings.overage_read_only_days,
+        autoRenew: false,
+      },
     };
   }
 

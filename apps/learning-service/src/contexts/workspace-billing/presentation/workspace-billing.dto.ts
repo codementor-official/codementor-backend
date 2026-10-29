@@ -119,4 +119,11 @@ export class CouponDto {
 export class SettingsDto {
   @IsInt() @Min(0) @Max(30) graceDays!: number;
   @IsInt() @Min(1) @Max(30) renewalReminderDays!: number;
+  @IsInt() @Min(0) @Max(60) overageNoticeDays!: number;
+  @IsInt() @Min(1) @Max(365) overageReadOnlyDays!: number;
+}
+
+export class AuditQuery extends BillingPage {
+  @IsOptional() @IsIn(['plan', 'subscription', 'order', 'payment', 'coupon', 'adjustment', 'settings']) category?: string;
+  @Type(() => Number) @IsInt() @Min(5) @Max(100) limit = 20;
 }

@@ -4,6 +4,7 @@ import { PlanCatalogService } from '../application/plan-catalog.service';
 import { SubscriptionsService } from '../application/subscriptions.service';
 import { BillingAdminService } from '../application/billing-admin.service';
 import {
+  AuditQuery,
   AdjustmentDto,
   BillingPage,
   CheckoutDto,
@@ -107,6 +108,9 @@ export class WorkspaceBillingController {
   @Get('admin/subscribers') @Roles('admin') subscribers(@Query() q: SubscriberQuery) {
     return this.admin.subscribers(q);
   }
+  @Get('admin/subscribers/stats') @Roles('admin') subscriberStats() {
+    return this.admin.subscriberStats();
+  }
   @Get('admin/subscribers/:userId') @Roles('admin') subscriber(@Param('userId', ParseUUIDPipe) userId: string) {
     return this.admin.subscriber(userId);
   }
@@ -162,7 +166,10 @@ export class WorkspaceBillingController {
     return this.admin.createCoupon(requireHumanId(u), b);
   }
   @Post('admin/coupons/:id/deactivate') @Roles('admin') deactivateCoupon(@CurrentUser() u: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.admin.deactivateCoupon(requireHumanId(u), id);
+    return this.admin.setCouponActive(requireHumanId(u), id, false);
+  }
+  @Post('admin/coupons/:id/activate') @Roles('admin') activateCoupon(@CurrentUser() u: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.admin.setCouponActive(requireHumanId(u), id, true);
   }
   @Get('admin/settings') @Roles('admin') settings() {
     return this.admin.settings();
@@ -170,7 +177,7 @@ export class WorkspaceBillingController {
   @Put('admin/settings') @Roles('admin') updateSettings(@CurrentUser() u: AuthenticatedUser, @Body() b: SettingsDto) {
     return this.admin.updateSettings(requireHumanId(u), b);
   }
-  @Get('admin/audit') @Roles('admin') auditLog(@Query() q: BillingPage) {
-    return this.admin.auditLog(q.page);
+  @Get('admin/audit') @Roles('admin') auditLog(@Query() q: AuditQuery) {
+    return this.admin.auditLog(q);
   }
 }

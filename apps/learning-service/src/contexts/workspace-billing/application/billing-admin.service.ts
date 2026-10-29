@@ -5,7 +5,7 @@ import { CommerceStore, audit, journal, lock } from '../../commerce/infrastructu
 import { notifyCommerce } from '../../commerce/infrastructure/commerce-notification';
 import { entitlementsOf, orderView, type EffectiveRow, type OrderRow, type SubscriptionRow } from '../infrastructure/billing.rows';
 import { SubscriptionsService } from './subscriptions.service';
-import type { AdjustmentDto, BillingPage, CouponDto, RefundDto, SettingsDto, SubscriberQuery } from '../presentation/workspace-billing.dto';
+import type { AdjustmentDto, AuditQuery, BillingPage, CouponDto, RefundDto, SettingsDto, SubscriberQuery } from '../presentation/workspace-billing.dto';
 
 /** SQL twin of `subscriptionState()`; `s` is a subscription, `t` its term summary. */
 const STATE_SQL = Prisma.sql`CASE
@@ -83,11 +83,17 @@ export class BillingAdminService {
       ? Prisma.sql`AND (u.display_name ILIKE ${`%${q.q.trim()}%`} OR u.email::text ILIKE ${`%${q.q.trim()}%`})`
       : Prisma.empty;
     const state = q.state ? Prisma.sql`WHERE state = ${q.state}` : Prisma.empty;
-    const base = Prisma.sql`SELECT s.*, ${STATE_SQL} AS state, t.paid_through, u.display_name, u.email::text AS email, u.avatar_url
+    const base = Prisma.sql`SELECT s.*, ${STATE_SQL} AS state, t.paid_through, u.display_name, u.email::text AS email, u.avatar_url,
+        (SELECT count(*) FROM study_groups g WHERE g.owner_id = s.user_id)::int AS owned_groups,
+        (SELECT o.over_since FROM workspace_owner_overage o WHERE o.owner_id = s.user_id) AS over_since,
+        (SELECT COALESCE(sum(amount_vnd), 0) FROM workspace_orders wo WHERE wo.buyer_id = s.user_id AND wo.status = 'paid')::bigint AS lifetime_vnd
       FROM workspace_subscriptions s ${TERMS_SQL} JOIN users u ON u.id = s.user_id
       WHERE s.ended_at IS NULL ${plan} ${search}`;
     const [rows, [count]] = await Promise.all([
-      this.store.db.$queryRaw<(SubscriptionRow & { state: string; paid_through: Date | null; display_name: string; email: string; avatar_url: string | null })[]>(
+      this.store.db.$queryRaw<(SubscriptionRow & {
+        state: string; paid_through: Date | null; display_name: string; email: string; avatar_url: string | null;
+        owned_groups: number; over_since: Date | null; lifetime_vnd: bigint;
+      })[]>(
         Prisma.sql`SELECT * FROM (${base}) x ${state} ORDER BY paid_through DESC NULLS LAST LIMIT 20 OFFSET ${(q.page - 1) * 20}`,
       ),
       this.store.db.$queryRaw<{ total: bigint }[]>(Prisma.sql`SELECT count(*) AS total FROM (${base}) x ${state}`),
@@ -104,10 +110,64 @@ export class BillingAdminService {
         paidThrough: r.paid_through,
         cancelAtPeriodEnd: r.cancel_at_period_end,
         createdAt: r.created_at,
+        ownedGroups: r.owned_groups,
+        overLimitSince: r.over_since,
+        lifetimeValueVnd: Number(r.lifetime_vnd),
       })),
       total: Number(count.total),
       page: q.page,
       limit: 20,
+    };
+  }
+
+  /** Charts above the subscriber table: who pays, for what, and what is coming up. */
+  async subscriberStats() {
+    const db = this.store.db;
+    const open = Prisma.sql`SELECT s.*, ${STATE_SQL} AS state, t.paid_through FROM workspace_subscriptions s ${TERMS_SQL} WHERE s.ended_at IS NULL`;
+    const [byState, byPlan, byCycle, monthly, upcoming, [overage]] = await Promise.all([
+      db.$queryRaw<{ state: string; n: bigint }[]>(Prisma.sql`SELECT state, count(*) AS n FROM (${open}) x GROUP BY state`),
+      db.$queryRaw<{ plan_id: string; name: string; n: bigint; mrr: bigint }[]>(Prisma.sql`
+        SELECT plan_id, max(plan_name) AS name, count(*) AS n,
+          sum(CASE WHEN billing_cycle = 'year' THEN price_vnd / 12 ELSE price_vnd END)::bigint AS mrr
+        FROM (${open}) x WHERE state IN ('ACTIVE','CANCEL_SCHEDULED','GRACE_PERIOD') GROUP BY plan_id ORDER BY n DESC`),
+      db.$queryRaw<{ cycle: string; n: bigint }[]>(Prisma.sql`
+        SELECT billing_cycle AS cycle, count(*) AS n FROM (${open}) x
+        WHERE state IN ('ACTIVE','CANCEL_SCHEDULED','GRACE_PERIOD') GROUP BY billing_cycle`),
+      // Last six months in Vietnam time: new subscriptions, renewals and cash collected.
+      db.$queryRaw<{ month: string; new_subs: bigint; renewals: bigint; revenue: bigint }[]>`
+        WITH months AS (
+          SELECT to_char(m, 'YYYY-MM') AS month FROM generate_series(
+            date_trunc('month', now() AT TIME ZONE 'Asia/Ho_Chi_Minh') - interval '5 months',
+            date_trunc('month', now() AT TIME ZONE 'Asia/Ho_Chi_Minh'), interval '1 month') m),
+        paid AS (SELECT kind, amount_vnd, to_char(paid_at AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM') AS month
+          FROM workspace_orders WHERE status IN ('paid','refunded') AND paid_at IS NOT NULL)
+        SELECT m.month, count(p.*) FILTER (WHERE p.kind IN ('new','upgrade')) AS new_subs,
+          count(p.*) FILTER (WHERE p.kind = 'renewal') AS renewals, COALESCE(sum(p.amount_vnd), 0)::bigint AS revenue
+        FROM months m LEFT JOIN paid p ON p.month = m.month GROUP BY m.month ORDER BY m.month`,
+      // Contracts whose paid period ends in the next 30 days, by week.
+      db.$queryRaw<{ week: number; n: bigint; value: bigint }[]>(Prisma.sql`
+        SELECT LEAST(3, floor(extract(epoch FROM paid_through - now()) / 604800))::int AS week, count(*) AS n,
+          sum(price_vnd)::bigint AS value
+        FROM (${open}) x WHERE state IN ('ACTIVE','CANCEL_SCHEDULED') AND paid_through < now() + interval '30 days'
+        GROUP BY 1 ORDER BY 1`),
+      db.$queryRaw<{ notice: bigint; read_only: bigint; hidden: bigint }[]>`
+        SELECT count(*) FILTER (WHERE now() < o.over_since + make_interval(days => s.overage_notice_days)) AS notice,
+          count(*) FILTER (WHERE now() >= o.over_since + make_interval(days => s.overage_notice_days)
+            AND now() < o.over_since + make_interval(days => s.overage_notice_days + s.overage_read_only_days)) AS read_only,
+          count(*) FILTER (WHERE now() >= o.over_since + make_interval(days => s.overage_notice_days + s.overage_read_only_days)) AS hidden
+        FROM workspace_owner_overage o CROSS JOIN workspace_billing_settings s`,
+    ]);
+    const n = (v: bigint | undefined) => Number(v ?? 0);
+    return {
+      byState: byState.map((r) => ({ state: r.state, count: n(r.n) })),
+      byPlan: byPlan.map((r) => ({ planId: r.plan_id, name: r.name, count: n(r.n), monthlyValueVnd: n(r.mrr) })),
+      byCycle: byCycle.map((r) => ({ cycle: r.cycle, count: n(r.n) })),
+      monthly: monthly.map((r) => ({ month: r.month, newSubscriptions: n(r.new_subs), renewals: n(r.renewals), revenueVnd: n(r.revenue) })),
+      expiringByWeek: [0, 1, 2, 3].map((week) => {
+        const row = upcoming.find((u) => u.week === week);
+        return { week, count: n(row?.n), valueVnd: n(row?.value) };
+      }),
+      overLimitOwners: { notice: n(overage?.notice), readOnly: n(overage?.read_only), hidden: n(overage?.hidden) },
     };
   }
 
@@ -289,38 +349,65 @@ export class BillingAdminService {
     });
   }
 
-  /** Coupons are never edited after creation: orders already carry their terms. */
-  async deactivateCoupon(actorId: string, id: string) {
+  /** Coupons are never edited after creation (orders carry their terms); they are only switched on or off. */
+  async setCouponActive(actorId: string, id: string, active: boolean) {
     return this.store.transaction(async (tx) => {
-      const [row] = await tx.$queryRaw<{ id: string }[]>`UPDATE workspace_coupons SET is_active = false
-        WHERE id = ${id}::uuid AND is_active RETURNING id`;
-      if (!row) throw new NotFound('Mã giảm giá đang hoạt động', id);
-      await audit(tx, 'workspace_coupon.deactivated', id, actorId);
-      return { deactivated: true };
+      const [row] = await tx.$queryRaw<{ id: string }[]>`UPDATE workspace_coupons SET is_active = ${active}
+        WHERE id = ${id}::uuid AND is_active <> ${active} RETURNING id`;
+      if (!row) throw new NotFound(active ? 'Mã giảm giá đang tắt' : 'Mã giảm giá đang hoạt động', id);
+      await audit(tx, active ? 'workspace_coupon.activated' : 'workspace_coupon.deactivated', id, actorId);
+      return { active };
     });
   }
 
   async settings() {
-    const [row] = await this.store.db.$queryRaw<{ grace_days: number; renewal_reminder_days: number; terms_version: string; updated_at: Date }[]>`
-      SELECT grace_days, renewal_reminder_days, terms_version, updated_at FROM workspace_billing_settings`;
-    return { graceDays: row.grace_days, renewalReminderDays: row.renewal_reminder_days, termsVersion: row.terms_version, updatedAt: row.updated_at };
+    const [row] = await this.store.db.$queryRaw<{
+      grace_days: number; renewal_reminder_days: number; overage_notice_days: number; overage_read_only_days: number;
+      terms_version: string; updated_at: Date; updated_by_name: string | null;
+    }[]>`
+      SELECT s.grace_days, s.renewal_reminder_days, s.overage_notice_days, s.overage_read_only_days, s.terms_version,
+        s.updated_at, u.display_name AS updated_by_name
+      FROM workspace_billing_settings s LEFT JOIN users u ON u.id = s.updated_by`;
+    return {
+      graceDays: row.grace_days,
+      renewalReminderDays: row.renewal_reminder_days,
+      overageNoticeDays: row.overage_notice_days,
+      overageReadOnlyDays: row.overage_read_only_days,
+      termsVersion: row.terms_version,
+      updatedAt: row.updated_at,
+      updatedBy: row.updated_by_name,
+    };
   }
 
   async updateSettings(actorId: string, dto: SettingsDto) {
     return this.store.transaction(async (tx) => {
       const before = await this.settings();
       await tx.$executeRaw`UPDATE workspace_billing_settings SET grace_days = ${dto.graceDays},
-        renewal_reminder_days = ${dto.renewalReminderDays}, updated_by = ${actorId}::uuid, updated_at = now()`;
+        renewal_reminder_days = ${dto.renewalReminderDays}, overage_notice_days = ${dto.overageNoticeDays},
+        overage_read_only_days = ${dto.overageReadOnlyDays}, updated_by = ${actorId}::uuid, updated_at = now()`;
       await audit(tx, 'workspace_settings.updated', null, actorId, { before, after: dto });
       return this.settings();
     });
   }
 
-  async auditLog(page: number) {
-    const rows = await this.store.db.$queryRaw<{ id: string; action: string; entity_id: string | null; details: unknown; created_at: Date; actor: string | null }[]>`
-      SELECT a.id, a.action, a.entity_id, a.details, a.created_at, u.display_name AS actor
-      FROM commerce_audit a LEFT JOIN users u ON u.id = a.actor_id
-      WHERE a.action LIKE 'workspace\\_%' ORDER BY a.created_at DESC LIMIT 30 OFFSET ${(page - 1) * 30}`;
-    return { items: rows, page, limit: 30 };
+  /** `subject` names what the entry is about: the customer, the coupon code or the plan. */
+  async auditLog(q: AuditQuery) {
+    const filter = q.category ? `workspace\\_${q.category}.%` : 'workspace\\_%';
+    const [rows, [count]] = await Promise.all([
+      this.store.db.$queryRaw<{ id: string; action: string; entity_id: string | null; details: unknown; created_at: Date; actor: string | null; subject: string | null }[]>`
+        SELECT a.id, a.action, a.entity_id, a.details, a.created_at, u.display_name AS actor,
+          COALESCE(
+            (SELECT su.display_name FROM workspace_subscriptions s JOIN users su ON su.id = s.user_id WHERE s.id = a.entity_id),
+            (SELECT ou.display_name FROM workspace_orders o JOIN users ou ON ou.id = o.buyer_id WHERE o.id = a.entity_id),
+            (SELECT c.code::text FROM workspace_coupons c WHERE c.id = a.entity_id),
+            (SELECT 'Gói ' || p.code::text FROM workspace_plans p WHERE p.id = a.entity_id),
+            (SELECT au.display_name FROM workspace_entitlement_adjustments ad JOIN users au ON au.id = ad.user_id WHERE ad.id = a.entity_id),
+            (SELECT x.display_name FROM users x WHERE x.id = a.entity_id)
+          ) AS subject
+        FROM commerce_audit a LEFT JOIN users u ON u.id = a.actor_id
+        WHERE a.action LIKE ${filter} ORDER BY a.created_at DESC LIMIT ${q.limit} OFFSET ${(q.page - 1) * q.limit}`,
+      this.store.db.$queryRaw<{ total: bigint }[]>`SELECT count(*) AS total FROM commerce_audit WHERE action LIKE ${filter}`,
+    ]);
+    return { items: rows, total: Number(count.total), page: q.page, limit: q.limit };
   }
 }

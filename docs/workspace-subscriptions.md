@@ -17,7 +17,7 @@ this page covers behaviour, the API and operations.
 | Order prices never change after creation | trigger `workspace_order_terms_immutable` |
 | Activation only after a verified payment | `SubscriptionsService.applyPayment` (provider IPN or gateway query) |
 | Quotas hold under concurrency | advisory locks `ws-owner:<id>` / `ws-group:<id>` in workspace-service |
-| Expiry or downgrade never deletes data | quotas only refuse operations that consume more |
+| Expiry or downgrade never deletes data | over-limit groups turn read-only, then hidden — never deleted |
 
 ## Plans and versions
 
@@ -26,8 +26,16 @@ this page covers behaviour, the API and operations.
 - A **version** (`workspace_plan_versions`) holds prices, limits and feature flags. Editing a plan
   means saving a draft and publishing it; `available_from` can schedule it.
 - The version **on sale** is the newest published one whose `available_from` has passed.
-- Feature flags are a closed list (`priority_support`, `advanced_assignments`,
-  `detailed_analytics`). The last two are marked *planned* and grant nothing yet.
+- Feature flags are a closed list. Features added to a plan later also reach existing
+  subscribers (limits and price stay as bought):
+
+  | Flag | Grants | Enforced in |
+  | --- | --- | --- |
+  | `advanced_assignments` | deadlines, attempt limits, assigning part of the group, AI exercise drafts and Lecter in groups | workspace-service (`WORKSPACE_FEATURE_LOCKED`), ai-service Lecter gate |
+  | `detailed_analytics` | the Progress tab's per-member table, CSV export and trends | `GET /workspaces/:slug/overview` drops `members`, `submissionTrend`, `completionTrend` |
+  | `priority_support` | support queue priority | support process |
+
+  Free keeps group totals, whole-group assignments without a deadline, and documents.
 - `monthly_ai_requests` limits Tutor questions in the owner's groups, per calendar month in
   Vietnam time. ai-service charges one request through `POST /workspaces/:slug/ai/consume` after
   the document gate, before the answer stream opens; a refusal is HTTP 429.
@@ -66,6 +74,36 @@ subscription to start, lapse or end.
 An upgrade whose credit would leave less than 5,000 VND to pay is refused
 (`WORKSPACE_PLAN_CHANGE_CONFLICT`): gateways cannot charge less.
 
+## When an owner stays above their plan
+
+Expiry, a downgrade, a revoked adjustment or a suspension can leave an owner with more groups,
+members or storage than their plan allows. Nothing is deleted; access narrows in stages, counted
+from the moment the owner is first seen above the plan (`workspace_owner_overage.over_since`,
+kept by a 10-minute sweep in workspace-service):
+
+```mermaid
+flowchart LR
+    G[Paid period ends] -->|grace, 7 days| F[Free limits apply]
+    F --> N[Notice<br/>everything works]
+    N -->|overage_notice_days, 7| R[Read-only<br/>view, download, solve assigned work,<br/>delete, remove members]
+    R -->|overage_read_only_days, 30| H[Hidden from members<br/>owner can still clean up]
+    N & R & H -->|renew, upgrade or clean up| OK[Back to normal at once]
+```
+
+Which groups are affected:
+
+| Reason | Groups |
+| --- | --- |
+| More owned groups than allowed | all but the most recently active ones, up to the allowance |
+| More members than allowed | that group |
+| More storage than allowed | every owned group (storage is shared) |
+
+Read-only refuses with `WORKSPACE_GROUP_READ_ONLY`: uploads, new or edited documents and
+exercises, assignments, chat messages, Lecter. Hidden groups answer `WORKSPACE_GROUP_HIDDEN` to
+members. Restrictions are recomputed on every request, so renewing lifts them immediately. The
+owner is notified at each stage (`workspace_subscription.overage_notice`). Both durations are
+settings in Admin → Gói Workspace → Cài đặt.
+
 ## Checkout and payment
 
 1. `POST /workspace-billing/quote` freezes the price, coupon, credit and limits in a quote.
@@ -102,7 +140,8 @@ Refusals return HTTP 422 with a specific `code` and `details` (`limit`, `used`, 
 `available`, `plan`):
 
 `WORKSPACE_GROUP_LIMIT_REACHED` · `WORKSPACE_MEMBER_LIMIT_REACHED` · `WORKSPACE_STORAGE_LIMIT_REACHED` ·
-`WORKSPACE_FILE_SIZE_EXCEEDED` · `WORKSPACE_AI_LIMIT_REACHED` · `WORKSPACE_ENTITLEMENT_UNAVAILABLE`
+`WORKSPACE_FILE_SIZE_EXCEEDED` · `WORKSPACE_AI_LIMIT_REACHED` · `WORKSPACE_ENTITLEMENT_UNAVAILABLE` ·
+`WORKSPACE_GROUP_READ_ONLY` · `WORKSPACE_GROUP_HIDDEN` · `WORKSPACE_FEATURE_LOCKED`
 
 Billing errors use `BUSINESS_RULE_VIOLATION` with `details.code`:
 `WORKSPACE_PLAN_CHANGE_CONFLICT` · `WORKSPACE_QUOTE_CHANGED` · `WORKSPACE_COUPON_INVALID` ·
@@ -123,8 +162,8 @@ All paths are under `/api/v1`.
 | GET | `/workspace-billing/orders` · `/workspace-billing/orders/:id` | signed in (own orders) |
 | POST | `/workspace-billing/orders/:id/reconcile` · `/mock` | signed in (mock only in mock mode) |
 | GET | `/workspaces/plan-usage` | signed in |
-| GET | `/workspace-billing/admin/overview` · `/plans` · `/plans/:id/versions` · `/subscribers` · `/subscribers/:userId` · `/orders` · `/coupons` · `/settings` · `/audit` | admin |
-| POST/PATCH/PUT/DELETE | `/workspace-billing/admin/plans…` · `/subscribers/:userId/suspend|restore|adjustments` · `/adjustments/:id/revoke` · `/coupons…` · `/settings` | admin |
+| GET | `/workspace-billing/admin/overview` · `/plans` · `/plans/:id/versions` · `/subscribers` · `/subscribers/stats` · `/subscribers/:userId` · `/orders` · `/coupons` · `/settings` · `/audit?category=` | admin |
+| POST/PATCH/PUT/DELETE | `/workspace-billing/admin/plans…` · `/subscribers/:userId/suspend|restore|adjustments` · `/adjustments/:id/revoke` · `/coupons…` (`/activate`, `/deactivate`) · `/settings` | admin |
 | GET | `/workspaces/plan-usage/admin-overview` | admin |
 
 ## Deployment order
@@ -155,7 +194,6 @@ new nullable column. Do not drop the new tables once a subscription has been pai
 
 - Automatic recurring charges (the gateways are used for one-off payments only).
 - Refunds through the gateway API (an administrator refunds in the gateway portal and records it).
-- `advanced_assignments` and `detailed_analytics` (shown as planned).
 
 ## Ownership transfer
 
