@@ -8,9 +8,21 @@ export const MIN_CHARGE_VND = 5_000;
 
 /** Closed registry of plan features; mirrors the CHECK on `workspace_plan_versions.features`. */
 export const FEATURES = {
-  priority_support: { label: 'Hỗ trợ ưu tiên', status: 'available' },
-  advanced_assignments: { label: 'Quản lý bài tập nâng cao', status: 'available' },
-  detailed_analytics: { label: 'Thống kê nhóm chi tiết', status: 'available' },
+  priority_support: {
+    label: 'Hỗ trợ ưu tiên',
+    status: 'available',
+    description: 'Yêu cầu hỗ trợ của chủ nhóm được xử lý trước.',
+  },
+  advanced_assignments: {
+    label: 'Quản lý bài tập nâng cao',
+    status: 'available',
+    description: 'Hạn nộp, giới hạn số lần nộp, giao bài cho từng thành viên và soạn bài bằng AI (Lecter).',
+  },
+  detailed_analytics: {
+    label: 'Thống kê nhóm chi tiết',
+    status: 'available',
+    description: 'Tiến độ từng thành viên, xu hướng nộp bài và hoàn thành, xuất CSV.',
+  },
 } as const;
 export type FeatureKey = keyof typeof FEATURES;
 export const FEATURE_KEYS = Object.keys(FEATURES) as FeatureKey[];
