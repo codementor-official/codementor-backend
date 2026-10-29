@@ -67,3 +67,17 @@ export class NotAuthorized extends DomainError {
     super(`Không có quyền thực hiện: ${action}`, details);
   }
 }
+
+/**
+ * A plan limit would be exceeded. `code` is specific (e.g. `WORKSPACE_STORAGE_LIMIT_REACHED`)
+ * so clients can offer the right fix; `details` carries the limit and current usage. → HTTP 422
+ */
+export class QuotaExceeded extends DomainError {
+  constructor(
+    readonly code: string,
+    message: string,
+    details?: Record<string, unknown>,
+  ) {
+    super(message, details);
+  }
+}
