@@ -34,6 +34,7 @@ services:
         paths:
           - /api/v1/courses
           - /api/v1/commerce
+          - /api/v1/workspace-billing
           - /api/v1/chapters
           - /api/v1/lessons
           - /api/v1/roadmaps
