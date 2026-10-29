@@ -1,4 +1,4 @@
-import type { OwnerEntitlements, OwnerUsage } from '../model/workspace-quota';
+import type { OveragePolicy, OwnerEntitlements, OwnerUsage } from '../model/workspace-quota';
 
 export interface QuotaSnapshot {
   entitlements: OwnerEntitlements;
@@ -12,6 +12,8 @@ export interface OwnedGroupUsage {
   status: 'active' | 'archived';
   memberCount: number;
   storedBytes: number;
+  /** Last activity, or creation for a group nobody has used yet. */
+  lastActivityAt: Date;
 }
 
 /** Throws to refuse; runs inside the transaction that holds the quota lock. */
@@ -39,6 +41,12 @@ export const WORKSPACE_QUOTA_REPOSITORY = Symbol('WORKSPACE_QUOTA_REPOSITORY');
 export interface WorkspaceQuotaRepository {
   snapshot(ownerId: string): Promise<QuotaSnapshot>;
   ownedGroups(ownerId: string): Promise<OwnedGroupUsage[]>;
+  /** Since when the owner has been above their plan, with the policy that applies; null when within it. */
+  overage(ownerId: string): Promise<{ overSince: Date; policy: OveragePolicy } | null>;
+  /** Every user who owns a group or is still marked over the limit. */
+  groupOwners(): Promise<string[]>;
+  /** Starts the clock the first time an owner is seen over, clears it once they are within. */
+  markOverage(ownerId: string, over: boolean): Promise<void>;
   /** Activates (or re-activates) a membership if the group's owner has a free seat. */
   admitMember(groupId: string, userId: string, guard: SeatGuard): Promise<string>;
   reserveUpload(input: {

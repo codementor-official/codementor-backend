@@ -1,5 +1,9 @@
 import {
+  assertFeature,
+  assertWritable,
   formatBytes,
+  overageTimeline,
+  overLimitGroups,
   groupSlotProblem,
   memberSeatProblem,
   transferProblems,
@@ -9,7 +13,7 @@ import {
 } from './workspace-quota';
 
 const MB = 1024 ** 2;
-const free: OwnerEntitlements = { source: 'free', planName: 'Free', maxOwnedGroups: 1, maxMembersPerGroup: 10, maxStorageBytes: 100 * MB, maxUploadBytes: 10 * MB, monthlyAiRequests: 30 };
+const free: OwnerEntitlements = { source: 'free', planName: 'Free', maxOwnedGroups: 1, maxMembersPerGroup: 10, maxStorageBytes: 100 * MB, maxUploadBytes: 10 * MB, monthlyAiRequests: 30, features: [] };
 const pro: OwnerEntitlements = { ...free, source: 'paid', planName: 'Pro', maxOwnedGroups: 20, maxMembersPerGroup: null, maxStorageBytes: 20 * 1024 * MB, maxUploadBytes: 250 * MB };
 const empty = { ownedGroups: 0, storedBytes: 0, reservedBytes: 0 };
 
@@ -80,5 +84,50 @@ describe('formatBytes', () => {
     expect(formatBytes(100 * MB)).toBe('100 MB');
     expect(formatBytes(1.5 * 1024 * MB)).toBe('1.5 GB');
     expect(formatBytes(512)).toBe('512 B');
+  });
+});
+
+describe('overLimitGroups', () => {
+  const day = (d: number) => new Date(Date.UTC(2026, 9, d));
+  const groups = [
+    { id: 'old', memberCount: 4, lastActivityAt: day(1) },
+    { id: 'busy', memberCount: 30, lastActivityAt: day(20) },
+    { id: 'mid', memberCount: 2, lastActivityAt: day(10) },
+  ];
+  it('keeps the most recently active groups open within the allowance', () => {
+    const over = overLimitGroups(free, empty, groups);
+    expect(over.has('busy')).toBe(true); // kept by activity, but too many members
+    expect(over.get('busy')).toEqual(['members']);
+    expect(over.get('mid')).toEqual(['groups']);
+    expect(over.get('old')).toEqual(['groups']);
+  });
+  it('holds every group when shared storage is exceeded', () => {
+    const over = overLimitGroups(pro, { ...empty, storedBytes: pro.maxStorageBytes + 1 }, groups);
+    expect([...over.values()]).toEqual([['storage'], ['storage'], ['storage']]);
+  });
+  it('is empty within the plan', () => {
+    expect(overLimitGroups(pro, empty, groups).size).toBe(0);
+  });
+});
+
+describe('overageTimeline', () => {
+  const since = new Date('2026-10-01T00:00:00Z');
+  const policy = { noticeDays: 7, readOnlyDays: 30 };
+  it('moves from notice to read-only to hidden', () => {
+    expect(overageTimeline(since, policy, new Date('2026-10-07T23:59:59Z')).stage).toBe('notice');
+    expect(overageTimeline(since, policy, new Date('2026-10-08T00:00:00Z')).stage).toBe('read_only');
+    expect(overageTimeline(since, policy, new Date('2026-11-07T00:00:00Z')).stage).toBe('hidden');
+  });
+  it('lets notice-stage groups write and refuses read-only ones', () => {
+    const notice = { ...overageTimeline(since, policy, since), reasons: ['groups' as const] };
+    expect(() => assertWritable(notice)).not.toThrow();
+    expect(() => assertWritable({ ...notice, stage: 'read_only' })).toThrow(/chỉ đọc/);
+  });
+});
+
+describe('assertFeature', () => {
+  it('names the feature and the plan that lacks it', () => {
+    expect(() => assertFeature({ name: 'Free', features: [] }, 'detailed_analytics')).toThrow('Thống kê nhóm chi tiết không có trong gói Free');
+    expect(() => assertFeature({ name: 'Plus', features: ['detailed_analytics'] }, 'detailed_analytics')).not.toThrow();
   });
 });

@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
+import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound, QuotaExceeded } from '@codementor/kernel';
 import { TOPICS } from '@codementor/contracts';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import {
@@ -27,7 +27,12 @@ import {
   assertWithinQuota,
   groupSlotProblem,
   memberSeatProblem,
+  overageTimeline,
+  overLimitGroups,
+  QUOTA_CODES,
+  restrictionMessage,
   transferProblems,
+  type GroupRestriction,
 } from '../domain/model/workspace-quota';
 import type {
   CreateWorkspaceDto,
@@ -111,6 +116,10 @@ export class WorkspaceService {
     const permissions = adminView
       ? ADMIN_VIEW_PERMISSIONS
       : resolveWorkspacePermissions(membership.role, data.rolePermissions, data.memberOverrides);
+    const plan = await this.groupPlan(data.owner.id, data.id);
+    // Hidden groups stay reachable for their owner (to clean up) and for moderators.
+    if (plan.restriction?.stage === 'hidden' && membership.role !== 'owner' && !adminView)
+      throw new QuotaExceeded(QUOTA_CODES.hidden, restrictionMessage(plan.restriction), { stage: 'hidden' });
     return {
       id: data.id,
       slug: data.slug,
@@ -138,6 +147,7 @@ export class WorkspaceService {
         permissions,
         adminView,
       },
+      plan,
       inviteCode: membership.role === 'owner' ? data.inviteCode : null,
       rolePermissions:
         membership.role === 'owner'
@@ -450,7 +460,7 @@ export class WorkspaceService {
     const workspace = await this.requireActive(slug);
     const offer = await this.quota.pendingOffer(workspace.id);
     if (!offer || (offer.fromUserId !== userId && offer.toUserId !== userId)) return null;
-    return offer;
+    return { ...offer, forMe: offer.toUserId === userId };
   }
 
   myTransferOffers(userId: string) {
@@ -641,6 +651,17 @@ export class WorkspaceService {
    * coi như một thành viên thường: chỉ thông tin công khai, không quyền quản lý.
    */
   /** The only way a membership becomes active: atomic seat check under the group lock. */
+  /** The owner's plan as it applies to one group: its features and any over-limit restriction. */
+  async groupPlan(ownerId: string, groupId: string) {
+    const [{ entitlements, usage }, overage] = await Promise.all([this.quota.snapshot(ownerId), this.quota.overage(ownerId)]);
+    let restriction: GroupRestriction | null = null;
+    if (overage) {
+      const reasons = overLimitGroups(entitlements, usage, await this.quota.ownedGroups(ownerId)).get(groupId);
+      if (reasons) restriction = { ...overageTimeline(overage.overSince, overage.policy), reasons };
+    }
+    return { name: entitlements.planName, features: entitlements.features, restriction };
+  }
+
   private async admit(groupId: string, userId: string) {
     const membershipId = await this.quota.admitMember(groupId, userId, (entitlements, active) =>
       assertWithinQuota(memberSeatProblem(entitlements, active)),

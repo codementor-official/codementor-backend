@@ -338,3 +338,26 @@ def test_duplicate_tool_name_is_dropped_before_bind():
     OpenAI và bị từ chối cả yêu cầu — trang khai nhầm không chiếm được quyền nhưng giết cả run."""
     state = {"tools": [{"name": "run_solution"}, {"name": "save_curriculum"}]}
     assert [tool["name"] for tool in frontend_tools(state, SERVER_NAMES)] == ["save_curriculum"]
+
+
+async def test_workspace_gate_follows_owner_plan(monkeypatch):
+    """Lecter trong nhóm là tính năng trả phí của CHỦ NHÓM: thiếu tính năng thì 403 trước khi tốn lượt AI."""
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.lecter.endpoint import _workspace_gate
+
+    detail = {"id": "g1", "currentMembership": {"role": "owner"}, "plan": {"name": "Free", "features": []}}
+
+    async def fake(method, path, config, **_):
+        return detail
+
+    monkeypatch.setattr(http, "workspace", fake)
+    request = SimpleNamespace(state=SimpleNamespace(access_token="t"))
+    with pytest.raises(HTTPException) as refused:
+        await _workspace_gate("nhom", request)
+    assert refused.value.status_code == 403 and "Free" in refused.value.detail
+
+    detail["plan"] = {"name": "Plus", "features": ["advanced_assignments"], "restriction": None}
+    assert await _workspace_gate("nhom", request) == "g1"

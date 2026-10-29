@@ -4,7 +4,7 @@ import {
   WORKSPACE_QUOTA_REPOSITORY,
   type WorkspaceQuotaRepository,
 } from '../domain/port/workspace-quota.repository';
-import { usageLevel } from '../domain/model/workspace-quota';
+import { overageTimeline, overLimitGroups, usageLevel } from '../domain/model/workspace-quota';
 
 /** Read side of Workspace quotas, plus cleanup of uploads that were never confirmed. */
 @Injectable()
@@ -20,7 +20,7 @@ export class WorkspaceQuotaService implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     if (process.env.WORKSPACE_UPLOAD_JANITOR_ENABLED === 'false') return;
-    this.timer = setInterval(() => void this.releaseAbandonedUploads(), 10 * 60_000);
+    this.timer = setInterval(() => void this.releaseAbandonedUploads().then(() => this.sweepOverage()), 10 * 60_000);
     this.timer.unref();
   }
 
@@ -30,11 +30,13 @@ export class WorkspaceQuotaService implements OnModuleInit, OnModuleDestroy {
 
   /** The owner's own view: limits, consumption and where each limit stands. */
   async usage(ownerId: string) {
-    const [{ entitlements, usage }, groups, aiUsed] = await Promise.all([
+    const [{ entitlements, usage }, groups, aiUsed, overage] = await Promise.all([
       this.quota.snapshot(ownerId),
       this.quota.ownedGroups(ownerId),
       this.quota.aiRequestsThisMonth(ownerId),
+      this.quota.overage(ownerId),
     ]);
+    const over = overLimitGroups(entitlements, usage, groups);
     const storage = usage.storedBytes + usage.reservedBytes;
     return {
       plan: { name: entitlements.planName, source: entitlements.source },
@@ -52,7 +54,13 @@ export class WorkspaceQuotaService implements OnModuleInit, OnModuleDestroy {
           .filter((g) => entitlements.maxMembersPerGroup !== null && g.memberCount > entitlements.maxMembersPerGroup)
           .map((g) => g.id),
       },
-      groups: groups.map((g) => ({ ...g, memberLevel: usageLevel(g.memberCount, entitlements.maxMembersPerGroup) })),
+      groups: groups.map((g) => ({
+        ...g,
+        memberLevel: usageLevel(g.memberCount, entitlements.maxMembersPerGroup),
+        overLimitReasons: over.get(g.id) ?? [],
+      })),
+      // The clock starts at the next sweep; until then an over-limit owner sees no dates yet.
+      overage: overage && over.size ? overageTimeline(overage.overSince, overage.policy) : null,
     };
   }
 
@@ -100,6 +108,25 @@ export class WorkspaceQuotaService implements OnModuleInit, OnModuleDestroy {
         maxOwnedGroups: o.max_groups,
       })),
     };
+  }
+
+  /**
+   * Starts or clears each owner's over-limit clock. Runs every 10 minutes; restrictions are
+   * recomputed on every request, so renewing or cleaning up lifts them at once.
+   */
+  async sweepOverage() {
+    let marked = 0;
+    try {
+      for (const ownerId of await this.quota.groupOwners()) {
+        const [{ entitlements, usage }, groups] = await Promise.all([this.quota.snapshot(ownerId), this.quota.ownedGroups(ownerId)]);
+        const over = overLimitGroups(entitlements, usage, groups).size > 0;
+        await this.quota.markOverage(ownerId, over);
+        if (over) marked++;
+      }
+    } catch (error) {
+      this.logger.warn(`Could not sweep Workspace overage: ${(error as Error).message}`);
+    }
+    return { marked };
   }
 
   /**

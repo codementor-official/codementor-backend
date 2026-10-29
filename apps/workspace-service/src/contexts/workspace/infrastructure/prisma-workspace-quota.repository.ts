@@ -31,8 +31,9 @@ export async function readEntitlements(db: Db, ownerId: string): Promise<OwnerEn
       max_storage_bytes: bigint;
       max_upload_bytes: bigint;
       monthly_ai_requests: number;
+      features: string[];
     }[]
-  >`SELECT source, plan_name, max_owned_groups, max_members_per_group, max_storage_bytes, max_upload_bytes, monthly_ai_requests
+  >`SELECT source, plan_name, max_owned_groups, max_members_per_group, max_storage_bytes, max_upload_bytes, monthly_ai_requests, features
     FROM workspace_effective_entitlements(${ownerId}::uuid)`;
   // No configured default plan: refuse to consume quota rather than guess a limit.
   if (!row) throw new QuotaExceeded(QUOTA_CODES.unavailable, 'Hệ thống gói Workspace tạm thời chưa sẵn sàng. Vui lòng thử lại sau.');
@@ -44,6 +45,7 @@ export async function readEntitlements(db: Db, ownerId: string): Promise<OwnerEn
     maxStorageBytes: Number(row.max_storage_bytes),
     maxUploadBytes: Number(row.max_upload_bytes),
     monthlyAiRequests: row.monthly_ai_requests,
+    features: row.features,
   };
 }
 
@@ -100,8 +102,9 @@ export class PrismaWorkspaceQuotaRepository implements WorkspaceQuotaRepository 
 
   async ownedGroups(ownerId: string): Promise<OwnedGroupUsage[]> {
     const rows = await this.prisma.$queryRaw<
-      { id: string; slug: string; name: string; status: 'active' | 'archived'; member_count: number; stored: bigint }[]
+      { id: string; slug: string; name: string; status: 'active' | 'archived'; member_count: number; stored: bigint; last_activity_at: Date }[]
     >`SELECT g.id, g.slug::text, g.name, g.status::text AS status, g.member_count,
+        COALESCE(g.last_activity_at, g.created_at) AS last_activity_at,
         (SELECT COALESCE(sum(size_bytes), 0) FROM group_documents WHERE group_id = g.id)::bigint AS stored
       FROM study_groups g WHERE g.owner_id = ${ownerId}::uuid ORDER BY g.status, g.created_at`;
     return rows.map((r) => ({
@@ -111,7 +114,29 @@ export class PrismaWorkspaceQuotaRepository implements WorkspaceQuotaRepository 
       status: r.status,
       memberCount: r.member_count,
       storedBytes: Number(r.stored),
+      lastActivityAt: r.last_activity_at,
     }));
+  }
+
+  async overage(ownerId: string) {
+    const [row] = await this.prisma.$queryRaw<{ over_since: Date; notice: number; read_only: number }[]>`
+      SELECT o.over_since, s.overage_notice_days AS notice, s.overage_read_only_days AS read_only
+      FROM workspace_owner_overage o CROSS JOIN workspace_billing_settings s WHERE o.owner_id = ${ownerId}::uuid`;
+    return row ? { overSince: row.over_since, policy: { noticeDays: row.notice, readOnlyDays: row.read_only } } : null;
+  }
+
+  async groupOwners() {
+    const rows = await this.prisma.$queryRaw<{ owner_id: string }[]>`
+      SELECT DISTINCT owner_id FROM study_groups
+      UNION SELECT owner_id FROM workspace_owner_overage`;
+    return rows.map((r) => r.owner_id);
+  }
+
+  async markOverage(ownerId: string, over: boolean) {
+    if (over)
+      await this.prisma.$executeRaw`INSERT INTO workspace_owner_overage(owner_id) VALUES (${ownerId}::uuid)
+        ON CONFLICT (owner_id) DO UPDATE SET checked_at = now()`;
+    else await this.prisma.$executeRaw`DELETE FROM workspace_owner_overage WHERE owner_id = ${ownerId}::uuid`;
   }
 
   async admitMember(groupId: string, userId: string, guard: SeatGuard) {

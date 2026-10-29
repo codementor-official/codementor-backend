@@ -24,6 +24,8 @@ describe('WorkspaceContentService permission boundaries', () => {
     const workspaces = {
       detail: jest.fn().mockResolvedValue({
         id: workspaceId,
+        memberCount: 5,
+        plan: { name: 'Plus', features: ['advanced_assignments'], restriction: null },
         currentMembership: { id: contentId, role: 'deputy', permissions },
       }),
     };
@@ -143,13 +145,14 @@ describe('WorkspaceContentService uploads against the owner plan', () => {
   const groupId = '20000000-0000-4000-8000-000000000002';
   const key = `docs/workspaces/${groupId}/file.pdf`;
   const permissions = Object.fromEntries(WORKSPACE_PERMISSIONS.map((p) => [p, true])) as EffectivePermissions;
-  const free = { source: 'free', planName: 'Free', maxOwnedGroups: 1, maxMembersPerGroup: 10, maxStorageBytes: 100 * MB, maxUploadBytes: 10 * MB, monthlyAiRequests: 30 };
+  const free = { source: 'free', planName: 'Free', maxOwnedGroups: 1, maxMembersPerGroup: 10, maxStorageBytes: 100 * MB, maxUploadBytes: 10 * MB, monthlyAiRequests: 30, features: [] };
 
-  function setup(usage = { ownedGroups: 1, storedBytes: 0, reservedBytes: 0 }) {
+  function setup(usage = { ownedGroups: 1, storedBytes: 0, reservedBytes: 0 }, restriction: unknown = null) {
     const workspaces = {
       detail: jest.fn().mockResolvedValue({
         id: groupId,
         owner: { id: ownerId },
+        plan: { name: 'Free', features: [], restriction },
         currentMembership: { id: 'm', role: 'member', permissions },
       }),
     };
@@ -175,8 +178,33 @@ describe('WorkspaceContentService uploads against the owner plan', () => {
       {} as never,
       { publish: jest.fn() } as never,
     );
-    return { service, content, quota, storage };
+    return { service, content, quota, storage, workspaces };
   }
+
+  it('refuses uploads in a read-only group without reserving anything', async () => {
+    const { service, quota } = setup(undefined, { stage: 'read_only', reasons: ['members'], hiddenAt: new Date() });
+    await expect(
+      service.presign('uploader', 'g', { filename: 'a.pdf', contentType: 'application/pdf', sizeBytes: 1 * MB } as never),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_GROUP_READ_ONLY' });
+    expect(quota.reserveUpload).not.toHaveBeenCalled();
+  });
+
+  it('keeps deadlines and partial assignment for plans with advanced assignments', async () => {
+    const { service, workspaces } = setup();
+    workspaces.detail.mockResolvedValue({
+      id: groupId,
+      owner: { id: ownerId },
+      memberCount: 5,
+      plan: { name: 'Free', features: [], restriction: null },
+      currentMembership: { id: 'm', role: 'owner', permissions },
+    });
+    await expect(
+      service.attachExercise('owner', 'g', { exerciseId: 'e', memberIds: ['a', 'b', 'c', 'd'], dueAt: '2026-12-01T00:00:00Z' } as never),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_FEATURE_LOCKED' });
+    await expect(
+      service.attachExercise('owner', 'g', { exerciseId: 'e', memberIds: ['a', 'b'] } as never),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_FEATURE_LOCKED' });
+  });
 
   it('reserves the signed size against the group owner, not the uploader', async () => {
     const { service, quota } = setup();

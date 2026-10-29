@@ -12,6 +12,7 @@ const free: OwnerEntitlements = {
   maxStorageBytes: 100 * 1024 ** 2,
   maxUploadBytes: 10 * 1024 ** 2,
   monthlyAiRequests: 30,
+  features: [],
 };
 const ownerId = '10000000-0000-4000-8000-000000000001';
 const userId = '10000000-0000-4000-8000-000000000002';

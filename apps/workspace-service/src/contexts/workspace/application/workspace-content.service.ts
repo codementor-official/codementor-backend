@@ -14,7 +14,7 @@ import {
   WORKSPACE_QUOTA_REPOSITORY,
   type WorkspaceQuotaRepository,
 } from '../domain/port/workspace-quota.repository';
-import { assertWithinQuota, uploadProblem } from '../domain/model/workspace-quota';
+import { assertFeature, assertWithinQuota, assertWritable, uploadProblem } from '../domain/model/workspace-quota';
 import type {
   AttachWorkspaceExerciseDto,
   CreateWorkspaceExerciseDto,
@@ -81,6 +81,7 @@ export class WorkspaceContentService {
   async presign(userId: string, slug: string, dto: DocumentUploadUrlDto) {
     const detail = await this.workspaces.detail(userId, slug);
     this.require(detail, 'upload_doc');
+    assertWritable(detail.plan.restriction);
     const result = await this.storage.presignDocumentUpload({
       prefix: `workspaces/${detail.id}`,
       filename: dto.filename,
@@ -103,6 +104,7 @@ export class WorkspaceContentService {
     const detail = await this.workspaces.detail(userId, slug);
     if (detail.currentMembership.role !== 'owner')
       throw new NotAuthorized('Chỉ Chủ nhóm được thay ảnh nhóm');
+    assertWritable(detail.plan.restriction);
     const result = await this.storage.presignDocumentUpload({
       prefix: `workspaces/${detail.id}/branding/${dto.kind}`,
       filename: dto.filename,
@@ -167,6 +169,7 @@ export class WorkspaceContentService {
   async createDocument(userId: string, slug: string, dto: CreateWorkspaceDocumentDto) {
     const detail = await this.workspaces.detail(userId, slug);
     this.require(detail, 'upload_doc');
+    assertWritable(detail.plan.restriction);
     const prefix = `workspaces/${detail.id}`;
     if (!this.storage.isDocumentKeyFor(dto.storageKey, prefix))
       throw new BusinessRuleViolation('Tệp không thuộc Workspace này');
@@ -214,6 +217,8 @@ export class WorkspaceContentService {
       throw new BusinessRuleViolation('Vui lòng nhập lý do xử lý tài liệu');
     if (!hasMetadataPatch && !hasStatusPatch)
       throw new BusinessRuleViolation('Không có thay đổi hợp lệ');
+    // Hiding or rejecting stays possible in a read-only group; adding or publishing does not.
+    if (hasMetadataPatch || dto.status === 'published') assertWritable(detail.plan.restriction);
     const updated = await this.content.updateDocument(detail.id, id, {
       title: dto.title?.trim(),
       topic: dto.topic === undefined ? undefined : (clean(dto.topic) ?? null),
@@ -414,6 +419,8 @@ export class WorkspaceContentService {
   async attachExercise(userId: string, slug: string, dto: AttachWorkspaceExerciseDto) {
     const detail = await this.workspaces.detail(userId, slug);
     this.requireAny(detail, ['assign_exercise']);
+    assertWritable(detail.plan.restriction);
+    this.requireAssignmentTools(detail, dto);
     if (!(await this.content.publicExerciseExists(dto.exerciseId)))
       throw new NotFound('Bài tập', dto.exerciseId);
     const linked = await this.content.attachExercise(detail.id, userId, {
@@ -437,6 +444,8 @@ export class WorkspaceContentService {
     this.requireAny(detail, ['create_exercise']);
     if (dto.memberIds.length && !this.canAny(detail, ['assign_exercise']))
       throw new NotAuthorized('Bạn không có quyền phân công bài tập');
+    assertWritable(detail.plan.restriction);
+    this.requireAssignmentTools(detail, dto);
     const created = await this.content.createExercise(detail.id, userId, {
       title: dto.title.trim(),
       slug: clean(dto.slug),
@@ -471,6 +480,8 @@ export class WorkspaceContentService {
   ) {
     const detail = await this.workspaces.detail(userId, slug);
     this.requireAny(detail, ['create_exercise']);
+    assertWritable(detail.plan.restriction);
+    assertFeature(detail.plan, 'advanced_assignments');
     const documents = await this.content.approvedDocumentContext(detail.id, dto.documentIds);
     if (!documents.length)
       throw new BusinessRuleViolation('Workspace chưa có tài liệu đã duyệt để tạo bản nháp');
@@ -505,6 +516,7 @@ export class WorkspaceContentService {
   async duplicateExercise(userId: string, slug: string, id: string) {
     const detail = await this.workspaces.detail(userId, slug);
     this.requireAny(detail, ['create_exercise']);
+    assertWritable(detail.plan.restriction);
     const created = await this.content.duplicateExercise(detail.id, id, userId);
     if (!created) throw new NotFound('Bài tập nhóm', id);
     return created;
@@ -542,6 +554,17 @@ export class WorkspaceContentService {
       throw new BusinessRuleViolation('Vui lòng nhập lý do ẩn bài tập');
     if (!hasContentPatch && !hasAssignmentPatch && dto.publicationStatus === undefined)
       throw new BusinessRuleViolation('Không có thay đổi hợp lệ');
+    if (hasContentPatch || hasAssignmentPatch || dto.publicationStatus === 'published')
+      assertWritable(detail.plan.restriction);
+    // Only a change needs the paid tools: saving an exercise that already has a deadline does not.
+    const sameMembers =
+      dto.memberIds?.length === existing.assignmentMemberIds.length &&
+      dto.memberIds.every((memberId) => existing.assignmentMemberIds.includes(memberId));
+    this.requireAssignmentTools(detail, {
+      dueAt: dto.dueAt && new Date(dto.dueAt).getTime() !== existing.dueAt?.getTime() ? dto.dueAt : null,
+      attemptLimit: dto.attemptLimit !== existing.attemptLimit ? dto.attemptLimit : null,
+      memberIds: sameMembers ? undefined : dto.memberIds,
+    });
     const newlyAssigned =
       dto.memberIds?.filter((memberId) => !existing.assignmentMemberIds.includes(memberId)) ?? [];
     const updated = await this.content.updateExercise(detail.id, id, {
@@ -740,6 +763,16 @@ export class WorkspaceContentService {
     } catch (error) {
       this.logger.error('Không phát được thông báo hoạt động Workspace', error as Error);
     }
+  }
+
+  /** Deadlines, attempt caps and assigning only part of the group are the paid assignment tools. */
+  private requireAssignmentTools(
+    detail: Detail,
+    a: { dueAt?: string | null; attemptLimit?: number | null; memberIds?: string[] },
+  ) {
+    // memberCount includes the owner, who is never assigned.
+    const partial = !!a.memberIds?.length && a.memberIds.length < detail.memberCount - 1;
+    if (a.dueAt || a.attemptLimit || partial) assertFeature(detail.plan, 'advanced_assignments');
   }
 
   private require(detail: Detail, permission: keyof Detail['currentMembership']['permissions']) {
