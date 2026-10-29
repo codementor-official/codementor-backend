@@ -93,8 +93,8 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
       LIMIT 100`;
     for (const s of due)
       await this.notifyOnce(s.id, s.user_id, 'workspace_subscription.renewal_reminder', s.paid_through,
-        `Your ${s.plan_name} plan renews manually`,
-        `It is paid through ${vnDate(s.paid_through)}. Renew before then to keep your limits and contract price.`);
+        `Gói ${s.plan_name} sắp hết hạn`,
+        `Gói có hiệu lực đến ${vnDate(s.paid_through)}. Gia hạn trước ngày này để giữ hạn mức và giá đã ký.`);
     return due.length;
   }
 
@@ -111,8 +111,8 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
       LIMIT 100`;
     for (const s of due)
       await this.notifyOnce(s.id, s.user_id, 'workspace_subscription.grace_notice', s.paid_through,
-        `Your ${s.plan_name} plan has ended`,
-        'Your groups and documents are safe. Renew during the grace period to keep your paid limits.');
+        `Gói ${s.plan_name} đã hết kỳ thanh toán`,
+        'Nhóm và tài liệu của bạn vẫn được giữ nguyên. Gia hạn trong thời gian ân hạn để giữ hạn mức của gói.');
     return due.length;
   }
 
@@ -129,5 +129,5 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
 }
 
 function vnDate(d: Date) {
-  return d.toLocaleDateString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' });
+  return d.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' });
 }

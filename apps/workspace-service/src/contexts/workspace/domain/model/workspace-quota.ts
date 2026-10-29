@@ -38,7 +38,7 @@ export function groupSlotProblem(e: OwnerEntitlements, u: OwnerUsage): QuotaProb
   if (u.ownedGroups < e.maxOwnedGroups) return null;
   return {
     code: QUOTA_CODES.groups,
-    message: `Your ${e.planName} plan allows ${e.maxOwnedGroups} study group${e.maxOwnedGroups === 1 ? '' : 's'}, and you own ${u.ownedGroups}.`,
+    message: `Gói ${e.planName} cho phép sở hữu ${e.maxOwnedGroups} nhóm học tập, bạn đang sở hữu ${u.ownedGroups} nhóm.`,
     details: { limit: e.maxOwnedGroups, used: u.ownedGroups, plan: e.planName },
   };
 }
@@ -48,7 +48,7 @@ export function memberSeatProblem(e: OwnerEntitlements, members: number): QuotaP
   if (e.maxMembersPerGroup === null || members < e.maxMembersPerGroup) return null;
   return {
     code: QUOTA_CODES.members,
-    message: `This group has reached its maximum of ${e.maxMembersPerGroup} members.`,
+    message: `Nhóm đã đạt tối đa ${e.maxMembersPerGroup} thành viên.`,
     details: { limit: e.maxMembersPerGroup, used: members, plan: e.planName },
   };
 }
@@ -58,14 +58,14 @@ export function uploadProblem(e: OwnerEntitlements, u: OwnerUsage, sizeBytes: nu
   if (sizeBytes > e.maxUploadBytes)
     return {
       code: QUOTA_CODES.fileSize,
-      message: `This file is ${formatBytes(sizeBytes)}; your ${e.planName} plan accepts files up to ${formatBytes(e.maxUploadBytes)}.`,
+      message: `Tệp nặng ${formatBytes(sizeBytes)}, vượt giới hạn ${formatBytes(e.maxUploadBytes)} mỗi tệp của gói ${e.planName}.`,
       details: { limit: e.maxUploadBytes, requested: sizeBytes, plan: e.planName },
     };
   const used = u.storedBytes + u.reservedBytes;
   if (used + sizeBytes <= e.maxStorageBytes) return null;
   return {
     code: QUOTA_CODES.storage,
-    message: `You've used ${formatBytes(used)} of your ${formatBytes(e.maxStorageBytes)} workspace storage; this file needs ${formatBytes(sizeBytes)}.`,
+    message: `Workspace đã dùng ${formatBytes(used)} / ${formatBytes(e.maxStorageBytes)}; tệp này cần thêm ${formatBytes(sizeBytes)}.`,
     details: { limit: e.maxStorageBytes, used, requested: sizeBytes, available: Math.max(0, e.maxStorageBytes - used), plan: e.planName },
   };
 }
@@ -81,18 +81,18 @@ export function transferProblems(
 ): QuotaProblem[] {
   const problems: QuotaProblem[] = [];
   const slot = groupSlotProblem(e, u);
-  if (slot) problems.push({ ...slot, message: `The new owner's ${e.planName} plan has no free study group slot.` });
+  if (slot) problems.push({ ...slot, message: `Gói ${e.planName} của người nhận đã hết lượt sở hữu nhóm.` });
   if (e.maxMembersPerGroup !== null && group.members > e.maxMembersPerGroup)
     problems.push({
       code: QUOTA_CODES.members,
-      message: `This group has ${group.members} members; the new owner's plan allows ${e.maxMembersPerGroup} per group.`,
+      message: `Nhóm có ${group.members} thành viên, gói của người nhận chỉ cho phép ${e.maxMembersPerGroup} thành viên mỗi nhóm.`,
       details: { limit: e.maxMembersPerGroup, used: group.members, plan: e.planName },
     });
   const used = u.storedBytes + u.reservedBytes;
   if (used + group.storedBytes > e.maxStorageBytes)
     problems.push({
       code: QUOTA_CODES.storage,
-      message: `This group stores ${formatBytes(group.storedBytes)}; the new owner has ${formatBytes(Math.max(0, e.maxStorageBytes - used))} left.`,
+      message: `Nhóm đang lưu ${formatBytes(group.storedBytes)}, người nhận chỉ còn ${formatBytes(Math.max(0, e.maxStorageBytes - used))} dung lượng.`,
       details: { limit: e.maxStorageBytes, used, requested: group.storedBytes, plan: e.planName },
     });
   return problems;

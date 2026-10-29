@@ -122,7 +122,7 @@ export class BillingAdminService {
       db.$queryRaw<Record<string, unknown>[]>`SELECT a.*, u.display_name AS created_by_name FROM workspace_entitlement_adjustments a
         JOIN users u ON u.id = a.created_by WHERE a.user_id = ${userId}::uuid ORDER BY a.created_at DESC`,
     ]);
-    if (!user) throw new NotFound('User', userId);
+    if (!user) throw new NotFound('Người dùng', userId);
     const terms = subs.length
       ? await db.$queryRaw<{ subscription_id: string; starts_at: Date; ends_at: Date; order_id: string }[]>`
           SELECT subscription_id, starts_at, ends_at, order_id FROM workspace_subscription_terms
@@ -159,9 +159,9 @@ export class BillingAdminService {
       await lock(tx, `ws-billing:${userId}`);
       const [sub] = await tx.$queryRaw<SubscriptionRow[]>`
         SELECT * FROM workspace_subscriptions WHERE user_id = ${userId}::uuid AND ended_at IS NULL FOR UPDATE`;
-      if (!sub) throw new NotFound('Open Workspace subscription');
+      if (!sub) throw new NotFound('Gói Workspace đang mở');
       if (!!sub.suspended_at === suspend)
-        throw new BusinessRuleViolation(suspend ? 'Already suspended.' : 'Not suspended.');
+        throw new BusinessRuleViolation(suspend ? 'Gói đã bị tạm ngưng.' : 'Gói không ở trạng thái tạm ngưng.');
       await tx.$executeRaw`UPDATE workspace_subscriptions SET
         suspended_at = ${suspend ? new Date() : null}, suspended_reason = ${suspend ? reason.trim() : null}, updated_at = now()
         WHERE id = ${sub.id}::uuid`;
@@ -173,9 +173,9 @@ export class BillingAdminService {
   async addAdjustment(actorId: string, userId: string, dto: AdjustmentDto) {
     const startsAt = dto.startsAt ? new Date(dto.startsAt) : new Date();
     const endsAt = new Date(dto.endsAt);
-    if (endsAt <= startsAt) throw new BusinessRuleViolation('The end must be after the start.');
+    if (endsAt <= startsAt) throw new BusinessRuleViolation('Thời điểm kết thúc phải sau thời điểm bắt đầu.');
     if (endsAt.getTime() - startsAt.getTime() > 366 * 86_400_000)
-      throw new BusinessRuleViolation('An adjustment can last at most one year.');
+      throw new BusinessRuleViolation('Điều chỉnh chỉ có hiệu lực tối đa một năm.');
     return this.store.transaction(async (tx) => {
       const [row] = await tx.$queryRaw<{ id: string }[]>`
         INSERT INTO workspace_entitlement_adjustments(user_id, entitlement, amount, starts_at, ends_at, reason, created_by)
@@ -190,7 +190,7 @@ export class BillingAdminService {
     return this.store.transaction(async (tx) => {
       const [row] = await tx.$queryRaw<{ id: string }[]>`UPDATE workspace_entitlement_adjustments
         SET revoked_at = now(), revoked_by = ${actorId}::uuid WHERE id = ${id}::uuid AND revoked_at IS NULL RETURNING id`;
-      if (!row) throw new NotFound('Active adjustment', id);
+      if (!row) throw new NotFound('Điều chỉnh đang hiệu lực', id);
       await audit(tx, 'workspace_adjustment.revoked', id, actorId, { reason });
       return { revoked: true };
     });
@@ -227,11 +227,11 @@ export class BillingAdminService {
   async createCoupon(actorId: string, dto: CouponDto) {
     const startsAt = new Date(dto.startsAt);
     const endsAt = new Date(dto.endsAt);
-    if (endsAt <= startsAt) throw new BusinessRuleViolation('The end must be after the start.');
-    if (dto.kind === 'percent' && dto.value > 100) throw new BusinessRuleViolation('A percentage cannot exceed 100.');
+    if (endsAt <= startsAt) throw new BusinessRuleViolation('Thời điểm kết thúc phải sau thời điểm bắt đầu.');
+    if (dto.kind === 'percent' && dto.value > 100) throw new BusinessRuleViolation('Phần trăm giảm không được vượt 100.');
     return this.store.transaction(async (tx) => {
       const [exists] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM workspace_coupons WHERE code = ${dto.code}`;
-      if (exists) throw new AlreadyExists('Coupon code', { code: dto.code });
+      if (exists) throw new AlreadyExists('Mã giảm giá', { code: dto.code });
       const [row] = await tx.$queryRaw<{ id: string }[]>`
         INSERT INTO workspace_coupons(code, kind, value, starts_at, ends_at, max_redemptions, per_user_limit, plan_ids,
           billing_cycles, new_customers_only, created_by)
@@ -249,7 +249,7 @@ export class BillingAdminService {
     return this.store.transaction(async (tx) => {
       const [row] = await tx.$queryRaw<{ id: string }[]>`UPDATE workspace_coupons SET is_active = false
         WHERE id = ${id}::uuid AND is_active RETURNING id`;
-      if (!row) throw new NotFound('Active coupon', id);
+      if (!row) throw new NotFound('Mã giảm giá đang hoạt động', id);
       await audit(tx, 'workspace_coupon.deactivated', id, actorId);
       return { deactivated: true };
     });

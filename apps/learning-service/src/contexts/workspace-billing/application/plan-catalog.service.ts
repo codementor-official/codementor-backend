@@ -67,7 +67,7 @@ export class PlanCatalogService {
   async createPlan(actorId: string, dto: CreatePlanDto) {
     return this.store.transaction(async (tx) => {
       const [exists] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM workspace_plans WHERE code = ${dto.code}`;
-      if (exists) throw new AlreadyExists('Plan code', { code: dto.code });
+      if (exists) throw new AlreadyExists('Mã gói', { code: dto.code });
       const [{ next }] = await tx.$queryRaw<{ next: number }[]>`SELECT COALESCE(max(sort_order), 0) + 1 AS next FROM workspace_plans`;
       const [plan] = await tx.$queryRaw<PlanRow[]>`
         INSERT INTO workspace_plans(code, sort_order, is_purchasable, status)
@@ -84,9 +84,9 @@ export class PlanCatalogService {
       await lock(tx, `ws-plan:${planId}`);
       const plan = await this.requirePlan(tx, planId);
       if (plan.is_default && (dto.isPurchasable || (dto.status && dto.status !== 'active')))
-        throw new BusinessRuleViolation('The default plan is always visible and never sold.');
+        throw new BusinessRuleViolation('Gói mặc định luôn hiển thị và không bán.');
       if (dto.isPurchasable && dto.status !== undefined && dto.status !== 'active')
-        throw new BusinessRuleViolation('Only an active plan can be sold.');
+        throw new BusinessRuleViolation('Chỉ gói đang hoạt động mới được mở bán.');
       const [updated] = await tx.$queryRaw<PlanRow[]>`
         UPDATE workspace_plans SET
           sort_order = COALESCE(${dto.sortOrder ?? null}::integer, sort_order),
@@ -96,7 +96,7 @@ export class PlanCatalogService {
           updated_at = now()
         WHERE id = ${planId}::uuid RETURNING *`;
       if (updated.is_purchasable && updated.status !== 'active')
-        throw new BusinessRuleViolation('Only an active plan can be sold.');
+        throw new BusinessRuleViolation('Chỉ gói đang hoạt động mới được mở bán.');
       if (updated.is_recommended)
         await tx.$executeRaw`UPDATE workspace_plans SET is_recommended = false, updated_at = now()
           WHERE id <> ${planId}::uuid AND is_recommended`;
@@ -120,7 +120,7 @@ export class PlanCatalogService {
       await lock(tx, `ws-plan:${planId}`);
       const [removed] = await tx.$queryRaw<{ id: string; version: number }[]>`
         DELETE FROM workspace_plan_versions WHERE plan_id = ${planId}::uuid AND status = 'draft' RETURNING id, version`;
-      if (!removed) throw new NotFound('Draft version');
+      if (!removed) throw new NotFound('Bản nháp');
       await audit(tx, 'workspace_plan.draft_discarded', planId, actorId, removed);
       return { discarded: true };
     });
@@ -136,16 +136,16 @@ export class PlanCatalogService {
       const plan = await this.requirePlan(tx, planId);
       const [draft] = await tx.$queryRaw<VersionRow[]>`
         SELECT * FROM workspace_plan_versions WHERE plan_id = ${planId}::uuid AND status = 'draft' FOR UPDATE`;
-      if (!draft) throw new NotFound('Draft version');
+      if (!draft) throw new NotFound('Bản nháp');
       if (draft.updated_at.toISOString() !== new Date(dto.expectedUpdatedAt).toISOString())
-        throw new BusinessRuleViolation('The draft changed since you opened it. Reload and review it again.', {
+        throw new BusinessRuleViolation('Bản nháp đã thay đổi sau khi bạn mở. Tải lại và kiểm tra trước khi xuất bản.', {
           code: 'WORKSPACE_PLAN_DRAFT_CHANGED',
         });
       const problems = versionProblems({ ...pricesOf(draft), ...entitlementsOf(draft), isDefault: plan.is_default });
       if (problems.length) throw new BusinessRuleViolation(problems.join(' '), { problems });
       const availableFrom = dto.availableFrom ? new Date(dto.availableFrom) : new Date();
       if (availableFrom.getTime() < Date.now() - 60_000)
-        throw new BusinessRuleViolation('The start time cannot be in the past.');
+        throw new BusinessRuleViolation('Thời điểm áp dụng không được ở quá khứ.');
       const [previous] = await tx.$queryRaw<VersionRow[]>`
         SELECT * FROM workspace_plan_versions WHERE plan_id = ${planId}::uuid AND status = 'published'
         ORDER BY version DESC LIMIT 1`;
@@ -192,7 +192,7 @@ export class PlanCatalogService {
 
   private async requirePlan(tx: Tx, planId: string) {
     const [plan] = await tx.$queryRaw<PlanRow[]>`SELECT * FROM workspace_plans WHERE id = ${planId}::uuid`;
-    if (!plan) throw new NotFound('Workspace plan', planId);
+    if (!plan) throw new NotFound('Gói Workspace', planId);
     return plan;
   }
 }

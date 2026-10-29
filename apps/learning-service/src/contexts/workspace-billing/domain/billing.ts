@@ -8,9 +8,9 @@ export const MIN_CHARGE_VND = 5_000;
 
 /** Closed registry of plan features; mirrors the CHECK on `workspace_plan_versions.features`. */
 export const FEATURES = {
-  priority_support: { label: 'Priority support', status: 'available' },
-  advanced_assignments: { label: 'Advanced assignment management', status: 'planned' },
-  detailed_analytics: { label: 'Detailed group analytics', status: 'planned' },
+  priority_support: { label: 'Hỗ trợ ưu tiên', status: 'available' },
+  advanced_assignments: { label: 'Quản lý bài tập nâng cao', status: 'planned' },
+  detailed_analytics: { label: 'Thống kê nhóm chi tiết', status: 'planned' },
 } as const;
 export type FeatureKey = keyof typeof FEATURES;
 export const FEATURE_KEYS = Object.keys(FEATURES) as FeatureKey[];
@@ -144,24 +144,24 @@ export function versionProblems(v: VersionPrices & Entitlements & { isDefault: b
   const paid = (n: number) => Number.isSafeInteger(n) && n >= MIN_CHARGE_VND && n <= 999_999_999;
   if (v.isDefault) {
     if (v.monthlyPriceVnd !== 0 || v.annualPriceVnd !== null)
-      problems.push('The default plan must be free.');
+      problems.push('Gói mặc định phải miễn phí.');
   } else {
-    if (!paid(v.monthlyPriceVnd)) problems.push('Monthly price must be between 5,000 and 999,999,999 VND.');
+    if (!paid(v.monthlyPriceVnd)) problems.push('Giá theo tháng phải từ 5.000 ₫ đến 999.999.999 ₫.');
     if (v.annualPriceVnd !== null && !paid(v.annualPriceVnd))
-      problems.push('Annual price must be between 5,000 and 999,999,999 VND.');
+      problems.push('Giá theo năm phải từ 5.000 ₫ đến 999.999.999 ₫.');
   }
   if (!Number.isSafeInteger(v.maxOwnedGroups) || v.maxOwnedGroups < 0)
-    problems.push('Owned groups must be a whole number of at least 0.');
+    problems.push('Số nhóm sở hữu phải là số nguyên không âm.');
   if (v.maxMembersPerGroup !== null && (!Number.isSafeInteger(v.maxMembersPerGroup) || v.maxMembersPerGroup < 2))
-    problems.push('Members per group must be at least 2, or unlimited.');
+    problems.push('Số thành viên mỗi nhóm phải từ 2 trở lên, hoặc không giới hạn.');
   if (!Number.isSafeInteger(v.maxStorageBytes) || v.maxStorageBytes < 0)
-    problems.push('Storage must be a whole number of bytes.');
+    problems.push('Dung lượng phải là số byte nguyên không âm.');
   if (!Number.isSafeInteger(v.maxUploadBytes) || v.maxUploadBytes <= 0)
-    problems.push('Maximum file size must be greater than 0.');
+    problems.push('Kích thước tệp tối đa phải lớn hơn 0.');
   else if (v.maxUploadBytes > Math.max(v.maxStorageBytes, 1))
-    problems.push('Maximum file size cannot exceed total storage.');
+    problems.push('Kích thước tệp tối đa không được vượt tổng dung lượng.');
   if (!Number.isSafeInteger(v.monthlyAiRequests) || v.monthlyAiRequests < 0)
-    problems.push('AI requests must be a whole number of at least 0.');
-  if (v.features.some((f) => !(f in FEATURES))) problems.push('Unknown feature.');
+    problems.push('Số lượt AI phải là số nguyên không âm.');
+  if (v.features.some((f) => !(f in FEATURES))) problems.push('Tính năng không hợp lệ.');
   return problems;
 }

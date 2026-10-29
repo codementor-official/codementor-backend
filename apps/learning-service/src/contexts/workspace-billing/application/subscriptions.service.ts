@@ -108,7 +108,7 @@ export class SubscriptionsService implements OnModuleInit {
   async overview(userId: string) {
     const now = new Date();
     const [effective] = await this.store.db.$queryRaw<EffectiveRow[]>`SELECT * FROM workspace_effective_entitlements(${userId}::uuid)`;
-    if (!effective) throw new BusinessRuleViolation('Workspace plans are not configured.', { code: 'WORKSPACE_ENTITLEMENT_UNAVAILABLE' });
+    if (!effective) throw new BusinessRuleViolation('Chưa cấu hình gói Workspace.', { code: 'WORKSPACE_ENTITLEMENT_UNAVAILABLE' });
     const open = await this.openSubscription(this.store.db, userId, now);
     const [settings] = await this.store.db.$queryRaw<{ grace_days: number; renewal_reminder_days: number }[]>`
       SELECT grace_days, renewal_reminder_days FROM workspace_billing_settings`;
@@ -173,7 +173,7 @@ export class SubscriptionsService implements OnModuleInit {
       SELECT o.*, p.provider, p.status AS payment_status, p.checkout_url FROM workspace_orders o
       JOIN commerce_payments p ON p.workspace_order_id = o.id
       WHERE o.id = ${id}::uuid AND (${userId}::uuid IS NULL OR o.buyer_id = ${userId}::uuid)`;
-    if (!row) throw new NotFound('Workspace order', id);
+    if (!row) throw new NotFound('Đơn gói Workspace', id);
     return {
       ...orderView(row),
       payment: { provider: row.provider, status: row.payment_status, checkoutUrl: row.status === 'pending' ? row.checkout_url : null },
@@ -185,19 +185,19 @@ export class SubscriptionsService implements OnModuleInit {
   async checkout(userId: string, dto: CheckoutDto) {
     this.providers.assertEnabled();
     if (!this.providers.methods().includes(dto.provider))
-      throw new BadRequestException('This payment method is not available.');
+      throw new BadRequestException('Phương thức thanh toán chưa sẵn sàng.');
     const orderId = await this.store.transaction(async (tx) => {
       await lock(tx, `ws-billing:${userId}`);
       await this.expireStaleOrders(tx, userId);
       const quote = await this.buildQuote(tx, userId, dto, new Date());
       if (quote.change !== 'new' && quote.change !== 'renewal' && quote.change !== 'upgrade')
-        throw new BusinessRuleViolation('Downgrades and billing-cycle changes are scheduled, not paid now.', {
+        throw new BusinessRuleViolation('Hạ gói hoặc đổi chu kỳ được lên lịch cho cuối kỳ, không thanh toán ngay.', {
           code: BILLING_CODES.planChangeConflict,
           change: quote.change,
         });
       const snapshot = quote.snapshot!;
       if (snapshot.amountVnd !== dto.expectedAmountVnd)
-        throw new BusinessRuleViolation('The price changed. Review the new quote before paying.', {
+        throw new BusinessRuleViolation('Giá đã thay đổi. Vui lòng xem lại báo giá mới trước khi thanh toán.', {
           code: BILLING_CODES.priceChanged,
           amountVnd: snapshot.amountVnd,
         });
@@ -213,7 +213,7 @@ export class SubscriptionsService implements OnModuleInit {
         if (same) return open.id;
         // A payment page may already be open at the gateway: money could still arrive for it.
         if (open.create_started_at)
-          throw new BusinessRuleViolation('Finish or wait for your open payment before starting another.', {
+          throw new BusinessRuleViolation('Bạn đang có một giao dịch chưa hoàn tất. Hãy hoàn tất hoặc chờ giao dịch đó hết hạn.', {
             code: BILLING_CODES.planChangeConflict,
             pendingOrderId: open.id,
             expiresAt: open.expires_at,
@@ -269,7 +269,7 @@ export class SubscriptionsService implements OnModuleInit {
     return this.store.transaction(async (tx) => {
       await lock(tx, `ws-billing:${userId}`);
       const open = await this.openSubscription(tx, userId, new Date());
-      if (!open || open.state !== 'ACTIVE') throw new BusinessRuleViolation('There is no active subscription to cancel.');
+      if (!open || open.state !== 'ACTIVE') throw new BusinessRuleViolation('Không có gói đang hoạt động để huỷ gia hạn.');
       await tx.$executeRaw`UPDATE workspace_subscriptions SET cancel_at_period_end = true, updated_at = now() WHERE id = ${open.row.id}::uuid`;
       await audit(tx, 'workspace_subscription.cancel_scheduled', open.row.id, userId, { paidThrough: open.paidThrough });
       return { cancelAtPeriodEnd: true, benefitsEndAt: open.paidThrough };
@@ -280,7 +280,7 @@ export class SubscriptionsService implements OnModuleInit {
     return this.store.transaction(async (tx) => {
       await lock(tx, `ws-billing:${userId}`);
       const open = await this.openSubscription(tx, userId, new Date());
-      if (!open || open.state !== 'CANCEL_SCHEDULED') throw new BusinessRuleViolation('Renewal is not cancelled.');
+      if (!open || open.state !== 'CANCEL_SCHEDULED') throw new BusinessRuleViolation('Gói chưa được huỷ gia hạn.');
       await tx.$executeRaw`UPDATE workspace_subscriptions SET cancel_at_period_end = false, scheduled_plan_id = NULL,
         scheduled_cycle = NULL, updated_at = now() WHERE id = ${open.row.id}::uuid`;
       await audit(tx, 'workspace_subscription.cancel_reverted', open.row.id, userId);
@@ -295,7 +295,7 @@ export class SubscriptionsService implements OnModuleInit {
       const now = new Date();
       const open = await this.openSubscription(tx, userId, now);
       if (!open || (open.state !== 'ACTIVE' && open.state !== 'CANCEL_SCHEDULED'))
-        throw new BusinessRuleViolation('Only an active subscription can schedule a change.');
+        throw new BusinessRuleViolation('Chỉ gói đang hoạt động mới lên lịch đổi gói được.');
       const [current] = await tx.$queryRaw<PlanRow[]>`SELECT * FROM workspace_plans WHERE id = ${open.row.plan_id}::uuid`;
       const target = await this.saleablePlan(tx, dto.planId);
       const change = classifyChange(
@@ -303,9 +303,9 @@ export class SubscriptionsService implements OnModuleInit {
         { planId: target.plan.id, sortOrder: target.plan.sort_order, cycle: dto.billingCycle },
       );
       if (change !== 'downgrade' && change !== 'cycle_change')
-        throw new BusinessRuleViolation('Upgrades and renewals are paid now, not scheduled.', { code: BILLING_CODES.planChangeConflict, change });
+        throw new BusinessRuleViolation('Nâng cấp và gia hạn được thanh toán ngay, không lên lịch.', { code: BILLING_CODES.planChangeConflict, change });
       if (!target.plan.is_default && priceFor(pricesOf(target.version), dto.billingCycle) === null)
-        throw new BusinessRuleViolation('This plan is not offered for that billing period.');
+        throw new BusinessRuleViolation('Gói này không bán theo chu kỳ đã chọn.');
       const scheduledPlan = target.plan.is_default ? null : target.plan.id;
       await tx.$executeRaw`UPDATE workspace_subscriptions SET cancel_at_period_end = true,
         scheduled_plan_id = ${scheduledPlan}::uuid, scheduled_cycle = ${scheduledPlan ? dto.billingCycle : null},
@@ -323,7 +323,7 @@ export class SubscriptionsService implements OnModuleInit {
   private async buildQuote(tx: Tx, userId: string, dto: QuoteDto, now: Date) {
     const open = await this.openSubscription(tx, userId, now);
     if (open?.state === 'SUSPENDED')
-      throw new BusinessRuleViolation('Your Workspace subscription is suspended. Contact support.', { code: 'WORKSPACE_SUBSCRIPTION_SUSPENDED' });
+      throw new BusinessRuleViolation('Gói Workspace của bạn đang bị tạm ngưng. Vui lòng liên hệ hỗ trợ.', { code: 'WORKSPACE_SUBSCRIPTION_SUSPENDED' });
     if (open && renewable(open.state) && open.row.plan_id === dto.planId && open.row.billing_cycle === dto.billingCycle)
       return this.renewalQuote(open, dto, now);
     const target = await this.saleablePlan(tx, dto.planId);
@@ -342,10 +342,10 @@ export class SubscriptionsService implements OnModuleInit {
     const preview = { change, current, target: { planId: target.plan.id, name: target.version.name, entitlements: entitlementsOf(target.version) } };
     if (target.plan.is_default || change === 'downgrade' || change === 'cycle_change')
       return { ...preview, subscriptionId: null, snapshot: null, effectiveAt: alive?.paidThrough ?? now };
-    if (!target.plan.is_purchasable) throw new BusinessRuleViolation('This plan is not on sale.');
+    if (!target.plan.is_purchasable) throw new BusinessRuleViolation('Gói này hiện không mở bán.');
 
     const listPrice = priceFor(pricesOf(target.version), dto.billingCycle);
-    if (listPrice === null) throw new BusinessRuleViolation('This plan is not offered for that billing period.');
+    if (listPrice === null) throw new BusinessRuleViolation('Gói này không bán theo chu kỳ đã chọn.');
     let credit: QuoteSnapshot['credit'] = null;
     if (change === 'upgrade' && alive?.covering) {
       // Unused part of the current term plus any period already paid in advance.
@@ -359,7 +359,7 @@ export class SubscriptionsService implements OnModuleInit {
     const creditVnd = Math.min(credit?.paidVnd ?? 0, listPrice - discount);
     const amount = listPrice - discount - creditVnd;
     if (amount < MIN_CHARGE_VND)
-      throw new BusinessRuleViolation('Your unused credit covers this change. Choose annual billing or contact support.', {
+      throw new BusinessRuleViolation('Phần tín dụng còn lại đã bao trọn khoản đổi gói. Hãy chọn chu kỳ năm hoặc liên hệ hỗ trợ.', {
         code: BILLING_CODES.planChangeConflict,
         creditVnd,
       });
@@ -390,9 +390,9 @@ export class SubscriptionsService implements OnModuleInit {
   /** Protected contract: same price and limits as purchased, whatever the plan says now. */
   private renewalQuote(sub: OpenSubscription, dto: QuoteDto, now: Date) {
     if (sub.terms.some((t) => t.starts_at > now))
-      throw new BusinessRuleViolation('The next period is already paid.', { code: BILLING_CODES.planChangeConflict });
+      throw new BusinessRuleViolation('Kỳ tiếp theo đã được thanh toán.', { code: BILLING_CODES.planChangeConflict });
     if (dto.couponCode)
-      throw new BusinessRuleViolation('Coupons apply to new plans and upgrades, not renewals.', { code: BILLING_CODES.couponInvalid });
+      throw new BusinessRuleViolation('Mã giảm giá chỉ áp dụng cho gói mới và nâng cấp, không áp dụng khi gia hạn.', { code: BILLING_CODES.couponInvalid });
     const startsAt = sub.paidThrough && sub.paidThrough > now ? sub.paidThrough : now;
     const entitlements = entitlementsOf(sub.row);
     const snapshot: QuoteSnapshot = {
@@ -434,18 +434,18 @@ export class SubscriptionsService implements OnModuleInit {
   private async eligibleCoupon(tx: Tx, userId: string, code: string, planId: string, cycle: BillingCycle, now: Date) {
     const [coupon] = await tx.$queryRaw<CouponRow[]>`SELECT * FROM workspace_coupons WHERE code = ${code} FOR UPDATE`;
     const invalid = (message: string) => new BusinessRuleViolation(message, { code: BILLING_CODES.couponInvalid });
-    if (!coupon || !coupon.is_active) throw invalid('This coupon does not exist.');
-    if (now < coupon.starts_at || now >= coupon.ends_at) throw invalid('This coupon is not valid at this time.');
-    if (coupon.plan_ids?.length && !coupon.plan_ids.includes(planId)) throw invalid('This coupon does not apply to this plan.');
-    if (coupon.billing_cycles?.length && !coupon.billing_cycles.includes(cycle)) throw invalid('This coupon does not apply to this billing period.');
+    if (!coupon || !coupon.is_active) throw invalid('Mã giảm giá không tồn tại.');
+    if (now < coupon.starts_at || now >= coupon.ends_at) throw invalid('Mã giảm giá chưa đến hạn hoặc đã hết hạn.');
+    if (coupon.plan_ids?.length && !coupon.plan_ids.includes(planId)) throw invalid('Mã giảm giá không áp dụng cho gói này.');
+    if (coupon.billing_cycles?.length && !coupon.billing_cycles.includes(cycle)) throw invalid('Mã giảm giá không áp dụng cho chu kỳ này.');
     const [usage] = await tx.$queryRaw<{ total: bigint; mine: bigint; paid_before: boolean }[]>`
       SELECT count(*) FILTER (WHERE r.status <> 'released') AS total,
         count(*) FILTER (WHERE r.status <> 'released' AND r.user_id = ${userId}::uuid) AS mine,
         EXISTS (SELECT 1 FROM workspace_orders o WHERE o.buyer_id = ${userId}::uuid AND o.status = 'paid') AS paid_before
       FROM workspace_coupon_redemptions r WHERE r.coupon_id = ${coupon.id}::uuid`;
-    if (coupon.max_redemptions !== null && Number(usage.total) >= coupon.max_redemptions) throw invalid('This coupon has been fully redeemed.');
-    if (Number(usage.mine) >= coupon.per_user_limit) throw invalid('You have already used this coupon.');
-    if (coupon.new_customers_only && usage.paid_before) throw invalid('This coupon is for new subscribers only.');
+    if (coupon.max_redemptions !== null && Number(usage.total) >= coupon.max_redemptions) throw invalid('Mã giảm giá đã hết lượt sử dụng.');
+    if (Number(usage.mine) >= coupon.per_user_limit) throw invalid('Bạn đã dùng mã giảm giá này.');
+    if (coupon.new_customers_only && usage.paid_before) throw invalid('Mã giảm giá chỉ dành cho khách hàng mới.');
     return coupon;
   }
 
@@ -458,13 +458,13 @@ export class SubscriptionsService implements OnModuleInit {
   async applyPayment(provider: PaymentProvider, e: PaymentEvidence, reconciled = false) {
     this.providers.assertEnabled();
     if (!Number.isSafeInteger(e.amount) || e.amount <= 0 || (!e.reference && e.result === 'success'))
-      throw new BadRequestException('Invalid payment result');
+      throw new BadRequestException('Kết quả thanh toán không hợp lệ');
     const [payment] = await this.store.db.$queryRaw<PaymentRow[]>`
       SELECT * FROM commerce_payments WHERE id = ${e.paymentId}::uuid AND provider = ${provider} AND workspace_order_id IS NOT NULL`;
-    if (!payment) throw new NotFoundException('Payment not found');
+    if (!payment) throw new NotFoundException('Không tìm thấy lần thanh toán');
     const [frozen] = await this.store.db.$queryRaw<OrderRow[]>`SELECT * FROM workspace_orders WHERE id = ${payment.workspace_order_id}::uuid`;
     if (frozen.amount_vnd !== e.amount || (provider === 'mock') !== (frozen.mode === 'mock'))
-      throw new BadRequestException('Amount or environment mismatch');
+      throw new BadRequestException('Số tiền hoặc môi trường không khớp');
 
     return this.store.transaction(async (tx) => {
       await lock(tx, `ws-billing:${frozen.buyer_id}`);
@@ -522,8 +522,8 @@ export class SubscriptionsService implements OnModuleInit {
       await tx.$executeRaw`UPDATE workspace_orders SET status = 'review' WHERE id = ${order.id}::uuid`;
       await this.releaseCoupon(tx, order.id);
       await audit(tx, 'workspace_payment.review', order.id, undefined, { provider, reference, reason: reviewReason });
-      await notifyCommerce(tx, order.buyer_id, order.id, 'Payment needs review',
-        'We received your payment but could not apply it automatically. An administrator will review it.',
+      await notifyCommerce(tx, order.buyer_id, order.id, 'Thanh toán cần kiểm tra',
+        'Chúng tôi đã nhận thanh toán nhưng chưa áp dụng tự động được. Quản trị viên sẽ kiểm tra.',
         `${RESULT_PATH}?order=${order.id}`);
       return;
     }
@@ -561,8 +561,8 @@ export class SubscriptionsService implements OnModuleInit {
     await audit(tx, `workspace_subscription.${order.kind === 'renewal' ? 'renewed' : order.kind === 'upgrade' ? 'upgraded' : 'activated'}`,
       subscriptionId, order.buyer_id, { orderId: order.id, provider, reference, startsAt, endsAt });
     await notifyCommerce(tx, order.buyer_id, order.id,
-      order.kind === 'renewal' ? 'Workspace plan renewed' : `${snapshot.plan.name} is active`,
-      `Your Workspace ${snapshot.plan.name} plan is paid through ${endsAt.toISOString().slice(0, 10)}.`,
+      order.kind === 'renewal' ? 'Đã gia hạn gói Workspace' : `Gói ${snapshot.plan.name} đã kích hoạt`,
+      `Gói Workspace ${snapshot.plan.name} có hiệu lực đến ${vnDate(endsAt)}.`,
       '/workspace/billing');
   }
 
@@ -586,7 +586,7 @@ export class SubscriptionsService implements OnModuleInit {
     const [row] = await this.store.db.$queryRaw<(PaymentRow & { amount_vnd: number; expires_at: Date })[]>`
       SELECT p.*, o.amount_vnd, o.expires_at FROM commerce_payments p JOIN workspace_orders o ON o.id = p.workspace_order_id
       WHERE o.id = ${orderId}::uuid`;
-    if (!row) throw new NotFound('Workspace order', orderId);
+    if (!row) throw new NotFound('Đơn gói Workspace', orderId);
     if (row.provider === 'mock' || !row.create_started_at) return;
     const evidence = await this.providers.query(row.provider, {
       id: row.id,
@@ -596,7 +596,7 @@ export class SubscriptionsService implements OnModuleInit {
       expiresAt: row.expires_at,
     });
     if (!evidence) return;
-    if (evidence.paymentId !== row.id) throw new ConflictException('Payment reference mismatch');
+    if (evidence.paymentId !== row.id) throw new ConflictException('Mã thanh toán trả về không khớp yêu cầu đối soát');
     await this.applyPayment(row.provider, { ...evidence, fingerprint: `query:${evidence.fingerprint}` }, true);
   }
 
@@ -635,4 +635,8 @@ export class SubscriptionsService implements OnModuleInit {
     );
     return { row, terms, paidThrough, covering, state };
   }
+}
+
+function vnDate(d: Date) {
+  return d.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric' });
 }

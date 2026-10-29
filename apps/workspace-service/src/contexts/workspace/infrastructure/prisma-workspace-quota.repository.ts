@@ -33,7 +33,7 @@ export async function readEntitlements(db: Db, ownerId: string): Promise<OwnerEn
   >`SELECT source, plan_name, max_owned_groups, max_members_per_group, max_storage_bytes, max_upload_bytes
     FROM workspace_effective_entitlements(${ownerId}::uuid)`;
   // No configured default plan: refuse to consume quota rather than guess a limit.
-  if (!row) throw new QuotaExceeded(QUOTA_CODES.unavailable, 'Workspace plans are not available right now. Try again later.');
+  if (!row) throw new QuotaExceeded(QUOTA_CODES.unavailable, 'Hệ thống gói Workspace tạm thời chưa sẵn sàng. Vui lòng thử lại sau.');
   return {
     source: row.source,
     planName: row.plan_name,

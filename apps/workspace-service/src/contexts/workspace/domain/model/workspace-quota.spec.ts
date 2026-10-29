@@ -20,7 +20,7 @@ describe('groupSlotProblem', () => {
   });
   it('refuses new groups while over the limit after a downgrade', () => {
     const problem = groupSlotProblem(free, { ...empty, ownedGroups: 15 });
-    expect(problem?.message).toBe('Your Free plan allows 1 study group, and you own 15.');
+    expect(problem?.message).toBe('Gói Free cho phép sở hữu 1 nhóm học tập, bạn đang sở hữu 15 nhóm.');
   });
 });
 

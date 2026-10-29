@@ -113,7 +113,7 @@ describe('versionProblems', () => {
   it('rejects prices outside the gateway range and a paid default plan', () => {
     expect(versionProblems({ ...valid, monthlyPriceVnd: 1_000 })).toHaveLength(1);
     expect(versionProblems({ ...valid, monthlyPriceVnd: -1 })).toHaveLength(1);
-    expect(versionProblems({ ...valid, isDefault: true })).toEqual(['The default plan must be free.']);
+    expect(versionProblems({ ...valid, isDefault: true })).toEqual(['Gói mặc định phải miễn phí.']);
   });
   it('rejects a file limit above total storage and impossible member limits', () => {
     expect(versionProblems({ ...valid, maxUploadBytes: valid.maxStorageBytes + 1 })).toHaveLength(1);
