@@ -21,12 +21,24 @@ import {
   PolicyRow,
 } from '../infrastructure/commerce.store';
 
+/** Applies provider evidence for Workspace subscription payments, which share commerce_payments. */
+export interface WorkspacePaymentHandler {
+  apply(provider: PaymentProvider, e: PaymentEvidence, reconciled: boolean): Promise<unknown>;
+}
+
 @Injectable()
 export class OrdersService {
+  private workspacePayments?: WorkspacePaymentHandler;
+
   constructor(
     private readonly store: CommerceStore,
     private readonly providers: PaymentProviders,
   ) {}
+
+  /** Registered by the workspace-billing context; avoids a module cycle with commerce. */
+  useWorkspacePayments(handler: WorkspacePaymentHandler) {
+    this.workspacePayments = handler;
+  }
   async create(buyerId: string, courseId: string, provider: PaymentProvider) {
     this.providers.assertEnabled();
     if (!this.providers.methods().includes(provider))
@@ -190,6 +202,10 @@ export class OrdersService {
     if (!payment) {
       await this.recordIssue(provider, e, 'unknown_payment', null);
       throw new NotFoundException('Không tìm thấy lần thanh toán');
+    }
+    if (payment.workspace_order_id) {
+      if (!this.workspacePayments) throw new NotFoundException('Không tìm thấy lần thanh toán');
+      return this.workspacePayments.apply(provider, e, reconciled) as Promise<{ quarantined?: boolean; duplicate?: boolean }>;
     }
     const [snapshot] = await this.store.db.$queryRaw<
       OrderRow[]

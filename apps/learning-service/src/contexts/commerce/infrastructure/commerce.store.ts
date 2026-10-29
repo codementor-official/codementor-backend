@@ -35,6 +35,7 @@ export interface OrderRow {
 export interface PaymentRow {
   id: string;
   order_id: string;
+  workspace_order_id?: string | null;
   provider: 'mock' | 'vnpay' | 'momo';
   status: string;
   provider_ref: string | null;
@@ -84,7 +85,7 @@ export async function journal(
   tx: Tx,
   event: string,
   entries: { owner?: string; account: string; amount: number }[],
-  links: { order?: string; withdrawal?: string; refund?: string } = {},
+  links: { order?: string; withdrawal?: string; refund?: string; workspaceOrder?: string } = {},
 ) {
   const nonzero = entries.filter((e) => e.amount !== 0);
   if (!nonzero.length) return;
@@ -92,8 +93,8 @@ export async function journal(
     throw new Error('Unbalanced journal');
   const rows = await tx.$queryRaw<
     { id: string }[]
-  >`INSERT INTO commerce_journals(event_key,order_id,withdrawal_id,refund_id)
-    VALUES (${event},${links.order ?? null}::uuid,${links.withdrawal ?? null}::uuid,${links.refund ?? null}::uuid)
+  >`INSERT INTO commerce_journals(event_key,order_id,withdrawal_id,refund_id,workspace_order_id)
+    VALUES (${event},${links.order ?? null}::uuid,${links.withdrawal ?? null}::uuid,${links.refund ?? null}::uuid,${links.workspaceOrder ?? null}::uuid)
     ON CONFLICT(event_key) DO NOTHING RETURNING id`;
   if (!rows[0]) return;
   for (const e of nonzero)

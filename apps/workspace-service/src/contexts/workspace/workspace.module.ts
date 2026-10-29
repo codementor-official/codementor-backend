@@ -17,10 +17,14 @@ import { PrismaWorkspaceContentRepository } from './infrastructure/prisma-worksp
 import { WorkspaceChatService } from './application/workspace-chat.service';
 import { WORKSPACE_CHAT_REPOSITORY } from './domain/port/workspace-chat.repository';
 import { PrismaWorkspaceChatRepository } from './infrastructure/prisma-workspace-chat.repository';
+import { WorkspaceQuotaService } from './application/workspace-quota.service';
+import { WorkspaceQuotaController } from './presentation/workspace-quota.controller';
+import { WORKSPACE_QUOTA_REPOSITORY } from './domain/port/workspace-quota.repository';
+import { PrismaWorkspaceQuotaRepository } from './infrastructure/prisma-workspace-quota.repository';
 
 @Module({
-  // AdminWorkspaceController trước: `workspaces/manage` phải thắng `workspaces/:slug`.
-  controllers: [AdminWorkspaceController, WorkspaceController, WorkspaceAiController],
+  // Static paths first: `workspaces/manage` and `workspaces/plan-usage` must win over `workspaces/:slug`.
+  controllers: [AdminWorkspaceController, WorkspaceQuotaController, WorkspaceController, WorkspaceAiController],
   providers: [
     AdminWorkspaceService,
     WorkspaceAiService,
@@ -29,6 +33,8 @@ import { PrismaWorkspaceChatRepository } from './infrastructure/prisma-workspace
     WorkspaceOverviewService,
     WorkspaceContentService,
     WorkspaceChatService,
+    WorkspaceQuotaService,
+    { provide: WORKSPACE_QUOTA_REPOSITORY, useClass: PrismaWorkspaceQuotaRepository },
     { provide: WORKSPACE_REPOSITORY, useClass: PrismaWorkspaceRepository },
     { provide: WORKSPACE_OVERVIEW_REPOSITORY, useClass: PrismaWorkspaceOverviewRepository },
     { provide: WORKSPACE_CONTENT_REPOSITORY, useClass: PrismaWorkspaceContentRepository },

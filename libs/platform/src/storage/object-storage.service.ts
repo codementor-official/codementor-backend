@@ -302,6 +302,22 @@ export class ObjectStorageService {
     }
   }
 
+  /** Stored size from S3 (`HeadObject`), or `null` when the object does not exist. */
+  async objectSize(objectKey: string): Promise<number | null> {
+    if (this.client === null || !this.bucket) return null;
+    try {
+      const head = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: objectKey }));
+      return head.ContentLength ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Lifetime of a presigned upload URL, in seconds. */
+  get uploadUrlTtlSeconds(): number {
+    return this.expiresInSeconds;
+  }
+
   isDocumentKeyFor(objectKey: string, prefix: string): boolean {
     const expected =
       [this.documentPrefix, prefix.replace(/^\/+|\/+$/g, '')].filter(Boolean).join('/') + '/';

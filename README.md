@@ -82,6 +82,7 @@ answer is needed immediately and over Kafka for everything else.
 | **Code judging** | Submissions graded in isolated Docker sandboxes for **8 languages** (Python, C, C++, Java, JavaScript, TypeScript, Go, PHP), with time and memory limits |
 | **Study groups** | Groups with invite codes, owner/deputy/member roles and per-member permissions, shared documents, assignments with review, activity feed, chat |
 | **AI assistants** | **Codey** (coding help in the solve screen), **Lecter** (authoring assistant for lecturers), **Tutor** (answers grounded in group documents, with citations), AI test-case suggestions |
+| **Workspace plans** | Free, Plus, Pro and Team plans for study groups: immutable plan versions, protected purchases, checkout, renewals, upgrades with pro-rata credit, coupons, and atomic group, member and storage quotas |
 | **Commerce** | Paid courses, VNPAY/MoMo payments (sandbox), a double-entry ledger, lecturer revenue, holds, payouts, refunds and reconciliation |
 | **Notifications** | In-app notifications over WebSocket, email via SMTP or Amazon SES, study and deadline reminders |
 | **Moderation** | Content reports with a submit cooldown, a moderation history with rollback, timed account suspension, an audit log, announcements |
@@ -421,6 +422,7 @@ codementor-backend/
 | [`docs/02-service-architecture.md`](docs/02-service-architecture.md) | **Current architecture:** services, ownership, topics, dependencies, outbox |
 | [`docs/01-identity-keycloak.md`](docs/01-identity-keycloak.md) | Keycloak, just-in-time provisioning, social sign-in |
 | [`docs/00-architecture-review.md`](docs/00-architecture-review.md) | The original boundary analysis and key decisions |
+| [`docs/workspace-subscriptions.md`](docs/workspace-subscriptions.md) | Workspace plans: rules, lifecycle, payments, quotas, API, deployment |
 | [`docs/commerce-sandbox.md`](docs/commerce-sandbox.md) | Paid courses, ledger, payments and payouts in sandbox mode |
 | [`docs/commerce-consistency-audit.md`](docs/commerce-consistency-audit.md) · [`docs/commerce-job-results.md`](docs/commerce-job-results.md) | Commerce consistency checks and scheduled jobs |
 | [`docs/vnpay-reconciliation-recovery.md`](docs/vnpay-reconciliation-recovery.md) · [`docs/revenue-reporting.md`](docs/revenue-reporting.md) | VNPAY reconciliation, revenue reporting |

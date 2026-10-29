@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
+import { AlreadyExists, BusinessRuleViolation, NotAuthorized, NotFound, QuotaExceeded } from '@codementor/kernel';
 import { TOPICS } from '@codementor/contracts';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import {
@@ -18,6 +18,22 @@ import {
   WORKSPACE_REPOSITORY,
   type WorkspaceRepository,
 } from '../domain/port/workspace.repository';
+import {
+  WORKSPACE_QUOTA_REPOSITORY,
+  type WorkspaceQuotaRepository,
+} from '../domain/port/workspace-quota.repository';
+import {
+  assertTransferable,
+  assertWithinQuota,
+  groupSlotProblem,
+  memberSeatProblem,
+  overageTimeline,
+  overLimitGroups,
+  QUOTA_CODES,
+  restrictionMessage,
+  transferProblems,
+  type GroupRestriction,
+} from '../domain/model/workspace-quota';
 import type {
   CreateWorkspaceDto,
   JoinWorkspaceDto,
@@ -40,6 +56,7 @@ export class WorkspaceService {
 
   constructor(
     @Inject(WORKSPACE_REPOSITORY) private readonly workspaces: WorkspaceRepository,
+    @Inject(WORKSPACE_QUOTA_REPOSITORY) private readonly quota: WorkspaceQuotaRepository,
     @Inject(EVENT_BUS) private readonly events: EventBus,
   ) {}
 
@@ -99,6 +116,10 @@ export class WorkspaceService {
     const permissions = adminView
       ? ADMIN_VIEW_PERMISSIONS
       : resolveWorkspacePermissions(membership.role, data.rolePermissions, data.memberOverrides);
+    const plan = await this.groupPlan(data.owner.id, data.id);
+    // Hidden groups stay reachable for their owner (to clean up) and for moderators.
+    if (plan.restriction?.stage === 'hidden' && membership.role !== 'owner' && !adminView)
+      throw new QuotaExceeded(QUOTA_CODES.hidden, restrictionMessage(plan.restriction), { stage: 'hidden' });
     return {
       id: data.id,
       slug: data.slug,
@@ -126,6 +147,7 @@ export class WorkspaceService {
         permissions,
         adminView,
       },
+      plan,
       inviteCode: membership.role === 'owner' ? data.inviteCode : null,
       rolePermissions:
         membership.role === 'owner'
@@ -188,7 +210,7 @@ export class WorkspaceService {
           description: trimOptional(dto.description),
           topic: trimOptional(dto.topic),
           ownerId: userId,
-        });
+        }, (snapshot) => assertWithinQuota(groupSlotProblem(snapshot.entitlements, snapshot.usage)));
         return this.detail(userId, created.slug);
       } catch (error) {
         if (attempt === 4 || !isUniqueViolation(error)) throw error;
@@ -260,22 +282,7 @@ export class WorkspaceService {
         workspaceSlug: workspace.slug,
       };
     }
-    let membershipId = existing?.id;
-    if (existing)
-      await this.workspaces.updateMember(existing.id, {
-        status: 'active',
-        role: 'member',
-        joinedAt: new Date(),
-      });
-    else membershipId = (await this.workspaces.createMember(workspace.id, userId)).id;
-    await this.workspaces.refreshMemberCount(workspace.id);
-    await this.workspaces.recordActivity(
-      workspace.id,
-      userId,
-      'đã tham gia nhóm học tập',
-      'membership',
-      membershipId,
-    );
+    await this.admit(workspace.id, userId);
     return { status: 'joined' as const, workspaceSlug: workspace.slug };
   }
   async leave(userId: string, slug: string) {
@@ -413,13 +420,76 @@ export class WorkspaceService {
     }
     return { removed: true };
   }
+  /**
+   * Offers the group to a member. Nothing changes hands until they accept; the recipient's
+   * quotas are checked now for early feedback and again, atomically, on acceptance.
+   */
   async transferOwnership(userId: string, slug: string, dto: TransferOwnershipDto) {
     const workspace = await this.requireOwner(userId, slug);
     const target = await this.workspaces.findMember(workspace.id, dto.memberId);
     if (!target) throw new NotFound('Người nhận quyền phải là thành viên đang hoạt động');
     if (target.userId === userId) throw new BusinessRuleViolation('Bạn đang là Chủ nhóm');
-    await this.workspaces.transferOwnership(workspace.id, userId, target.id, target.userId);
+    const [recipient, groups] = await Promise.all([this.quota.snapshot(target.userId), this.quota.ownedGroups(userId)]);
+    const group = groups.find((g) => g.id === workspace.id);
+    assertTransferable(
+      transferProblems(recipient.entitlements, recipient.usage, { members: group?.memberCount ?? workspace.memberCount, storedBytes: group?.storedBytes ?? 0 }),
+    );
+    const offer = await this.quota.offerOwnership({
+      groupId: workspace.id,
+      fromUserId: userId,
+      toUserId: target.userId,
+      toMembershipId: target.id,
+    });
+    await this.workspaces.recordActivity(workspace.id, userId, 'đã đề nghị chuyển quyền Chủ nhóm', 'membership', target.id);
+    try {
+      await this.events.publish(TOPICS.WORKSPACE_ACTIVITY, {
+        groupId: workspace.id,
+        entityId: offer.id,
+        action: 'ownership_offered',
+        actorUserId: userId,
+        memberUserId: target.userId,
+      });
+    } catch (error) {
+      this.logger.error('Không phát được thông báo đề nghị chuyển quyền', error as Error);
+    }
+    return { status: 'pending' as const, offer };
+  }
+
+  /** The pending offer of a group, visible to its owner and to the recipient. */
+  async pendingTransfer(userId: string, slug: string) {
+    const workspace = await this.requireActive(slug);
+    const offer = await this.quota.pendingOffer(workspace.id);
+    if (!offer || (offer.fromUserId !== userId && offer.toUserId !== userId)) return null;
+    return { ...offer, forMe: offer.toUserId === userId };
+  }
+
+  myTransferOffers(userId: string) {
+    return this.quota.offersFor(userId);
+  }
+
+  async acceptTransfer(userId: string, slug: string, offerId: string) {
+    const workspace = await this.requireActive(slug);
+    const offer = await this.quota.acceptOffer(offerId, userId, (snapshot, group) =>
+      assertTransferable(transferProblems(snapshot.entitlements, snapshot.usage, group)),
+    );
+    if (offer.groupId !== workspace.id) throw new NotFound('Không tìm thấy lời đề nghị');
+    await this.workspaces.recordActivity(workspace.id, userId, 'đã nhận quyền Chủ nhóm', 'membership', offer.toMembershipId);
     return { transferred: true };
+  }
+
+  async declineTransfer(userId: string, slug: string, offerId: string) {
+    const offer = await this.pendingTransfer(userId, slug);
+    if (!offer || offer.id !== offerId || offer.toUserId !== userId) throw new NotFound('Không tìm thấy lời đề nghị');
+    await this.quota.closeOffer(offerId, 'declined');
+    return { declined: true };
+  }
+
+  async cancelTransfer(userId: string, slug: string, offerId: string) {
+    await this.requireOwner(userId, slug);
+    const offer = await this.pendingTransfer(userId, slug);
+    if (!offer || offer.id !== offerId) throw new NotFound('Không tìm thấy lời đề nghị');
+    await this.quota.closeOffer(offerId, 'cancelled');
+    return { cancelled: true };
   }
   async updateRolePermissions(
     userId: string,
@@ -466,22 +536,7 @@ export class WorkspaceService {
     if (workspace.joinPolicy === 'invite_only')
       throw new NotAuthorized('Nhóm này chỉ nhận thành viên bằng mã mời');
     if (workspace.joinPolicy === 'open') {
-      let membershipId = existing?.id;
-      if (existing)
-        await this.workspaces.updateMember(existing.id, {
-          status: 'active',
-          role: 'member',
-          joinedAt: new Date(),
-        });
-      else membershipId = (await this.workspaces.createMember(workspace.id, userId)).id;
-      await this.workspaces.refreshMemberCount(workspace.id);
-      await this.workspaces.recordActivity(
-        workspace.id,
-        userId,
-        'đã tham gia nhóm học tập',
-        'membership',
-        membershipId,
-      );
+      await this.admit(workspace.id, userId);
       return { status: 'joined', workspaceSlug: slug };
     }
     const request = await this.workspaces.upsertJoinRequest(workspace.id, userId, dto.message);
@@ -510,25 +565,8 @@ export class WorkspaceService {
     const request = await this.workspaces.findJoinRequest(workspace.id, requestId);
     if (!request || request.status !== 'pending')
       throw new NotFound('Không tìm thấy yêu cầu đang chờ');
-    if (decision === 'approved') {
-      const existing = await this.workspaces.findMembershipAny(workspace.id, request.userId);
-      let membershipId = existing?.id;
-      if (existing)
-        await this.workspaces.updateMember(existing.id, {
-          status: 'active',
-          role: 'member',
-          joinedAt: new Date(),
-        });
-      else membershipId = (await this.workspaces.createMember(workspace.id, request.userId)).id;
-      await this.workspaces.refreshMemberCount(workspace.id);
-      await this.workspaces.recordActivity(
-        workspace.id,
-        request.userId,
-        'đã tham gia nhóm học tập',
-        'membership',
-        membershipId,
-      );
-    }
+    // A full group keeps the request pending: the owner can free a seat or upgrade, then approve.
+    if (decision === 'approved') await this.admit(workspace.id, request.userId);
     await this.workspaces.reviewJoinRequest(request.id, userId, decision);
     const memberExternalId = await this.workspaces.findUserExternalId(request.userId);
     if (memberExternalId) {
@@ -556,6 +594,8 @@ export class WorkspaceService {
     if (user.id === userId) throw new BusinessRuleViolation('Bạn đã là Chủ nhóm');
     const existing = await this.workspaces.findMembershipAny(workspace.id, user.id);
     if (existing?.status === 'active') throw new AlreadyExists('Thành viên');
+    const { entitlements } = await this.quota.snapshot(workspace.ownerId);
+    assertWithinQuota(memberSeatProblem(entitlements, workspace.memberCount));
     if (existing) {
       await this.workspaces.updateMember(existing.id, { status: 'invited', role: 'member' });
       return { invitationId: existing.id, user };
@@ -595,15 +635,7 @@ export class WorkspaceService {
     const workspace = await this.requireActive(slug);
     const invitation = await this.workspaces.findMember(workspace.id, invitationId, 'invited');
     if (!invitation || invitation.userId !== userId) throw new NotFound('Không tìm thấy lời mời');
-    await this.workspaces.updateMember(invitation.id, { status: 'active', joinedAt: new Date() });
-    await this.workspaces.refreshMemberCount(workspace.id);
-    await this.workspaces.recordActivity(
-      workspace.id,
-      userId,
-      'đã tham gia nhóm học tập',
-      'membership',
-      invitation.id,
-    );
+    await this.admit(workspace.id, userId);
     return this.detail(userId, slug);
   }
   async revokeInvitation(userId: string, slug: string, invitationId: string) {
@@ -618,6 +650,26 @@ export class WorkspaceService {
    * Tư cách xem danh sách và hồ sơ thành viên. Admin xem nhóm để kiểm duyệt (xem `detail`) được
    * coi như một thành viên thường: chỉ thông tin công khai, không quyền quản lý.
    */
+  /** The only way a membership becomes active: atomic seat check under the group lock. */
+  /** The owner's plan as it applies to one group: its features and any over-limit restriction. */
+  async groupPlan(ownerId: string, groupId: string) {
+    const [{ entitlements, usage }, overage] = await Promise.all([this.quota.snapshot(ownerId), this.quota.overage(ownerId)]);
+    let restriction: GroupRestriction | null = null;
+    if (overage) {
+      const reasons = overLimitGroups(entitlements, usage, await this.quota.ownedGroups(ownerId)).get(groupId);
+      if (reasons) restriction = { ...overageTimeline(overage.overSince, overage.policy), reasons };
+    }
+    return { name: entitlements.planName, features: entitlements.features, restriction };
+  }
+
+  private async admit(groupId: string, userId: string) {
+    const membershipId = await this.quota.admitMember(groupId, userId, (entitlements, active) =>
+      assertWithinQuota(memberSeatProblem(entitlements, active)),
+    );
+    await this.workspaces.recordActivity(groupId, userId, 'đã tham gia nhóm học tập', 'membership', membershipId);
+    return membershipId;
+  }
+
   private async viewer(workspaceId: string, userId: string): Promise<{ role: WorkspaceRole }> {
     const membership = await this.workspaces.findMembership(workspaceId, userId);
     if (membership) return membership;

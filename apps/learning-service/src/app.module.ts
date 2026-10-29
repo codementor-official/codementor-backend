@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule, RemoteIdentityModule, ConfigModule, HealthModule, HttpModule, LoggingModule, MongoModule, PrismaModule, StorageModule } from '@codementor/platform';
 import { MessagingModule } from '@codementor/messaging';
 import { LearningModule } from './contexts/learning/learning.module';
+import { WorkspaceBillingModule } from './contexts/workspace-billing/workspace-billing.module';
 
 /**
  * learning-service
@@ -29,6 +30,7 @@ import { LearningModule } from './contexts/learning/learning.module';
     StorageModule,
     MessagingModule.forRoot({ serviceName: 'learning-service', enableOutbox: true }),
     LearningModule,
+    WorkspaceBillingModule,
   ],
 })
 export class AppModule {}

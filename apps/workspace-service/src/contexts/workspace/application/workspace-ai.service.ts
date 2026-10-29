@@ -8,7 +8,13 @@ import {
 import { createHash } from 'node:crypto';
 import type { AiDocumentSource, AiIndexStatus, AiScope, AiStatus } from '@codementor/contracts';
 import { WorkspaceService } from './workspace.service';
+import { QuotaExceeded } from '@codementor/kernel';
 import { WorkspaceAiClient } from '../infrastructure/workspace-ai.client';
+import {
+  WORKSPACE_QUOTA_REPOSITORY,
+  type WorkspaceQuotaRepository,
+} from '../domain/port/workspace-quota.repository';
+import { aiProblem } from '../domain/model/workspace-quota';
 import {
   WORKSPACE_CONTENT_REPOSITORY,
   type WorkspaceContentRepository,
@@ -21,6 +27,7 @@ export class WorkspaceAiService {
     private readonly workspaces: WorkspaceService,
     @Inject(WORKSPACE_CONTENT_REPOSITORY) private readonly content: WorkspaceContentRepository,
     private readonly ai: WorkspaceAiClient,
+    @Inject(WORKSPACE_QUOTA_REPOSITORY) private readonly quota: WorkspaceQuotaRepository,
   ) {}
   private async scope(userId: string, slug: string): Promise<AiScope> {
     const detail = await this.workspaces.detail(userId, slug);
@@ -55,6 +62,22 @@ export class WorkspaceAiService {
         return this.descriptor(doc);
       }),
     );
+  }
+  /**
+   * Charges one Tutor question to the group owner's monthly allowance. Called by ai-service
+   * with the asker's own token, before the answer stream opens.
+   */
+  async consume(userId: string, slug: string) {
+    const detail = await this.workspaces.detail(userId, slug);
+    if (detail.currentMembership.role !== 'owner' && !detail.currentMembership.permissions.view_doc)
+      throw new ForbiddenException('Bạn không có quyền đọc tài liệu trong nhóm này.');
+    const result = await this.quota.consumeAiRequest(detail.owner.id);
+    if ('refused' in result) {
+      const { entitlements } = await this.quota.snapshot(detail.owner.id);
+      const problem = aiProblem(entitlements, result.refused.used);
+      throw new QuotaExceeded(problem.code, problem.message, problem.details);
+    }
+    return { used: result.used };
   }
   async status(userId: string, slug: string) {
     return this.ai.call<AiStatus>('status', await this.scope(userId, slug));

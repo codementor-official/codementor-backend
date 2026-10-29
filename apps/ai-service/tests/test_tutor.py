@@ -462,6 +462,62 @@ def test_run_gate_fails_as_http_before_streaming(monkeypatch):
         app.dependency_overrides.pop(require_user, None)
 
 
+def test_run_charges_the_owner_allowance_after_the_document_gate(monkeypatch):
+    """Một câu hỏi tốn một lượt của Chủ nhóm — chỉ sau khi tài liệu qua cổng, và hết lượt là 429
+    với đúng câu của workspace-service, trước khi mở stream."""
+    from fastapi import Request
+    from fastapi.testclient import TestClient
+
+    from app.auth import require_user
+    from app.lecter.http import ToolCallError
+    from app.main import app
+
+    def user(request: Request):
+        request.state.access_token = "token"
+        return {"sub": "u1"}
+
+    calls = []
+
+    async def workspace(method, path, _config, json_body=None, **_kwargs):
+        calls.append(path)
+        if method == "GET":
+            return {"id": "w1"}
+        if path.endswith("/ai/consume"):
+            raise ToolCallError(
+                "Dịch vụ từ chối yêu cầu (422): ...", 422,
+                "Nhóm đã dùng hết 30 lượt hỏi AI tài liệu của tháng này theo gói Free.",
+            )
+        if json_body["documentIds"] == [OTHER]:
+            raise ToolCallError("không thấy", 404)
+        return [{"id": doc, "state": "ready"} for doc in json_body["documentIds"]]
+
+    monkeypatch.setattr(http, "workspace", workspace)
+    app.dependency_overrides[require_user] = user
+    try:
+        with TestClient(app) as client:
+            def run(documents):
+                return client.post(
+                    "/api/v1/ai/tutor/workspace/nhom/run",
+                    json={
+                        "threadId": "t1",
+                        "runId": "r1",
+                        "state": {"documents": documents},
+                        "messages": [{"id": "m1", "role": "user", "content": "Stack?"}],
+                        "tools": [],
+                        "context": [],
+                        "forwardedProps": {},
+                    },
+                )
+
+            assert run([{"id": OTHER, "title": "Ẩn"}]).status_code == 404
+            assert not any(path.endswith("/ai/consume") for path in calls)  # cổng hỏng: không tốn lượt
+            limited = run([{"id": DOC, "title": "Stack"}])
+            assert limited.status_code == 429
+            assert limited.json()["message"].startswith("Nhóm đã dùng hết 30 lượt")
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+
+
 def test_quoted_code_keeps_its_lines_and_closes_its_fence():
     code = "```python\ndef giai_thua(n):\n    if n <= 1:\n        return 1\n    return n * giai_thua(n - 1)\n```"
     raw = f"{QUOTES}\n" + "\n".join("> " + line for line in code.splitlines()) + f"\n> [S1]\n{EXPLAIN}\nGiải thích."

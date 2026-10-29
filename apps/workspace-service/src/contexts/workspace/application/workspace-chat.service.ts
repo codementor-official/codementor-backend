@@ -17,6 +17,7 @@ import type {
 } from '../presentation/dto/workspace.dto';
 import { WorkspaceService } from './workspace.service';
 import { isWorkspaceAttachmentMessage } from './workspace-chat-content';
+import { assertWritable, type GroupRestriction } from '../domain/model/workspace-quota';
 
 const DEFAULT_LIMIT = 30;
 
@@ -196,8 +197,9 @@ function clamp(value: number | undefined, fallback: number, maximum: number) {
 }
 
 /** Admin xem nhóm để kiểm duyệt thì chỉ đọc — không nói thay ai trong nhóm. */
-function assertCanPost(workspace: { currentMembership: { adminView: boolean } }) {
+function assertCanPost(workspace: { currentMembership: { adminView: boolean }; plan: { restriction: GroupRestriction | null } }) {
   if (workspace.currentMembership.adminView) {
     throw new NotAuthorized('Quản trị viên chỉ xem nhóm để kiểm duyệt, không gửi hay sửa tin nhắn');
   }
+  assertWritable(workspace.plan.restriction);
 }

@@ -5,6 +5,7 @@ import type {
   WorkspacePermission,
   WorkspaceRole,
 } from '../model/workspace-policy';
+import type { QuotaGuard } from './workspace-quota.repository';
 
 export interface WorkspaceUser {
   id: string;
@@ -150,14 +151,18 @@ export interface WorkspaceRepository {
   isPlatformAdmin(userId: string): Promise<boolean>;
   findActiveBySlug(slug: string): Promise<WorkspaceRecord | null>;
   findActiveByInviteCode(inviteCode: string): Promise<WorkspaceRecord | null>;
-  create(input: {
-    slug: string;
-    inviteCode: string;
-    name: string;
-    description: string | null | undefined;
-    topic: string | null | undefined;
-    ownerId: string;
-  }): Promise<WorkspaceRecord>;
+  /** `guard` runs under the owner's quota lock, before anything is written. */
+  create(
+    input: {
+      slug: string;
+      inviteCode: string;
+      name: string;
+      description: string | null | undefined;
+      topic: string | null | undefined;
+      ownerId: string;
+    },
+    guard: QuotaGuard,
+  ): Promise<WorkspaceRecord>;
   update(
     id: string,
     input: {
@@ -216,12 +221,6 @@ export interface WorkspaceRepository {
     groupId: string,
     memberId: string,
   ): Promise<WorkspaceMemberDashboardRecord | null>;
-  transferOwnership(
-    groupId: string,
-    oldOwnerId: string,
-    newOwnerMembershipId: string,
-    newOwnerId: string,
-  ): Promise<void>;
   setRolePermissions(
     groupId: string,
     role: ConfigurableWorkspaceRole,

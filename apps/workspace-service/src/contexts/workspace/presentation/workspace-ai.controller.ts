@@ -55,6 +55,11 @@ export class WorkspaceAiController {
   ) {
     return this.ai.index(requireHumanId(user), slug, id);
   }
+  /** Charges one Tutor question to the group owner's monthly allowance (called by ai-service). */
+  @Post('consume')
+  consume(@CurrentUser() user: AuthenticatedUser, @Param('slug') slug: string) {
+    return this.ai.consume(requireHumanId(user), slug);
+  }
   @Post('documents/prepare')
   prepare(
     @CurrentUser() user: AuthenticatedUser,

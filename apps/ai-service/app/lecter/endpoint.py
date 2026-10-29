@@ -68,6 +68,15 @@ async def _workspace_gate(slug: str, request: Request) -> str:
     permissions = membership.get("permissions") or {}
     if membership.get("role") != "owner" and not permissions.get("create_exercise"):
         raise HTTPException(403, "Bạn không có quyền tạo bài tập trong nhóm này.")
+    # Gói của CHỦ NHÓM quyết định, không phải của người soạn — cùng luật với workspace-service.
+    plan = (detail or {}).get("plan") or {}
+    if "advanced_assignments" not in (plan.get("features") or []):
+        raise HTTPException(
+            403,
+            f"Soạn bài bằng Lecter thuộc Quản lý bài tập nâng cao, không có trong gói {plan.get('name') or 'hiện tại'} của chủ nhóm.",
+        )
+    if ((plan.get("restriction") or {}).get("stage")) in ("read_only", "hidden"):
+        raise HTTPException(403, "Nhóm đang ở chế độ chỉ đọc nên không soạn thêm bài tập được.")
     workspace_id = (detail or {}).get("id")
     if not workspace_id:
         raise HTTPException(404, "Không tìm thấy nhóm học tập.")

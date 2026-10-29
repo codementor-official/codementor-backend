@@ -25,9 +25,15 @@ export class WorkspaceOverviewService {
       detail.currentMembership.role === 'member'
         ? data.members.map(({ email: _email, ...member }) => member)
         : data.members;
+    const detailed = detail.plan.features.includes('detailed_analytics');
     return {
       ...data,
-      members,
+      // Without the plan feature the group keeps its totals; per-member progress and trends are paid.
+      detailedAnalytics: detailed,
+      activeLearners: data.members.filter((member) => member.assignedCount > 0).length,
+      members: detailed ? members : [],
+      submissionTrend: detailed ? data.submissionTrend : [],
+      completionTrend: detailed ? data.completionTrend : [],
       memberCount: detail.memberCount,
       createdAt: detail.createdAt,
       topic: detail.topic,
