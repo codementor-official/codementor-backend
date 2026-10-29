@@ -75,4 +75,6 @@ export interface PaymentInput {
   amount: number;
   createdAt: Date;
   expiresAt: Date;
+  /** Client path the gateway returns to; defaults to the course purchase page. */
+  returnPath?: string;
 }

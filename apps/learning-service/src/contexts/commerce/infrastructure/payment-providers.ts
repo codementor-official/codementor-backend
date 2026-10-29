@@ -128,12 +128,12 @@ export class PaymentProviders {
     if (!this.methods().includes(provider))
       throw new BadRequestException('Phương thức chưa được cấu hình.');
   }
-  private returnUrl(orderId: string) {
-    return `${(process.env.COMMERCE_CLIENT_URL ?? 'http://localhost:3000').replace(/\/$/, '')}/purchases/${orderId}`;
+  private returnUrl(p: Pick<PaymentInput, 'orderId' | 'returnPath'>) {
+    return `${(process.env.COMMERCE_CLIENT_URL ?? 'http://localhost:3000').replace(/\/$/, '')}${p.returnPath ?? `/purchases/${p.orderId}`}`;
   }
   async create(provider: PaymentProvider, p: PaymentInput): Promise<string> {
     this.ensure(provider);
-    if (provider === 'mock') return this.returnUrl(p.orderId);
+    if (provider === 'mock') return this.returnUrl(p);
     if (provider === 'vnpay') {
       const fields: Fields = {
         vnp_Version: '2.1.0',
@@ -145,7 +145,7 @@ export class PaymentProviders {
         vnp_OrderInfo: `CodeMentor ${p.orderId}`,
         vnp_OrderType: 'other',
         vnp_Locale: 'vn',
-        vnp_ReturnUrl: this.returnUrl(p.orderId),
+        vnp_ReturnUrl: this.returnUrl(p),
         vnp_CreateDate: vietnamDate(p.createdAt),
         vnp_ExpireDate: vietnamDate(p.expiresAt),
         vnp_IpAddr: '127.0.0.1',
@@ -159,7 +159,7 @@ export class PaymentProviders {
       orderId: p.id,
       amount: p.amount,
       orderInfo: `CodeMentor ${p.orderId}`,
-      redirectUrl: this.returnUrl(p.orderId),
+      redirectUrl: this.returnUrl(p),
       ipnUrl: `${process.env.COMMERCE_PUBLIC_API_URL!.replace(/\/$/, '')}/commerce/webhooks/momo`,
       extraData: '',
       requestType: 'captureWallet',

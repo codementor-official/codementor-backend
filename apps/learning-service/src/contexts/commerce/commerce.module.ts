@@ -19,6 +19,6 @@ import { RevenueAnalyticsService } from './application/revenue-analytics.service
     WalletService,
     CommerceJobs,
   ],
-  exports: [CommerceAccessService],
+  exports: [CommerceAccessService, CommerceStore, PaymentProviders, OrdersService],
 })
 export class CommerceModule {}
