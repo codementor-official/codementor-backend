@@ -104,6 +104,7 @@ export class AdjustmentDto extends ReasonDto {
 }
 
 export class CouponDto {
+  @IsOptional() @IsString() @Length(0, 200) description = '';
   @Matches(/^[A-Za-z0-9_-]{3,32}$/) code!: string;
   @IsIn(['percent', 'fixed']) kind!: 'percent' | 'fixed';
   @IsInt() @Min(1) @Max(999_999_999) value!: number;
@@ -114,6 +115,21 @@ export class CouponDto {
   @IsOptional() @IsArray() @IsUUID('4', { each: true }) planIds?: string[];
   @IsOptional() @IsArray() @IsIn(['month', 'year'], { each: true }) billingCycles?: BillingCycle[];
   @IsBoolean() newCustomersOnly = false;
+}
+
+/** Every field optional; the code never changes and the discount only while the coupon is unused. */
+export class UpdateCouponDto {
+  @IsOptional() @IsString() @Length(0, 200) description?: string;
+  @IsOptional() @IsIn(['percent', 'fixed']) kind?: 'percent' | 'fixed';
+  @IsOptional() @IsInt() @Min(1) @Max(999_999_999) value?: number;
+  @IsOptional() @IsDateString() startsAt?: string;
+  @IsOptional() @IsDateString() endsAt?: string;
+  /** `null` removes the cap. */
+  @IsOptional() @IsInt() @Min(1) maxRedemptions?: number | null;
+  @IsOptional() @IsInt() @Min(1) @Max(100) perUserLimit?: number;
+  @IsOptional() @IsArray() @IsUUID('4', { each: true }) planIds?: string[];
+  @IsOptional() @IsArray() @IsIn(['month', 'year'], { each: true }) billingCycles?: BillingCycle[];
+  @IsOptional() @IsBoolean() newCustomersOnly?: boolean;
 }
 
 export class SettingsDto {

@@ -10,7 +10,7 @@ import { BusinessRuleViolation, NotFound } from '@codementor/kernel';
 import { CommerceStore, audit, journal, lock, type Tx } from '../../commerce/infrastructure/commerce.store';
 import { PaymentProviders } from '../../commerce/infrastructure/payment-providers';
 import { OrdersService } from '../../commerce/application/orders.service';
-import { notifyCommerce } from '../../commerce/infrastructure/commerce-notification';
+import { notifyAdmins, notifyCommerce } from '../../commerce/infrastructure/commerce-notification';
 import type { PaymentEvidence, PaymentProvider } from '../../commerce/domain/money';
 import {
   MIN_CHARGE_VND,
@@ -517,11 +517,11 @@ export class SubscriptionsService implements OnModuleInit {
     const snapshot = order.quote;
     const open = await this.openSubscription(tx, order.buyer_id, now);
     const reviewReason =
-      order.status !== 'pending' ? 'payment arrived after the order closed'
+      order.status !== 'pending' ? 'thanh toán đến sau khi đơn đã đóng'
       // A renewal ordered during grace stays valid even if the gateway confirms after grace ends.
-      : order.kind === 'renewal' && (!open || open.row.id !== order.subscription_id || open.state === 'SUSPENDED') ? 'subscription can no longer be renewed'
-      : order.kind === 'upgrade' && (!open || open.row.id !== order.subscription_id) ? 'subscription changed before payment'
-      : order.kind === 'new' && open && (open.state === 'ACTIVE' || open.state === 'CANCEL_SCHEDULED') ? 'another subscription is already active'
+      : order.kind === 'renewal' && (!open || open.row.id !== order.subscription_id || open.state === 'SUSPENDED') ? 'gói không còn gia hạn được'
+      : order.kind === 'upgrade' && (!open || open.row.id !== order.subscription_id) ? 'gói đã thay đổi trước khi thanh toán'
+      : order.kind === 'new' && open && (open.state === 'ACTIVE' || open.state === 'CANCEL_SCHEDULED') ? 'đang có một gói khác hoạt động'
       : null;
     if (reviewReason) {
       // Real money arrived for terms we can no longer honour: keep it for an administrator to
@@ -532,6 +532,9 @@ export class SubscriptionsService implements OnModuleInit {
       await notifyCommerce(tx, order.buyer_id, order.id, 'Thanh toán cần kiểm tra',
         'Chúng tôi đã nhận thanh toán nhưng chưa áp dụng tự động được. Quản trị viên sẽ kiểm tra.',
         `${RESULT_PATH}?order=${order.id}`);
+      await notifyAdmins(tx, order.id, 'Thanh toán gói Workspace cần kiểm tra',
+        `Đơn ${order.amount_vnd.toLocaleString('vi-VN')} ₫ đã được trả nhưng chưa áp dụng tự động: ${reviewReason}.`,
+        `/workspace-plans?tab=orders&order=${order.id}`);
       return;
     }
 
@@ -571,6 +574,11 @@ export class SubscriptionsService implements OnModuleInit {
       order.kind === 'renewal' ? 'Đã gia hạn gói Workspace' : `Gói ${snapshot.plan.name} đã kích hoạt`,
       `Gói Workspace ${snapshot.plan.name} có hiệu lực đến ${vnDate(endsAt)}.`,
       '/workspace/billing');
+    const [buyer] = await tx.$queryRaw<{ name: string }[]>`SELECT display_name AS name FROM users WHERE id = ${order.buyer_id}::uuid`;
+    await notifyAdmins(tx, order.id,
+      `${order.kind === 'renewal' ? 'Gia hạn' : order.kind === 'upgrade' ? 'Nâng cấp' : 'Đăng ký mới'} gói ${snapshot.plan.name}`,
+      `${buyer?.name ?? 'Một chủ nhóm'} đã thanh toán ${order.amount_vnd.toLocaleString('vi-VN')} ₫, hiệu lực đến ${vnDate(endsAt)}.`,
+      `/workspace-plans?tab=orders&order=${order.id}`);
   }
 
   async mock(userId: string, orderId: string, result: 'success' | 'failure' | 'cancelled' | 'pending' | 'unknown') {

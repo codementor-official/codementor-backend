@@ -26,3 +26,9 @@ export async function notifyCommerce(
   };
   await tx.$executeRaw`INSERT INTO outbox(id,topic,partition_key,payload) VALUES (${eventId}::uuid,${topic},${user.external_id},${JSON.stringify(envelope)}::jsonb)`;
 }
+
+/** Same outbox message to every administrator, e.g. a payment that needs a human. */
+export async function notifyAdmins(tx: Tx, entityId: string, title: string, message: string, actionUrl: string) {
+  const admins = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM users WHERE role = 'admin'::platform_role`;
+  for (const admin of admins) await notifyCommerce(tx, admin.id, entityId, title, message, actionUrl);
+}

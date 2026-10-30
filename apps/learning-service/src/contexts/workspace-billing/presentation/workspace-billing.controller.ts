@@ -5,6 +5,7 @@ import { SubscriptionsService } from '../application/subscriptions.service';
 import { BillingAdminService } from '../application/billing-admin.service';
 import {
   AuditQuery,
+  UpdateCouponDto,
   AdjustmentDto,
   BillingPage,
   CheckoutDto,
@@ -146,7 +147,7 @@ export class WorkspaceBillingController {
     return this.admin.orders(q);
   }
   @Get('admin/orders/:id') @Roles('admin') adminOrder(@Param('id', ParseUUIDPipe) id: string) {
-    return this.subscriptions.order(null, id);
+    return this.admin.orderDetail(id);
   }
   @Post('admin/orders/:id/reconcile') @Roles('admin') async adminReconcile(@Param('id', ParseUUIDPipe) id: string) {
     await this.subscriptions.reconcile(id);
@@ -161,6 +162,19 @@ export class WorkspaceBillingController {
   }
   @Get('admin/coupons') @Roles('admin') coupons() {
     return this.admin.coupons();
+  }
+  @Get('admin/coupons/:id') @Roles('admin') coupon(@Param('id', ParseUUIDPipe) id: string) {
+    return this.admin.coupon(id);
+  }
+  @Patch('admin/coupons/:id') @Roles('admin') updateCoupon(
+    @CurrentUser() u: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() b: UpdateCouponDto,
+  ) {
+    return this.admin.updateCoupon(requireHumanId(u), id, b);
+  }
+  @Get('admin/overage') @Roles('admin') overage() {
+    return this.admin.overageOwners();
   }
   @Post('admin/coupons') @Roles('admin') createCoupon(@CurrentUser() u: AuthenticatedUser, @Body() b: CouponDto) {
     return this.admin.createCoupon(requireHumanId(u), b);
