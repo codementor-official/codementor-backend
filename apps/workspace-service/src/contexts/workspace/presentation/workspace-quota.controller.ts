@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Roles, requireHumanId } from '@codementor/platform';
 import type { AuthenticatedUser } from '@codementor/platform';
@@ -28,6 +28,13 @@ export class WorkspaceQuotaController {
   @ApiOperation({ summary: 'Lời đề nghị nhận quyền Chủ nhóm đang chờ bạn' })
   ownershipOffers(@CurrentUser() user: AuthenticatedUser) {
     return this.workspaces.myTransferOffers(requireHumanId(user));
+  }
+
+  @Get('plan-usage/admin/:userId')
+  @Roles('admin')
+  @ApiOperation({ summary: 'One owner\'s limits, usage and over-limit groups, for administrators' })
+  ownerUsage(@Param('userId', ParseUUIDPipe) userId: string) {
+    return this.quota.usage(userId);
   }
 
   @Get('plan-usage/admin-overview')

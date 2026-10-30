@@ -5,7 +5,7 @@ import { CommerceStore, audit, journal, lock } from '../../commerce/infrastructu
 import { notifyCommerce } from '../../commerce/infrastructure/commerce-notification';
 import { entitlementsOf, orderView, type EffectiveRow, type OrderRow, type SubscriptionRow } from '../infrastructure/billing.rows';
 import { SubscriptionsService } from './subscriptions.service';
-import type { AdjustmentDto, AuditQuery, BillingPage, CouponDto, RefundDto, SettingsDto, SubscriberQuery } from '../presentation/workspace-billing.dto';
+import type { AdjustmentDto, AuditQuery, BillingPage, CouponDto, RefundDto, SettingsDto, SubscriberQuery, UpdateCouponDto } from '../presentation/workspace-billing.dto';
 
 /** SQL twin of `subscriptionState()`; `s` is a subscription, `t` its term summary. */
 const STATE_SQL = Prisma.sql`CASE
@@ -277,6 +277,48 @@ export class BillingAdminService {
     };
   }
 
+  /** Everything needed to trace one order: buyer, quote, payment, ledger, coupon and its history. */
+  async orderDetail(id: string) {
+    const db = this.store.db;
+    const [[row], payments, entries, history] = await Promise.all([
+      db.$queryRaw<(OrderRow & { display_name: string; email: string; coupon_code: string | null; coupon_description: string | null })[]>`
+        SELECT o.*, u.display_name, u.email::text, c.code::text AS coupon_code, c.description AS coupon_description
+        FROM workspace_orders o JOIN users u ON u.id = o.buyer_id LEFT JOIN workspace_coupons c ON c.id = o.coupon_id
+        WHERE o.id = ${id}::uuid`,
+      db.$queryRaw<{ provider: string; status: string; provider_ref: string | null; provider_date: string | null; created_at: Date; create_started_at: Date | null; reconciled_at: Date | null }[]>`
+        SELECT provider, status, provider_ref, provider_date, created_at, create_started_at, reconciled_at
+        FROM commerce_payments WHERE workspace_order_id = ${id}::uuid ORDER BY created_at`,
+      db.$queryRaw<{ journal: string; event_key: string; at: Date; account: string; amount: bigint }[]>`
+        SELECT j.id AS journal, j.event_key, j.created_at AS at, e.account, e.amount
+        FROM commerce_journals j JOIN commerce_entries e ON e.journal_id = j.id
+        WHERE j.workspace_order_id = ${id}::uuid ORDER BY j.created_at, e.id`,
+      db.$queryRaw<{ action: string; created_at: Date; details: unknown; actor: string | null }[]>`
+        SELECT a.action, a.created_at, a.details, u.display_name AS actor FROM commerce_audit a
+        LEFT JOIN users u ON u.id = a.actor_id
+        WHERE a.entity_id = ${id}::uuid OR (a.details->>'orderId') = ${id}
+        ORDER BY a.created_at`,
+    ]);
+    if (!row) throw new NotFound('Đơn gói Workspace', id);
+    return {
+      ...orderView(row),
+      buyer: { id: row.buyer_id, name: row.display_name, email: row.email },
+      quote: row.quote,
+      coupon: row.coupon_code ? { id: row.coupon_id, code: row.coupon_code, description: row.coupon_description } : null,
+      replacedSubscriptionId: row.subscription_id,
+      payments: payments.map((p) => ({
+        provider: p.provider,
+        status: p.status,
+        reference: p.provider_ref,
+        providerDate: p.provider_date,
+        createdAt: p.created_at,
+        startedAt: p.create_started_at,
+        reconciledAt: p.reconciled_at,
+      })),
+      ledger: entries.map((e) => ({ journalId: e.journal, eventKey: e.event_key, at: e.at, account: e.account, amountVnd: Number(e.amount) })),
+      history: history.map((h) => ({ action: h.action, at: h.created_at, details: h.details, actor: h.actor })),
+    };
+  }
+
   /**
    * Records a full refund made through the gateway. The ledger gets a compensating entry, the
    * order becomes `refunded`, and a term that has not ended yet ends the subscription now —
@@ -324,9 +366,91 @@ export class BillingAdminService {
   async coupons() {
     const rows = await this.store.db.$queryRaw<Record<string, unknown>[]>`
       SELECT c.*, (SELECT count(*) FROM workspace_coupon_redemptions r WHERE r.coupon_id = c.id AND r.status = 'redeemed')::int AS redeemed,
-        (SELECT count(*) FROM workspace_coupon_redemptions r WHERE r.coupon_id = c.id AND r.status = 'reserved')::int AS reserved
-      FROM workspace_coupons c ORDER BY c.created_at DESC`;
+        (SELECT count(*) FROM workspace_coupon_redemptions r WHERE r.coupon_id = c.id AND r.status = 'reserved')::int AS reserved,
+        (SELECT COALESCE(sum(o.discount_vnd), 0) FROM workspace_orders o WHERE o.coupon_id = c.id AND o.status = 'paid')::int AS discount_given_vnd,
+        u.display_name AS created_by_name
+      FROM workspace_coupons c LEFT JOIN users u ON u.id = c.created_by ORDER BY c.created_at DESC`;
     return rows;
+  }
+
+  /** A coupon with who used it, on which order and for how much. */
+  async coupon(id: string) {
+    const [[coupon], redemptions] = await Promise.all([
+      this.store.db.$queryRaw<Record<string, unknown>[]>`SELECT c.*, u.display_name AS created_by_name
+        FROM workspace_coupons c LEFT JOIN users u ON u.id = c.created_by WHERE c.id = ${id}::uuid`,
+      this.store.db.$queryRaw<{ status: string; created_at: Date; user_id: string; name: string; email: string; order_id: string; order_status: string; plan: string; discount_vnd: number; amount_vnd: number }[]>`
+        SELECT r.status, r.created_at, r.user_id, u.display_name AS name, u.email::text, o.id AS order_id, o.status AS order_status,
+          o.quote->'plan'->>'name' AS plan, o.discount_vnd, o.amount_vnd
+        FROM workspace_coupon_redemptions r JOIN users u ON u.id = r.user_id JOIN workspace_orders o ON o.id = r.order_id
+        WHERE r.coupon_id = ${id}::uuid ORDER BY r.created_at DESC LIMIT 200`,
+    ]);
+    if (!coupon) throw new NotFound('Mã giảm giá', id);
+    return {
+      coupon,
+      redemptions: redemptions.map((r) => ({
+        status: r.status,
+        at: r.created_at,
+        user: { id: r.user_id, name: r.name, email: r.email },
+        order: { id: r.order_id, status: r.order_status, plan: r.plan, discountVnd: r.discount_vnd, amountVnd: r.amount_vnd },
+      })),
+    };
+  }
+
+  /**
+   * Scope, window and caps change at any time; the discount only while nobody has used or reserved
+   * the coupon. Orders keep the terms they were quoted.
+   */
+  async updateCoupon(actorId: string, id: string, dto: UpdateCouponDto) {
+    return this.store.transaction(async (tx) => {
+      const [c] = await tx.$queryRaw<{ kind: string; value: number; starts_at: Date; ends_at: Date; max_redemptions: number | null; used: number }[]>`
+        SELECT c.kind, c.value, c.starts_at, c.ends_at, c.max_redemptions,
+          (SELECT count(*) FROM workspace_coupon_redemptions r WHERE r.coupon_id = c.id AND r.status <> 'released')::int AS used
+        FROM workspace_coupons c WHERE c.id = ${id}::uuid FOR UPDATE`;
+      if (!c) throw new NotFound('Mã giảm giá', id);
+      const kind = dto.kind ?? c.kind;
+      const value = dto.value ?? c.value;
+      if ((kind !== c.kind || value !== c.value) && c.used > 0)
+        throw new BusinessRuleViolation(`Mã đã được dùng ${c.used} lần nên không đổi mức giảm được. Hãy tắt mã này và tạo mã mới.`);
+      if (kind === 'percent' && value > 100) throw new BusinessRuleViolation('Phần trăm giảm không được vượt 100.');
+      const startsAt = dto.startsAt ? new Date(dto.startsAt) : c.starts_at;
+      const endsAt = dto.endsAt ? new Date(dto.endsAt) : c.ends_at;
+      if (endsAt <= startsAt) throw new BusinessRuleViolation('Thời điểm kết thúc phải sau thời điểm bắt đầu.');
+      const max = dto.maxRedemptions === undefined ? c.max_redemptions : dto.maxRedemptions;
+      if (max !== null && max < c.used)
+        throw new BusinessRuleViolation(`Tổng lượt dùng không được nhỏ hơn ${c.used} lượt đã dùng hoặc đang giữ.`);
+      await tx.$executeRaw`UPDATE workspace_coupons SET
+        description = COALESCE(${dto.description?.trim() ?? null}, description),
+        kind = ${kind}, value = ${value}, starts_at = ${startsAt}, ends_at = ${endsAt},
+        max_redemptions = ${max}::integer,
+        per_user_limit = COALESCE(${dto.perUserLimit ?? null}::integer, per_user_limit),
+        plan_ids = CASE WHEN ${dto.planIds !== undefined} THEN ${dto.planIds?.length ? dto.planIds : null}::uuid[] ELSE plan_ids END,
+        billing_cycles = CASE WHEN ${dto.billingCycles !== undefined} THEN ${dto.billingCycles?.length ? dto.billingCycles : null}::text[] ELSE billing_cycles END,
+        new_customers_only = COALESCE(${dto.newCustomersOnly ?? null}::boolean, new_customers_only),
+        updated_at = now()
+        WHERE id = ${id}::uuid`;
+      await audit(tx, 'workspace_coupon.updated', id, actorId, dto);
+      return { updated: true };
+    });
+  }
+
+  /** Owners above their plan (paid or Free), with the stage they are in. */
+  async overageOwners() {
+    const rows = await this.store.db.$queryRaw<{ owner_id: string; name: string; email: string; over_since: Date; read_only_at: Date; hidden_at: Date; groups: number }[]>`
+      SELECT o.owner_id, u.display_name AS name, u.email::text, o.over_since,
+        o.over_since + make_interval(days => s.overage_notice_days) AS read_only_at,
+        o.over_since + make_interval(days => s.overage_notice_days + s.overage_read_only_days) AS hidden_at,
+        (SELECT count(*) FROM study_groups g WHERE g.owner_id = o.owner_id)::int AS groups
+      FROM workspace_owner_overage o CROSS JOIN workspace_billing_settings s JOIN users u ON u.id = o.owner_id
+      ORDER BY o.over_since`;
+    const now = Date.now();
+    return rows.map((r) => ({
+      user: { id: r.owner_id, name: r.name, email: r.email },
+      ownedGroups: r.groups,
+      overSince: r.over_since,
+      readOnlyAt: r.read_only_at,
+      hiddenAt: r.hidden_at,
+      stage: now >= r.hidden_at.getTime() ? 'hidden' : now >= r.read_only_at.getTime() ? 'read_only' : 'notice',
+    }));
   }
 
   async createCoupon(actorId: string, dto: CouponDto) {
@@ -338,9 +462,9 @@ export class BillingAdminService {
       const [exists] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM workspace_coupons WHERE code = ${dto.code}`;
       if (exists) throw new AlreadyExists('Mã giảm giá', { code: dto.code });
       const [row] = await tx.$queryRaw<{ id: string }[]>`
-        INSERT INTO workspace_coupons(code, kind, value, starts_at, ends_at, max_redemptions, per_user_limit, plan_ids,
+        INSERT INTO workspace_coupons(code, description, kind, value, starts_at, ends_at, max_redemptions, per_user_limit, plan_ids,
           billing_cycles, new_customers_only, created_by)
-        VALUES (${dto.code}, ${dto.kind}, ${dto.value}, ${startsAt}, ${endsAt}, ${dto.maxRedemptions ?? null}::integer,
+        VALUES (${dto.code}, ${dto.description.trim()}, ${dto.kind}, ${dto.value}, ${startsAt}, ${endsAt}, ${dto.maxRedemptions ?? null}::integer,
           ${dto.perUserLimit}, ${dto.planIds?.length ? dto.planIds : null}::uuid[],
           ${dto.billingCycles?.length ? dto.billingCycles : null}::text[], ${dto.newCustomersOnly}, ${actorId}::uuid)
         RETURNING id`;
@@ -394,8 +518,14 @@ export class BillingAdminService {
   async auditLog(q: AuditQuery) {
     const filter = q.category ? `workspace\\_${q.category}.%` : 'workspace\\_%';
     const [rows, [count]] = await Promise.all([
-      this.store.db.$queryRaw<{ id: string; action: string; entity_id: string | null; details: unknown; created_at: Date; actor: string | null; subject: string | null }[]>`
+      this.store.db.$queryRaw<{ id: string; action: string; entity_id: string | null; details: unknown; created_at: Date; actor: string | null; subject: string | null; target_user_id: string | null }[]>`
         SELECT a.id, a.action, a.entity_id, a.details, a.created_at, u.display_name AS actor,
+          COALESCE(
+            (SELECT s.user_id FROM workspace_subscriptions s WHERE s.id = a.entity_id),
+            (SELECT o.buyer_id FROM workspace_orders o WHERE o.id = a.entity_id),
+            (SELECT ad.user_id FROM workspace_entitlement_adjustments ad WHERE ad.id = a.entity_id),
+            (SELECT x.id FROM users x WHERE x.id = a.entity_id)
+          ) AS target_user_id,
           COALESCE(
             (SELECT su.display_name FROM workspace_subscriptions s JOIN users su ON su.id = s.user_id WHERE s.id = a.entity_id),
             (SELECT ou.display_name FROM workspace_orders o JOIN users ou ON ou.id = o.buyer_id WHERE o.id = a.entity_id),
