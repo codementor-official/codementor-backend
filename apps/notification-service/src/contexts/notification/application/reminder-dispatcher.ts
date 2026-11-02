@@ -105,6 +105,7 @@ export class ReminderDispatcher implements OnModuleInit, OnModuleDestroy {
       r.payload,
       user,
       this.config.get<string>('CLIENT_APP_URL', 'http://localhost:3000'),
+      { type: r.type, category: r.category },
     );
     if (!(await this.repo.startDelivery(r, user))) return;
     let messageId: string;
