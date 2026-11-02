@@ -103,7 +103,9 @@ const server = http.createServer(async (request, response) => {
 
     const responseHeaders = { ...cors };
     upstream.headers.forEach((value, name) => {
-      if (!hopByHopHeaders.has(name.toLowerCase())) responseHeaders[name] = value;
+      // fetch already decompressed the body; passing the encoding on makes the caller decode twice.
+      if (!hopByHopHeaders.has(name.toLowerCase()) && !["content-encoding", "content-length"].includes(name.toLowerCase()))
+        responseHeaders[name] = value;
     });
     response.writeHead(upstream.status, responseHeaders);
     if (upstream.body) Readable.fromWeb(upstream.body).pipe(response);
