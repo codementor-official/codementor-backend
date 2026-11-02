@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AlreadyExists, BusinessRuleViolation, NotFound } from '@codementor/kernel';
-import { CommerceStore, audit, journal, lock } from '../../commerce/infrastructure/commerce.store';
+import { CommerceStore, audit, journal, lock, type Tx } from '../../commerce/infrastructure/commerce.store';
 import { notifyCommerce } from '../../commerce/infrastructure/commerce-notification';
+import { refundEffect } from '../domain/billing';
 import { entitlementsOf, orderView, type EffectiveRow, type OrderRow, type SubscriptionRow } from '../infrastructure/billing.rows';
 import { SubscriptionsService } from './subscriptions.service';
 import type { AdjustmentDto, AuditQuery, BillingPage, CouponDto, RefundDto, SettingsDto, SubscriberQuery, UpdateCouponDto } from '../presentation/workspace-billing.dto';
@@ -17,7 +18,7 @@ const STATE_SQL = Prisma.sql`CASE
 
 const TERMS_SQL = Prisma.sql`LEFT JOIN LATERAL (
   SELECT max(ends_at) AS paid_through, bool_or(starts_at <= now() AND ends_at > now()) AS covered
-  FROM workspace_subscription_terms WHERE subscription_id = s.id) t ON true`;
+  FROM workspace_paid_terms WHERE subscription_id = s.id) t ON true`;
 
 @Injectable()
 export class BillingAdminService {
@@ -51,8 +52,8 @@ export class BillingAdminService {
       // Of the terms that ended in the last 90 days, how many were followed by a renewal.
       db.$queryRaw<{ ended: bigint; renewed: bigint }[]>`
         SELECT count(*) AS ended, count(*) FILTER (WHERE EXISTS (
-          SELECT 1 FROM workspace_subscription_terms n WHERE n.subscription_id = t.subscription_id AND n.starts_at >= t.ends_at)) AS renewed
-        FROM workspace_subscription_terms t WHERE t.ends_at BETWEEN now() - interval '90 days' AND now()`,
+          SELECT 1 FROM workspace_paid_terms n WHERE n.subscription_id = t.subscription_id AND n.starts_at >= t.ends_at)) AS renewed
+        FROM workspace_paid_terms t WHERE t.ends_at BETWEEN now() - interval '90 days' AND now()`,
       db.$queryRaw<{ action: string; entity_id: string; created_at: Date; details: unknown }[]>`
         SELECT action, entity_id, created_at, details FROM commerce_audit
         WHERE action LIKE 'workspace\\_%' ORDER BY created_at DESC LIMIT 20`,
@@ -277,6 +278,15 @@ export class BillingAdminService {
     };
   }
 
+  /** What refunding this order does to its subscription; see `refundEffect`. */
+  private async refundEffectOf(db: Tx, order: OrderRow) {
+    if (!order.result_subscription_id) return 'money_only' as const;
+    const [row] = await db.$queryRaw<{ starts_at: Date; ends_at: Date; open: boolean }[]>`
+      SELECT t.starts_at, t.ends_at, s.ended_at IS NULL AS open FROM workspace_subscription_terms t
+      JOIN workspace_subscriptions s ON s.id = t.subscription_id WHERE t.order_id = ${order.id}::uuid`;
+    return refundEffect(row ? { startsAt: row.starts_at, endsAt: row.ends_at } : null, row?.open ?? false, new Date());
+  }
+
   /** Everything needed to trace one order: buyer, quote, payment, ledger, coupon and its history. */
   async orderDetail(id: string) {
     const db = this.store.db;
@@ -299,8 +309,12 @@ export class BillingAdminService {
         ORDER BY a.created_at`,
     ]);
     if (!row) throw new NotFound('Đơn gói Workspace', id);
+    const [term] = await db.$queryRaw<{ starts_at: Date; ends_at: Date }[]>`
+      SELECT starts_at, ends_at FROM workspace_subscription_terms WHERE order_id = ${id}::uuid`;
     return {
       ...orderView(row),
+      term: term ? { startsAt: term.starts_at, endsAt: term.ends_at } : null,
+      refundEffect: row.status === 'paid' || row.status === 'review' ? await this.refundEffectOf(db, row) : null,
       buyer: { id: row.buyer_id, name: row.display_name, email: row.email },
       quote: row.quote,
       coupon: row.coupon_code ? { id: row.coupon_id, code: row.coupon_code, description: row.coupon_description } : null,
@@ -340,26 +354,28 @@ export class BillingAdminService {
         { account: 'clearing', amount: order.amount_vnd },
       ], { workspaceOrder: orderId });
       await tx.$executeRaw`UPDATE workspace_orders SET status = 'refunded' WHERE id = ${orderId}::uuid`;
-      let endedSubscription = false;
-      if (order.status === 'paid' && order.result_subscription_id) {
-        const [term] = await tx.$queryRaw<{ ends_at: Date }[]>`
-          SELECT ends_at FROM workspace_subscription_terms WHERE order_id = ${orderId}::uuid`;
-        if (term && term.ends_at > new Date()) {
-          const ended = await tx.$executeRaw`UPDATE workspace_subscriptions SET ended_at = now(), end_reason = 'refunded', updated_at = now()
-            WHERE id = ${order.result_subscription_id}::uuid AND ended_at IS NULL`;
-          endedSubscription = ended > 0;
-        }
-      }
+      // The order is `refunded` now, so its term already stops counting (workspace_paid_terms).
+      const effect = await this.refundEffectOf(tx, order);
+      if (effect === 'end_subscription')
+        await tx.$executeRaw`UPDATE workspace_subscriptions SET ended_at = now(), end_reason = 'refunded', updated_at = now()
+          WHERE id = ${order.result_subscription_id}::uuid AND ended_at IS NULL`;
+      const endedSubscription = effect === 'end_subscription';
       await audit(tx, 'workspace_order.refunded', orderId, actorId, {
         amountVnd: order.amount_vnd,
         reason: dto.reason,
         gatewayReference: dto.gatewayReference ?? null,
+        effect,
         endedSubscription,
       });
+      const consequence = {
+        end_subscription: ' Gói đã kết thúc và tài khoản trở về hạn mức Free; nhóm và tài liệu vẫn được giữ nguyên.',
+        drop_future_term: ' Kỳ đã trả trước được huỷ; kỳ hiện tại vẫn giữ nguyên đến hết hạn.',
+        money_only: '',
+      }[effect];
       await notifyCommerce(tx, order.buyer_id, orderId, 'Đã hoàn tiền gói Workspace',
-        `Khoản ${order.amount_vnd.toLocaleString('vi-VN')} ₫ cho gói ${order.quote.plan.name} đã được hoàn.${endedSubscription ? ' Tài khoản trở về hạn mức Free; dữ liệu vẫn được giữ nguyên.' : ''}`,
-        '/workspace/billing');
-      return { refunded: true, endedSubscription };
+        `Khoản ${order.amount_vnd.toLocaleString('vi-VN')} ₫ cho gói ${order.quote.plan.name} đã được hoàn.${consequence}`,
+        `/workspace/billing/checkout/result?order=${orderId}`);
+      return { refunded: true, effect, endedSubscription };
     });
   }
 
@@ -459,7 +475,7 @@ export class BillingAdminService {
     if (endsAt <= startsAt) throw new BusinessRuleViolation('Thời điểm kết thúc phải sau thời điểm bắt đầu.');
     if (dto.kind === 'percent' && dto.value > 100) throw new BusinessRuleViolation('Phần trăm giảm không được vượt 100.');
     return this.store.transaction(async (tx) => {
-      const [exists] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM workspace_coupons WHERE code = ${dto.code}`;
+      const [exists] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM workspace_coupons WHERE code = ${dto.code}::citext`;
       if (exists) throw new AlreadyExists('Mã giảm giá', { code: dto.code });
       const [row] = await tx.$queryRaw<{ id: string }[]>`
         INSERT INTO workspace_coupons(code, description, kind, value, starts_at, ends_at, max_redemptions, per_user_limit, plan_ids,

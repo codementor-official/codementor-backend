@@ -51,6 +51,8 @@ export class EventConsumer implements OnModuleDestroy {
 
   async start(consumerName: string): Promise<void> {
     if (this.started || this.registrations.length === 0) return;
+    // A local process against shared Kafka must not join the real consumer groups.
+    if (process.env.KAFKA_CONSUME === 'false') return;
     this.started = true;
 
     // Trước khi subscribe: topic chưa từng được phát lần nào vẫn phải tồn tại, nếu không

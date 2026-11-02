@@ -77,7 +77,8 @@ export class OutboxPublisher implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    if (!this.options.enableOutbox) return;
+    // KAFKA_CONSUME=false (local process on shared infra): leave the outbox to the real relay.
+    if (!this.options.enableOutbox || process.env.KAFKA_CONSUME === 'false') return;
     this.timer = setInterval(() => void this.drain(), OutboxPublisher.INTERVAL_MS);
     this.logger.log('Outbox publisher đã bật');
   }
