@@ -113,6 +113,9 @@ export class SubscriptionsService implements OnModuleInit {
     const [settings] = await this.store.db.$queryRaw<{
       grace_days: number; renewal_reminder_days: number; overage_notice_days: number; overage_read_only_days: number;
     }[]>`SELECT grace_days, renewal_reminder_days, overage_notice_days, overage_read_only_days FROM workspace_billing_settings`;
+    const [ended] = await this.store.db.$queryRaw<{ plan_name: string; ended_at: Date; end_reason: string | null }[]>`
+      SELECT plan_name, ended_at, end_reason FROM workspace_subscriptions
+      WHERE user_id = ${userId}::uuid AND ended_at > now() - interval '30 days' ORDER BY ended_at DESC LIMIT 1`;
     const [pending] = await this.store.db.$queryRaw<OrderRow[]>`
       SELECT * FROM workspace_orders WHERE buyer_id = ${userId}::uuid AND status = 'pending' AND expires_at > now()`;
     const scheduled = open?.row.scheduled_plan_id
@@ -149,6 +152,8 @@ export class SubscriptionsService implements OnModuleInit {
         suspendedReason: open.row.suspended_reason,
       },
       pendingOrder: pending ? orderView(pending) : null,
+      // The last plan that ended in the past 30 days, so the page can say why limits dropped.
+      recentlyEnded: open ? null : (ended ? { planName: ended.plan_name, endedAt: ended.ended_at, reason: ended.end_reason } : null),
       policy: {
         graceDays: settings.grace_days,
         renewalReminderDays: settings.renewal_reminder_days,
@@ -175,15 +180,36 @@ export class SubscriptionsService implements OnModuleInit {
     return { items: rows.map(orderView), total: Number(count.total), page, limit: 20 };
   }
 
+  /** The order as the buyer's invoice: what was bought, how the price was reached, paid how and when. */
   async order(userId: string | null, id: string) {
-    const [row] = await this.store.db.$queryRaw<(OrderRow & { provider: string; payment_status: string; checkout_url: string | null })[]>`
-      SELECT o.*, p.provider, p.status AS payment_status, p.checkout_url FROM workspace_orders o
+    const [row] = await this.store.db.$queryRaw<(OrderRow & {
+      provider: string; payment_status: string; checkout_url: string | null; provider_ref: string | null;
+      buyer_name: string; buyer_email: string; term_start: Date | null; term_end: Date | null;
+    })[]>`
+      SELECT o.*, p.provider, p.status AS payment_status, p.checkout_url, p.provider_ref,
+        u.display_name AS buyer_name, u.email::text AS buyer_email, t.starts_at AS term_start, t.ends_at AS term_end
+      FROM workspace_orders o
       JOIN commerce_payments p ON p.workspace_order_id = o.id
+      JOIN users u ON u.id = o.buyer_id
+      LEFT JOIN workspace_subscription_terms t ON t.order_id = o.id
       WHERE o.id = ${id}::uuid AND (${userId}::uuid IS NULL OR o.buyer_id = ${userId}::uuid)`;
     if (!row) throw new NotFound('Đơn gói Workspace', id);
+    const [refund] = row.status === 'refunded'
+      ? await this.store.db.$queryRaw<{ created_at: Date; details: { effect?: string } }[]>`
+          SELECT created_at, details FROM commerce_audit WHERE action = 'workspace_order.refunded' AND entity_id = ${id}::uuid`
+      : [];
     return {
       ...orderView(row),
-      payment: { provider: row.provider, status: row.payment_status, checkoutUrl: row.status === 'pending' ? row.checkout_url : null },
+      quote: row.quote,
+      buyer: { name: row.buyer_name, email: row.buyer_email },
+      term: row.term_start && row.term_end ? { startsAt: row.term_start, endsAt: row.term_end } : null,
+      refund: refund ? { at: refund.created_at, effect: refund.details.effect ?? null } : null,
+      payment: {
+        provider: row.provider,
+        status: row.payment_status,
+        reference: row.provider_ref,
+        checkoutUrl: row.status === 'pending' ? row.checkout_url : null,
+      },
     };
   }
 
@@ -439,7 +465,7 @@ export class SubscriptionsService implements OnModuleInit {
   }
 
   private async eligibleCoupon(tx: Tx, userId: string, code: string, planId: string, cycle: BillingCycle, now: Date) {
-    const [coupon] = await tx.$queryRaw<CouponRow[]>`SELECT * FROM workspace_coupons WHERE code = ${code} FOR UPDATE`;
+    const [coupon] = await tx.$queryRaw<CouponRow[]>`SELECT * FROM workspace_coupons WHERE code = ${code.trim()}::citext FOR UPDATE`;
     const invalid = (message: string) => new BusinessRuleViolation(message, { code: BILLING_CODES.couponInvalid });
     if (!coupon || !coupon.is_active) throw invalid('Mã giảm giá không tồn tại.');
     if (now < coupon.starts_at || now >= coupon.ends_at) throw invalid('Mã giảm giá chưa đến hạn hoặc đã hết hạn.');
@@ -639,7 +665,7 @@ export class SubscriptionsService implements OnModuleInit {
       SELECT * FROM workspace_subscriptions WHERE user_id = ${userId}::uuid AND ended_at IS NULL`;
     if (!row) return null;
     const terms = await tx.$queryRaw<TermRow[]>`
-      SELECT t.id, t.order_id, t.starts_at, t.ends_at, o.amount_vnd FROM workspace_subscription_terms t
+      SELECT t.id, t.order_id, t.starts_at, t.ends_at, o.amount_vnd FROM workspace_paid_terms t
       JOIN workspace_orders o ON o.id = t.order_id WHERE t.subscription_id = ${row.id}::uuid ORDER BY t.starts_at`;
     const [{ grace_days: graceDays }] = await tx.$queryRaw<{ grace_days: number }[]>`SELECT grace_days FROM workspace_billing_settings`;
     const paidThrough = terms.length ? terms[terms.length - 1].ends_at : null;

@@ -4,6 +4,7 @@ import {
   couponDiscount,
   priceFor,
   prorationCredit,
+  refundEffect,
   renewable,
   subscriptionState,
   versionProblems,
@@ -119,5 +120,21 @@ describe('versionProblems', () => {
     expect(versionProblems({ ...valid, maxUploadBytes: valid.maxStorageBytes + 1 })).toHaveLength(1);
     expect(versionProblems({ ...valid, maxMembersPerGroup: 1 })).toHaveLength(1);
     expect(versionProblems({ ...valid, maxMembersPerGroup: null })).toEqual([]);
+  });
+});
+
+describe('refundEffect', () => {
+  const now = new Date('2026-11-02T00:00:00Z');
+  const term = (from: string, to: string) => ({ startsAt: new Date(from), endsAt: new Date(to) });
+  it('ends the subscription when the refunded term is running', () => {
+    expect(refundEffect(term('2026-10-20', '2026-11-20'), true, now)).toBe('end_subscription');
+  });
+  it('drops only a renewal paid in advance', () => {
+    expect(refundEffect(term('2026-11-20', '2026-12-20'), true, now)).toBe('drop_future_term');
+  });
+  it('only returns money for a term that is over or a subscription already closed', () => {
+    expect(refundEffect(term('2026-09-01', '2026-10-01'), true, now)).toBe('money_only');
+    expect(refundEffect(term('2026-10-20', '2026-11-20'), false, now)).toBe('money_only');
+    expect(refundEffect(null, true, now)).toBe('money_only');
   });
 });

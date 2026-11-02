@@ -177,3 +177,14 @@ export function versionProblems(v: VersionPrices & Entitlements & { isDefault: b
   if (v.features.some((f) => !(f in FEATURES))) problems.push('Tính năng không hợp lệ.');
   return problems;
 }
+
+export type RefundEffect = 'money_only' | 'drop_future_term' | 'end_subscription';
+
+/**
+ * What refunding one paid order does to its subscription (ADR 0002 "Refunds"). The refunded
+ * term stops counting either way; only a running term on an open subscription ends it.
+ */
+export function refundEffect(term: { startsAt: Date; endsAt: Date } | null, subscriptionOpen: boolean, now: Date): RefundEffect {
+  if (!term || !subscriptionOpen || term.endsAt <= now) return 'money_only';
+  return term.startsAt > now ? 'drop_future_term' : 'end_subscription';
+}

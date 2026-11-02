@@ -85,7 +85,7 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
   private async renewalReminders() {
     const due = await this.store.db.$queryRaw<{ id: string; user_id: string; plan_name: string; paid_through: Date }[]>`
       SELECT s.id, s.user_id, s.plan_name, t.paid_through FROM workspace_subscriptions s
-      JOIN LATERAL (SELECT max(ends_at) AS paid_through FROM workspace_subscription_terms WHERE subscription_id = s.id) t ON true
+      JOIN LATERAL (SELECT max(ends_at) AS paid_through FROM workspace_paid_terms WHERE subscription_id = s.id) t ON true
       WHERE s.ended_at IS NULL AND s.suspended_at IS NULL AND NOT s.cancel_at_period_end
         AND t.paid_through > now()
         AND t.paid_through <= now() + make_interval(days => (SELECT renewal_reminder_days FROM workspace_billing_settings))
@@ -103,7 +103,7 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
   private async graceNotices() {
     const due = await this.store.db.$queryRaw<{ id: string; user_id: string; plan_name: string; paid_through: Date }[]>`
       SELECT s.id, s.user_id, s.plan_name, t.paid_through FROM workspace_subscriptions s
-      JOIN LATERAL (SELECT max(ends_at) AS paid_through FROM workspace_subscription_terms WHERE subscription_id = s.id) t ON true
+      JOIN LATERAL (SELECT max(ends_at) AS paid_through FROM workspace_paid_terms WHERE subscription_id = s.id) t ON true
       WHERE s.ended_at IS NULL AND s.suspended_at IS NULL AND NOT s.cancel_at_period_end
         AND t.paid_through <= now()
         AND now() < t.paid_through + make_interval(days => (SELECT grace_days FROM workspace_billing_settings))

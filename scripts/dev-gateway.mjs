@@ -12,15 +12,20 @@ const localOrigins = new Set([
   "http://localhost:3011",
 ]);
 
+// LOCAL_SERVICES=learning,workspace + REMOTE_API_URL=https://api…: only those run on this machine,
+// every other route (and any unknown one) goes to the remote gateway. Unset = all local.
+const remote = process.env.REMOTE_API_URL;
+const localServices = process.env.LOCAL_SERVICES ? new Set(process.env.LOCAL_SERVICES.split(",").map((s) => s.trim())) : null;
+
 const routes = [
-  [["/api/v1/me", "/api/v1/users", "/api/v1/technologies", "/api/v1/tags", "/api/v1/companies", "/api/v1/announcements", "/api/v1/audit-logs", "/api/v1/health"], "http://127.0.0.1:3001"],
-  [["/api/v1/courses", "/api/v1/chapters", "/api/v1/lessons", "/api/v1/roadmaps", "/api/v1/articles", "/api/v1/activity", "/api/v1/commerce"], "http://127.0.0.1:3002"],
-  [["/api/v1/exercises", "/api/v1/exercise-sets"], "http://127.0.0.1:3003"],
-  [["/api/v1/workspaces", "/api/v1/groups"], "http://127.0.0.1:3004"],
-  [["/api/v1/submissions"], "http://127.0.0.1:3006"],
-  [["/api/v1/notifications"], "http://127.0.0.1:3012"],
-  [["/api/v1/recommendations"], "http://127.0.0.1:3013"],
-  [["/api/v1/ai"], "http://127.0.0.1:3008"],
+  [["/api/v1/me", "/api/v1/users", "/api/v1/technologies", "/api/v1/tags", "/api/v1/companies", "/api/v1/announcements", "/api/v1/audit-logs", "/api/v1/health"], "http://127.0.0.1:3001", "core"],
+  [["/api/v1/courses", "/api/v1/chapters", "/api/v1/lessons", "/api/v1/roadmaps", "/api/v1/articles", "/api/v1/activity", "/api/v1/commerce", "/api/v1/workspace-billing"], "http://127.0.0.1:3002", "learning"],
+  [["/api/v1/exercises", "/api/v1/exercise-sets"], "http://127.0.0.1:3003", "exercise"],
+  [["/api/v1/workspaces", "/api/v1/groups"], "http://127.0.0.1:3004", "workspace"],
+  [["/api/v1/submissions"], "http://127.0.0.1:3006", "submission"],
+  [["/api/v1/notifications"], "http://127.0.0.1:3012", "notification"],
+  [["/api/v1/recommendations"], "http://127.0.0.1:3013", "recommendation"],
+  [["/api/v1/ai"], "http://127.0.0.1:3008", "ai"],
   [["/api/v1/judge"], process.env.JUDGE_SERVICE_URL ?? "https://api.nguyennguyen0.id.vn"],
 ];
 
@@ -48,12 +53,12 @@ function corsHeaders(request) {
 }
 
 function targetFor(pathname) {
-  for (const [prefixes, target] of routes) {
+  for (const [prefixes, target, service] of routes) {
     if (prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`) || pathname.startsWith(`${prefix}?`))) {
-      return target;
+      return remote && localServices && service && !localServices.has(service) ? remote : target;
     }
   }
-  return null;
+  return remote ?? null;
 }
 
 const server = http.createServer(async (request, response) => {
@@ -111,4 +116,5 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`CodeMentor dev gateway đang nghe tại http://localhost:${port}`);
+  if (remote) console.log(`Local: ${localServices ? [...localServices].join(", ") : "tất cả"} · còn lại → ${remote}`);
 });
