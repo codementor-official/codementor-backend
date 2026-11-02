@@ -19,3 +19,6 @@ __pycache__/
 .ruff_cache/
 kong/kong.ec2.yml
 content-cleanup-plan.*.json
+
+# Article covers are rendered by scripts/article-covers.mjs and live on S3.
+content/articles/covers/
