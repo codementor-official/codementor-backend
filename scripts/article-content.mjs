@@ -4,7 +4,7 @@
 //   node scripts/article-content.mjs           # chạy thử: in số từ, số phút, không ghi gì
 //   node scripts/article-content.mjs --apply   # ghi thật
 //
-// Như seed-article-bodies.mjs: chỉ cập nhật bài đã có (theo slug), không tạo bài, không đổi trạng thái
+// Thay seed-article-bodies.mjs (đã gỡ: nó ghi đè bằng bản ngắn cũ). Chỉ cập nhật bài đã có (theo slug), không tạo bài, không đổi trạng thái
 // duyệt, không bắn sự kiện. Frontmatter: `excerpt:` và `takeaway:`, mỗi khoá một dòng.
 
 import { readdirSync, readFileSync } from 'node:fs';
