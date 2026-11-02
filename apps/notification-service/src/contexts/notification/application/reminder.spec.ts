@@ -88,6 +88,19 @@ describe('reminder preferences and templates', () => {
       'https://codementor.cloud/workspace/dsa?tab=exercises&groupExerciseId=1',
     );
   });
+  it('brands the email and explains why it was sent', () => {
+    const email = renderEmail(
+      { title: 'Bài mới', message: 'Bài “Tổng hai số”.', actionUrl: '/workspace/dsa', actionLabel: 'Mở bài tập' },
+      user,
+      'https://codementor.cloud',
+      { type: 'ASSIGNMENT_ASSIGNED', category: 'assignment' },
+    );
+    expect(email.subject).toBe('[CodeMentor] Bài mới');
+    expect(email.html).toContain('https://codementor.cloud/brand-mark-dark.png');
+    expect(email.html).toContain('Bạn vừa được giao một bài tập mới.');
+    expect(email.html).toContain('Email bài tập');
+    expect(email.text).toContain('Mở bài tập: https://codementor.cloud/workspace/dsa');
+  });
   it('rejects off-site CTAs', () => {
     expect(() =>
       renderEmail(
