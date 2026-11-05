@@ -185,7 +185,7 @@ new nullable column. Do not drop the new tables once a subscription has been pai
 | Task | How |
 | --- | --- |
 | Verify unconfirmed payments | runs every minute when `COMMERCE_JOBS_ENABLED=true`; admins can press *Đối soát* on an order |
-| Payments in `review` or a refund request | refund through the gateway portal, then Admin → Gói Workspace → Giao dịch → *Hoàn tiền* with the reason and gateway reference. The ledger gets `platform → clearing`; a term that has not ended ends the subscription now (reason `refunded`) |
+| Payments in `review` or a refund request | refund through the gateway portal, then Admin → Gói Workspace → Giao dịch → *Hoàn tiền* with the reason and gateway reference. The drawer proposes the policy amount — the unused share of the order's term (not started: all; half used: half; over or plan already changed: nothing) — and the admin may enter a different one. The ledger gets `platform → clearing` for that amount, `refunded_vnd` records it, and a term that has not ended ends the subscription now (reason `refunded`). The buyer sees today's policy amount in the billing overview (`subscription.refundToday`) |
 | Give a customer extra room | Admin → Người đăng ký → Điều chỉnh ngoại lệ (time-boxed, reasoned, audited) |
 | Change a price | edit the plan's draft and publish; existing subscribers keep their contract |
 | Owners over their limit | Admin overview lists them; nothing is deleted |

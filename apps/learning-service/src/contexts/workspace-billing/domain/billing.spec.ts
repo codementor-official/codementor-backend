@@ -5,6 +5,7 @@ import {
   priceFor,
   prorationCredit,
   refundEffect,
+  refundableVnd,
   renewable,
   subscriptionState,
   versionProblems,
@@ -136,5 +137,21 @@ describe('refundEffect', () => {
     expect(refundEffect(term('2026-09-01', '2026-10-01'), true, now)).toBe('money_only');
     expect(refundEffect(term('2026-10-20', '2026-11-20'), false, now)).toBe('money_only');
     expect(refundEffect(null, true, now)).toBe('money_only');
+  });
+});
+
+describe('refundableVnd', () => {
+  const now = new Date('2026-11-16T00:00:00Z');
+  const term = (from: string, to: string) => ({ startsAt: new Date(from), endsAt: new Date(to) });
+  it('returns the unused share of a running term: half used, half back', () => {
+    expect(refundableVnd(99_000, term('2026-11-01', '2026-12-01'), true, now)).toBe(49_500);
+  });
+  it('returns everything for a term not started yet or an order never applied', () => {
+    expect(refundableVnd(99_000, term('2026-12-01', '2027-01-01'), true, now)).toBe(99_000);
+    expect(refundableVnd(99_000, null, false, now)).toBe(99_000);
+  });
+  it('returns nothing for a term that is over or a subscription already closed', () => {
+    expect(refundableVnd(99_000, term('2026-10-01', '2026-11-01'), true, now)).toBe(0);
+    expect(refundableVnd(199_000, term('2026-11-01', '2026-12-01'), false, now)).toBe(0);
   });
 });

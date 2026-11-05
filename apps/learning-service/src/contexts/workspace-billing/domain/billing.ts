@@ -188,3 +188,15 @@ export function refundEffect(term: { startsAt: Date; endsAt: Date } | null, subs
   if (!term || !subscriptionOpen || term.endsAt <= now) return 'money_only';
   return term.startsAt > now ? 'drop_future_term' : 'end_subscription';
 }
+
+/**
+ * How much a refund of one paid order returns under the policy (ADR 0002 "Refunds"): the unused
+ * share of its term, by the same rule as an upgrade credit. An order never applied (no term)
+ * returns everything; a closed subscription returns nothing — its remainder was credited onward
+ * or already used.
+ */
+export function refundableVnd(paidVnd: number, term: { startsAt: Date; endsAt: Date } | null, subscriptionOpen: boolean, now: Date): number {
+  if (!term) return paidVnd;
+  if (!subscriptionOpen) return 0;
+  return prorationCredit(paidVnd, term.startsAt, term.endsAt, now);
+}

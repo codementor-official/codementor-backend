@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { AlreadyExists, BusinessRuleViolation, NotFound } from '@codementor/kernel';
 import { CommerceStore, audit, journal, lock, type Tx } from '../../commerce/infrastructure/commerce.store';
 import { notifyCommerce } from '../../commerce/infrastructure/commerce-notification';
-import { refundEffect } from '../domain/billing';
+import { refundEffect, refundableVnd } from '../domain/billing';
 import { entitlementsOf, orderView, type EffectiveRow, type OrderRow, type SubscriptionRow } from '../infrastructure/billing.rows';
 import { SubscriptionsService } from './subscriptions.service';
 import type { AdjustmentDto, AuditQuery, BillingPage, CouponDto, RefundDto, SettingsDto, SubscriberQuery, UpdateCouponDto } from '../presentation/workspace-billing.dto';
@@ -15,6 +15,9 @@ const STATE_SQL = Prisma.sql`CASE
   WHEN s.cancel_at_period_end THEN 'CANCELLED'
   WHEN now() < t.paid_through + make_interval(days => (SELECT grace_days FROM workspace_billing_settings)) THEN 'GRACE_PERIOD'
   ELSE 'EXPIRED' END`;
+
+/** What an order earned: paid minus whatever was refunded. */
+const NET_SQL = Prisma.sql`amount_vnd - COALESCE(refunded_vnd, 0)`;
 
 const TERMS_SQL = Prisma.sql`LEFT JOIN LATERAL (
   SELECT max(ends_at) AS paid_through, bool_or(starts_at <= now() AND ends_at > now()) AS covered
@@ -40,15 +43,15 @@ export class BillingAdminService {
             FILTER (WHERE state IN ('ACTIVE','CANCEL_SCHEDULED')), 0)::bigint AS contracted_monthly_vnd,
           (SELECT count(*) FROM workspace_orders WHERE status = 'failed' AND created_at > now() - interval '30 days') AS failed_30d,
           (SELECT count(*) FROM workspace_orders WHERE status = 'review') AS review,
-          (SELECT COALESCE(sum(amount_vnd), 0) FROM workspace_orders WHERE status = 'paid' AND paid_at > now() - interval '30 days')::bigint AS revenue_30d,
-          (SELECT COALESCE(sum(amount_vnd), 0) FROM workspace_orders WHERE status = 'paid')::bigint AS revenue_total
+          (SELECT COALESCE(sum(${NET_SQL}), 0) FROM workspace_orders WHERE status IN ('paid','refunded') AND paid_at > now() - interval '30 days')::bigint AS revenue_30d,
+          (SELECT COALESCE(sum(${NET_SQL}), 0) FROM workspace_orders WHERE status IN ('paid','refunded'))::bigint AS revenue_total
         FROM subs`),
       db.$queryRaw<{ plan_id: string; name: string; active: bigint; revenue: bigint }[]>`
         SELECT o.plan_id, max(o.quote->'plan'->>'name') AS name,
           count(DISTINCT o.result_subscription_id) FILTER (WHERE s.ended_at IS NULL) AS active,
-          sum(o.amount_vnd)::bigint AS revenue
+          sum(o.amount_vnd - COALESCE(o.refunded_vnd, 0))::bigint AS revenue
         FROM workspace_orders o LEFT JOIN workspace_subscriptions s ON s.id = o.result_subscription_id
-        WHERE o.status = 'paid' GROUP BY o.plan_id ORDER BY revenue DESC`,
+        WHERE o.status IN ('paid','refunded') GROUP BY o.plan_id ORDER BY revenue DESC`,
       // Of the terms that ended in the last 90 days, how many were followed by a renewal.
       db.$queryRaw<{ ended: bigint; renewed: bigint }[]>`
         SELECT count(*) AS ended, count(*) FILTER (WHERE EXISTS (
@@ -87,7 +90,7 @@ export class BillingAdminService {
     const base = Prisma.sql`SELECT s.*, ${STATE_SQL} AS state, t.paid_through, u.display_name, u.email::text AS email, u.avatar_url,
         (SELECT count(*) FROM study_groups g WHERE g.owner_id = s.user_id)::int AS owned_groups,
         (SELECT o.over_since FROM workspace_owner_overage o WHERE o.owner_id = s.user_id) AS over_since,
-        (SELECT COALESCE(sum(amount_vnd), 0) FROM workspace_orders wo WHERE wo.buyer_id = s.user_id AND wo.status = 'paid')::bigint AS lifetime_vnd
+        (SELECT COALESCE(sum(${NET_SQL}), 0) FROM workspace_orders wo WHERE wo.buyer_id = s.user_id AND wo.status IN ('paid','refunded'))::bigint AS lifetime_vnd
       FROM workspace_subscriptions s ${TERMS_SQL} JOIN users u ON u.id = s.user_id
       WHERE s.ended_at IS NULL ${plan} ${search}`;
     const [rows, [count]] = await Promise.all([
@@ -140,7 +143,7 @@ export class BillingAdminService {
           SELECT to_char(m, 'YYYY-MM') AS month FROM generate_series(
             date_trunc('month', now() AT TIME ZONE 'Asia/Ho_Chi_Minh') - interval '5 months',
             date_trunc('month', now() AT TIME ZONE 'Asia/Ho_Chi_Minh'), interval '1 month') m),
-        paid AS (SELECT kind, amount_vnd, to_char(paid_at AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM') AS month
+        paid AS (SELECT kind, amount_vnd - COALESCE(refunded_vnd, 0) AS amount_vnd, to_char(paid_at AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM') AS month
           FROM workspace_orders WHERE status IN ('paid','refunded') AND paid_at IS NOT NULL)
         SELECT m.month, count(p.*) FILTER (WHERE p.kind IN ('new','upgrade')) AS new_subs,
           count(p.*) FILTER (WHERE p.kind = 'renewal') AS renewals, COALESCE(sum(p.amount_vnd), 0)::bigint AS revenue
@@ -278,13 +281,17 @@ export class BillingAdminService {
     };
   }
 
-  /** What refunding this order does to its subscription; see `refundEffect`. */
-  private async refundEffectOf(db: Tx, order: OrderRow) {
-    if (!order.result_subscription_id) return 'money_only' as const;
-    const [row] = await db.$queryRaw<{ starts_at: Date; ends_at: Date; open: boolean }[]>`
-      SELECT t.starts_at, t.ends_at, s.ended_at IS NULL AS open FROM workspace_subscription_terms t
-      JOIN workspace_subscriptions s ON s.id = t.subscription_id WHERE t.order_id = ${order.id}::uuid`;
-    return refundEffect(row ? { startsAt: row.starts_at, endsAt: row.ends_at } : null, row?.open ?? false, new Date());
+  /** What refunding this order now does: its effect on the subscription and the policy amount. */
+  private async refundQuote(db: Tx, order: OrderRow) {
+    const [row] = order.result_subscription_id
+      ? await db.$queryRaw<{ starts_at: Date; ends_at: Date; open: boolean }[]>`
+          SELECT t.starts_at, t.ends_at, s.ended_at IS NULL AS open FROM workspace_subscription_terms t
+          JOIN workspace_subscriptions s ON s.id = t.subscription_id WHERE t.order_id = ${order.id}::uuid`
+      : [];
+    const term = row ? { startsAt: row.starts_at, endsAt: row.ends_at } : null;
+    const open = row?.open ?? false;
+    const now = new Date();
+    return { effect: refundEffect(term, open, now), refundableVnd: refundableVnd(order.amount_vnd, term, open, now) };
   }
 
   /** Everything needed to trace one order: buyer, quote, payment, ledger, coupon and its history. */
@@ -311,10 +318,12 @@ export class BillingAdminService {
     if (!row) throw new NotFound('Đơn gói Workspace', id);
     const [term] = await db.$queryRaw<{ starts_at: Date; ends_at: Date }[]>`
       SELECT starts_at, ends_at FROM workspace_subscription_terms WHERE order_id = ${id}::uuid`;
+    const refund = row.status === 'paid' || row.status === 'review' ? await this.refundQuote(db, row) : null;
     return {
       ...orderView(row),
       term: term ? { startsAt: term.starts_at, endsAt: term.ends_at } : null,
-      refundEffect: row.status === 'paid' || row.status === 'review' ? await this.refundEffectOf(db, row) : null,
+      refundEffect: refund?.effect ?? null,
+      refundableVnd: refund?.refundableVnd ?? null,
       buyer: { id: row.buyer_id, name: row.display_name, email: row.email },
       quote: row.quote,
       coupon: row.coupon_code ? { id: row.coupon_id, code: row.coupon_code, description: row.coupon_description } : null,
@@ -334,9 +343,10 @@ export class BillingAdminService {
   }
 
   /**
-   * Records a full refund made through the gateway. The ledger gets a compensating entry, the
-   * order becomes `refunded`, and a term that has not ended yet ends the subscription now —
-   * the customer keeps their data, not the paid limits they were refunded for.
+   * Records a refund made through the gateway: by default the unused share of the order's term
+   * (`refundableVnd`), or the amount an administrator enters. The ledger gets a compensating
+   * entry for that amount, the order becomes `refunded`, and a term that has not ended yet ends
+   * the subscription now — the customer keeps their data, not the paid limits they were refunded for.
    */
   async refundOrder(actorId: string, orderId: string, dto: RefundDto) {
     return this.store.transaction(async (tx) => {
@@ -349,19 +359,27 @@ export class BillingAdminService {
       const [payment] = await tx.$queryRaw<{ id: string; status: string }[]>`
         SELECT id, status FROM commerce_payments WHERE workspace_order_id = ${orderId}::uuid FOR UPDATE`;
       if (payment?.status !== 'succeeded') throw new BusinessRuleViolation('Đơn này chưa có khoản thanh toán thành công.');
+      const { effect, refundableVnd: policyVnd } = await this.refundQuote(tx, order);
+      const amount = dto.amountVnd ?? policyVnd;
+      if (amount > order.amount_vnd)
+        throw new BusinessRuleViolation(`Không hoàn quá số tiền đã thanh toán (${order.amount_vnd.toLocaleString('vi-VN')} ₫).`);
+      if (amount <= 0)
+        throw new BusinessRuleViolation('Kỳ của đơn này đã dùng hết hoặc đã chuyển sang gói khác nên không còn tiền để hoàn theo chính sách. Nhập số tiền nếu vẫn hoàn ngoài chính sách.');
       await journal(tx, `ws-refund:${orderId}`, [
-        { account: 'platform', amount: -order.amount_vnd },
-        { account: 'clearing', amount: order.amount_vnd },
+        { account: 'platform', amount: -amount },
+        { account: 'clearing', amount },
       ], { workspaceOrder: orderId });
-      await tx.$executeRaw`UPDATE workspace_orders SET status = 'refunded' WHERE id = ${orderId}::uuid`;
-      // The order is `refunded` now, so its term already stops counting (workspace_paid_terms).
-      const effect = await this.refundEffectOf(tx, order);
+      // From here the order's term stops counting (workspace_paid_terms).
+      await tx.$executeRaw`UPDATE workspace_orders SET status = 'refunded', refunded_vnd = ${amount} WHERE id = ${orderId}::uuid`;
       if (effect === 'end_subscription')
         await tx.$executeRaw`UPDATE workspace_subscriptions SET ended_at = now(), end_reason = 'refunded', updated_at = now()
           WHERE id = ${order.result_subscription_id}::uuid AND ended_at IS NULL`;
       const endedSubscription = effect === 'end_subscription';
       await audit(tx, 'workspace_order.refunded', orderId, actorId, {
-        amountVnd: order.amount_vnd,
+        amountVnd: amount,
+        paidVnd: order.amount_vnd,
+        policyVnd,
+        overridden: dto.amountVnd !== undefined && dto.amountVnd !== policyVnd,
         reason: dto.reason,
         gatewayReference: dto.gatewayReference ?? null,
         effect,
@@ -373,9 +391,9 @@ export class BillingAdminService {
         money_only: '',
       }[effect];
       await notifyCommerce(tx, order.buyer_id, orderId, 'Đã hoàn tiền gói Workspace',
-        `Khoản ${order.amount_vnd.toLocaleString('vi-VN')} ₫ cho gói ${order.quote.plan.name} đã được hoàn.${consequence}`,
+        `Đã hoàn ${amount.toLocaleString('vi-VN')} ₫${amount < order.amount_vnd ? ` cho phần thời gian chưa dùng (đã thanh toán ${order.amount_vnd.toLocaleString('vi-VN')} ₫)` : ''} của gói ${order.quote.plan.name}.${consequence}`,
         `/workspace/billing/checkout/result?order=${orderId}`);
-      return { refunded: true, effect, endedSubscription };
+      return { refunded: true, amountVnd: amount, effect, endedSubscription };
     });
   }
 

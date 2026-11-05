@@ -93,6 +93,8 @@ export class ReasonDto {
 export class RefundDto extends ReasonDto {
   /** Reference of the refund made in the gateway portal, for reconciliation. */
   @IsOptional() @IsString() @Length(1, 100) gatewayReference?: string;
+  /** Amount actually returned; omitted means the policy amount (unused share of the term). */
+  @IsOptional() @IsInt() @Min(1) @Max(999_999_999) amountVnd?: number;
 }
 
 export class AdjustmentDto extends ReasonDto {
