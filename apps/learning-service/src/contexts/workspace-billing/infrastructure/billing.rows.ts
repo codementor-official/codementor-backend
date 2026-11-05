@@ -74,6 +74,7 @@ export interface OrderRow {
   discount_vnd: number;
   credit_vnd: number;
   amount_vnd: number;
+  refunded_vnd: number | null;
   coupon_id: string | null;
   quote: QuoteSnapshot;
   mode: 'mock' | 'sandbox';
@@ -181,6 +182,7 @@ export function orderView(o: OrderRow) {
     discountVnd: o.discount_vnd,
     creditVnd: o.credit_vnd,
     amountVnd: o.amount_vnd,
+    refundedVnd: o.refunded_vnd,
     currency: 'VND',
     coupon: o.quote.coupon ? { code: o.quote.coupon.code } : null,
     entitlements: o.quote.entitlements,

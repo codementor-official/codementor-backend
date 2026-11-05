@@ -20,6 +20,7 @@ import {
   graceEnd,
   priceFor,
   prorationCredit,
+  refundableVnd,
   renewable,
   subscriptionState,
   type BillingCycle,
@@ -150,6 +151,8 @@ export class SubscriptionsService implements OnModuleInit {
           billingCycle: open.row.scheduled_cycle,
         },
         suspendedReason: open.row.suspended_reason,
+        // What a refund requested today would return under the policy (ADR 0002 "Refunds"), per paid term still to run.
+        refundToday: refundTodayOf(open.terms, now),
       },
       pendingOrder: pending ? orderView(pending) : null,
       // The last plan that ended in the past 30 days, so the page can say why limits dropped.
@@ -676,6 +679,19 @@ export class SubscriptionsService implements OnModuleInit {
     );
     return { row, terms, paidThrough, covering, state };
   }
+}
+
+function refundTodayOf(terms: TermRow[], now: Date) {
+  const items = terms
+    .filter((t) => t.ends_at > now)
+    .map((t) => ({
+      orderId: t.order_id,
+      startsAt: t.starts_at,
+      endsAt: t.ends_at,
+      paidVnd: t.amount_vnd,
+      refundableVnd: refundableVnd(t.amount_vnd, { startsAt: t.starts_at, endsAt: t.ends_at }, true, now),
+    }));
+  return { totalVnd: items.reduce((sum, t) => sum + t.refundableVnd, 0), terms: items };
 }
 
 function vnDate(d: Date) {
