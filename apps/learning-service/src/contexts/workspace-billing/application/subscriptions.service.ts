@@ -470,8 +470,10 @@ export class SubscriptionsService implements OnModuleInit {
   private async eligibleCoupon(tx: Tx, userId: string, code: string, planId: string, cycle: BillingCycle, now: Date) {
     const [coupon] = await tx.$queryRaw<CouponRow[]>`SELECT * FROM workspace_coupons WHERE code = ${code.trim()}::citext FOR UPDATE`;
     const invalid = (message: string) => new BusinessRuleViolation(message, { code: BILLING_CODES.couponInvalid });
-    if (!coupon || !coupon.is_active) throw invalid('Mã giảm giá không tồn tại.');
-    if (now < coupon.starts_at || now >= coupon.ends_at) throw invalid('Mã giảm giá chưa đến hạn hoặc đã hết hạn.');
+    if (!coupon) throw invalid('Mã giảm giá không tồn tại.');
+    if (!coupon.is_active) throw invalid('Mã giảm giá đang tạm ngừng.');
+    if (now < coupon.starts_at) throw invalid(`Mã giảm giá áp dụng từ ${vnDate(coupon.starts_at)}.`);
+    if (now >= coupon.ends_at) throw invalid(`Mã giảm giá đã hết hạn ngày ${vnDate(coupon.ends_at)}.`);
     if (coupon.plan_ids?.length && !coupon.plan_ids.includes(planId)) throw invalid('Mã giảm giá không áp dụng cho gói này.');
     if (coupon.billing_cycles?.length && !coupon.billing_cycles.includes(cycle)) throw invalid('Mã giảm giá không áp dụng cho chu kỳ này.');
     const [usage] = await tx.$queryRaw<{ total: bigint; mine: bigint; paid_before: boolean }[]>`
