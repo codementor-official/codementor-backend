@@ -281,17 +281,27 @@ export class BillingAdminService {
     };
   }
 
-  /** What refunding this order now does: its effect on the subscription and the policy amount. */
+  /**
+   * What refunding this order now does: its effect on the subscription, the policy amount, and the
+   * prepaid order that must be refunded first. Ending the subscription over the running term would
+   * strand a renewal paid in advance, so that one goes first.
+   */
   private async refundQuote(db: Tx, order: OrderRow) {
     const [row] = order.result_subscription_id
-      ? await db.$queryRaw<{ starts_at: Date; ends_at: Date; open: boolean }[]>`
-          SELECT t.starts_at, t.ends_at, s.ended_at IS NULL AS open FROM workspace_subscription_terms t
+      ? await db.$queryRaw<{ subscription_id: string; starts_at: Date; ends_at: Date; ended_at: Date | null; end_reason: string | null }[]>`
+          SELECT t.subscription_id, t.starts_at, t.ends_at, s.ended_at, s.end_reason FROM workspace_subscription_terms t
           JOIN workspace_subscriptions s ON s.id = t.subscription_id WHERE t.order_id = ${order.id}::uuid`
       : [];
     const term = row ? { startsAt: row.starts_at, endsAt: row.ends_at } : null;
-    const open = row?.open ?? false;
+    const subscription = { endedAt: row?.ended_at ?? null, endReason: row?.end_reason ?? null };
     const now = new Date();
-    return { effect: refundEffect(term, open, now), refundableVnd: refundableVnd(order.amount_vnd, term, open, now) };
+    const effect = refundEffect(term, row ? !row.ended_at : false, now);
+    const [queued] = effect === 'end_subscription'
+      ? await db.$queryRaw<{ order_id: string }[]>`
+          SELECT order_id FROM workspace_paid_terms WHERE subscription_id = ${row!.subscription_id}::uuid
+            AND order_id <> ${order.id}::uuid AND starts_at > now() ORDER BY starts_at LIMIT 1`
+      : [];
+    return { effect, refundableVnd: refundableVnd(order.amount_vnd, term, subscription, now), blockedBy: queued?.order_id ?? null };
   }
 
   /** Everything needed to trace one order: buyer, quote, payment, ledger, coupon and its history. */
@@ -324,6 +334,8 @@ export class BillingAdminService {
       term: term ? { startsAt: term.starts_at, endsAt: term.ends_at } : null,
       refundEffect: refund?.effect ?? null,
       refundableVnd: refund?.refundableVnd ?? null,
+      /** A renewal paid in advance on the same subscription that has to be refunded first. */
+      refundBlockedBy: refund?.blockedBy ?? null,
       buyer: { id: row.buyer_id, name: row.display_name, email: row.email },
       quote: row.quote,
       coupon: row.coupon_code ? { id: row.coupon_id, code: row.coupon_code, description: row.coupon_description } : null,
@@ -359,7 +371,9 @@ export class BillingAdminService {
       const [payment] = await tx.$queryRaw<{ id: string; status: string }[]>`
         SELECT id, status FROM commerce_payments WHERE workspace_order_id = ${orderId}::uuid FOR UPDATE`;
       if (payment?.status !== 'succeeded') throw new BusinessRuleViolation('Đơn này chưa có khoản thanh toán thành công.');
-      const { effect, refundableVnd: policyVnd } = await this.refundQuote(tx, order);
+      const { effect, refundableVnd: policyVnd, blockedBy } = await this.refundQuote(tx, order);
+      if (blockedBy)
+        throw new BusinessRuleViolation(`Hoàn kỳ trả trước (đơn ${blockedBy.slice(0, 8)}) trước, rồi mới hoàn kỳ đang dùng.`, { code: 'REFUND_PREPAID_TERM_FIRST', orderId: blockedBy });
       const amount = dto.amountVnd ?? policyVnd;
       if (amount > order.amount_vnd)
         throw new BusinessRuleViolation(`Không hoàn quá số tiền đã thanh toán (${order.amount_vnd.toLocaleString('vi-VN')} ₫).`);
