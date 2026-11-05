@@ -189,14 +189,29 @@ export function refundEffect(term: { startsAt: Date; endsAt: Date } | null, subs
   return term.startsAt > now ? 'drop_future_term' : 'end_subscription';
 }
 
+const DAY_MS = 86_400_000;
+
+/** Where the order's subscription stands: open, or closed at a time for a reason. */
+export interface RefundSubscription {
+  endedAt: Date | null;
+  endReason: string | null;
+}
+
 /**
- * How much a refund of one paid order returns under the policy (ADR 0002 "Refunds"): the unused
- * share of its term, by the same rule as an upgrade credit. An order never applied (no term)
- * returns everything; a closed subscription returns nothing — its remainder was credited onward
- * or already used.
+ * How much a refund of one paid order returns under the policy (ADR 0002 "Refunds"): the share
+ * of its term in whole days not used yet — "còn 24/31 ngày" returns 24/31 of what was paid, the
+ * same amount all day, so the admin's preview and the recorded refund agree. A term not started
+ * yet and an order never applied (no term) return everything. On a closed subscription a term
+ * that never started is returned in full unless the subscription was upgraded (then every
+ * unused term was already credited onward); anything else returns nothing.
  */
-export function refundableVnd(paidVnd: number, term: { startsAt: Date; endsAt: Date } | null, subscriptionOpen: boolean, now: Date): number {
+export function refundableVnd(paidVnd: number, term: { startsAt: Date; endsAt: Date } | null, subscription: RefundSubscription, now: Date): number {
   if (!term) return paidVnd;
-  if (!subscriptionOpen) return 0;
-  return prorationCredit(paidVnd, term.startsAt, term.endsAt, now);
+  if (subscription.endedAt)
+    return subscription.endReason !== 'upgraded' && term.startsAt >= subscription.endedAt ? paidVnd : 0;
+  if (now < term.startsAt) return paidVnd;
+  const totalDays = Math.round((term.endsAt.getTime() - term.startsAt.getTime()) / DAY_MS);
+  const daysLeft = Math.min(totalDays, Math.floor(Math.max(0, term.endsAt.getTime() - now.getTime()) / DAY_MS));
+  if (totalDays <= 0 || daysLeft <= 0) return 0;
+  return Math.floor((paidVnd * daysLeft) / totalDays);
 }

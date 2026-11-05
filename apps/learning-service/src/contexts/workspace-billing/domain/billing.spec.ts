@@ -141,17 +141,28 @@ describe('refundEffect', () => {
 });
 
 describe('refundableVnd', () => {
-  const now = new Date('2026-11-16T00:00:00Z');
+  const open = { endedAt: null, endReason: null };
   const term = (from: string, to: string) => ({ startsAt: new Date(from), endsAt: new Date(to) });
-  it('returns the unused share of a running term: half used, half back', () => {
-    expect(refundableVnd(99_000, term('2026-11-01', '2026-12-01'), true, now)).toBe(49_500);
+  const month = term('2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z');
+  it('returns the unused share in whole days: half used, half back', () => {
+    expect(refundableVnd(99_000, month, open, new Date('2026-11-16T00:00:00Z'))).toBe(49_500);
+  });
+  it('keeps the same amount through the day', () => {
+    const morning = refundableVnd(99_000, month, open, new Date('2026-11-07T00:00:01Z'));
+    expect(refundableVnd(99_000, month, open, new Date('2026-11-07T23:59:59Z'))).toBe(morning);
+    expect(morning).toBe(Math.floor((99_000 * 23) / 30));
   });
   it('returns everything for a term not started yet or an order never applied', () => {
-    expect(refundableVnd(99_000, term('2026-12-01', '2027-01-01'), true, now)).toBe(99_000);
-    expect(refundableVnd(99_000, null, false, now)).toBe(99_000);
+    expect(refundableVnd(99_000, term('2026-12-01', '2027-01-01'), open, new Date('2026-11-16'))).toBe(99_000);
+    expect(refundableVnd(99_000, null, { endedAt: new Date('2026-11-02'), endReason: 'expired' }, new Date('2026-11-16'))).toBe(99_000);
   });
-  it('returns nothing for a term that is over or a subscription already closed', () => {
-    expect(refundableVnd(99_000, term('2026-10-01', '2026-11-01'), true, now)).toBe(0);
-    expect(refundableVnd(199_000, term('2026-11-01', '2026-12-01'), false, now)).toBe(0);
+  it('returns nothing for a term that is over', () => {
+    expect(refundableVnd(99_000, term('2026-10-01', '2026-11-01'), open, new Date('2026-11-16'))).toBe(0);
+  });
+  it('on a closed subscription returns a never-started term unless it was credited onward by an upgrade', () => {
+    const queued = term('2026-12-01', '2027-01-01');
+    expect(refundableVnd(99_000, queued, { endedAt: new Date('2026-11-16'), endReason: 'refunded' }, new Date('2026-11-17'))).toBe(99_000);
+    expect(refundableVnd(99_000, queued, { endedAt: new Date('2026-11-16'), endReason: 'upgraded' }, new Date('2026-11-17'))).toBe(0);
+    expect(refundableVnd(199_000, month, { endedAt: new Date('2026-11-16'), endReason: 'upgraded' }, new Date('2026-11-17'))).toBe(0);
   });
 });

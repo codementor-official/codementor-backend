@@ -689,7 +689,7 @@ function refundTodayOf(terms: TermRow[], now: Date) {
       startsAt: t.starts_at,
       endsAt: t.ends_at,
       paidVnd: t.amount_vnd,
-      refundableVnd: refundableVnd(t.amount_vnd, { startsAt: t.starts_at, endsAt: t.ends_at }, true, now),
+      refundableVnd: refundableVnd(t.amount_vnd, { startsAt: t.starts_at, endsAt: t.ends_at }, { endedAt: null, endReason: null }, now),
     }));
   return { totalVnd: items.reduce((sum, t) => sum + t.refundableVnd, 0), terms: items };
 }
