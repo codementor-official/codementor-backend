@@ -1,4 +1,4 @@
-export type EmailCategory = 'assignment' | 'deadline' | 'learning' | 'workspace' | 'system';
+export type EmailCategory = 'assignment' | 'deadline' | 'learning' | 'workspace' | 'system' | 'billing';
 export type ReminderType =
   | 'ASSIGNMENT_ASSIGNED'
   | 'DEADLINE_24H'
@@ -16,7 +16,8 @@ export type ReminderType =
   | 'LEARNING_REMINDER'
   | 'STUDY_SESSION_REMINDER'
   | 'COURSE_COMPLETED'
-  | 'SYSTEM_ANNOUNCEMENT';
+  | 'SYSTEM_ANNOUNCEMENT'
+  | 'BILLING_UPDATE';
 export interface EmailPayload {
   title: string;
   message: string;
@@ -75,5 +76,7 @@ export function permitsEmail(
     );
   if (category === 'learning') return recipient.learning_enabled;
   if (category === 'workspace') return p.workspaceEmailUpdates !== false;
+  // Payments, refunds and plan changes are transactional: no opt-out beyond email itself.
+  if (category === 'billing') return true;
   return p.systemAnnouncements !== false;
 }

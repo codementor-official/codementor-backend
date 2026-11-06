@@ -3,6 +3,7 @@ import { AuthenticatedUser, CurrentUser, Public, Roles, requireHumanId } from '@
 import { PlanCatalogService } from '../application/plan-catalog.service';
 import { SubscriptionsService } from '../application/subscriptions.service';
 import { BillingAdminService } from '../application/billing-admin.service';
+import { BillingReportService } from '../application/billing-report.service';
 import {
   AuditQuery,
   UpdateCouponDto,
@@ -21,6 +22,7 @@ import {
   SettingsDto,
   SubscriberQuery,
   UpdatePlanDto,
+  ReportQuery,
 } from './workspace-billing.dto';
 
 /** Workspace plans and billing. Quota enforcement lives in workspace-service. */
@@ -30,6 +32,7 @@ export class WorkspaceBillingController {
     private readonly catalog: PlanCatalogService,
     private readonly subscriptions: SubscriptionsService,
     private readonly admin: BillingAdminService,
+    private readonly reports: BillingReportService,
   ) {}
 
   // ---------------------------------------------------------------- learners
@@ -70,6 +73,10 @@ export class WorkspaceBillingController {
   }
 
   // ----------------------------------------------------------- administrators
+  @Get('admin/reports/revenue') @Roles('admin') revenueReport(@Query() q: ReportQuery) {
+    return this.reports.report(q);
+  }
+
   @Get('admin/overview') @Roles('admin') overview() {
     return this.admin.overview();
   }

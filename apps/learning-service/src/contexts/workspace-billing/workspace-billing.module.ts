@@ -3,6 +3,7 @@ import { CommerceModule } from '../commerce/commerce.module';
 import { PlanCatalogService } from './application/plan-catalog.service';
 import { SubscriptionsService } from './application/subscriptions.service';
 import { BillingAdminService } from './application/billing-admin.service';
+import { BillingReportService } from './application/billing-report.service';
 import { BillingJobs } from './application/billing.jobs';
 import { WorkspaceBillingController } from './presentation/workspace-billing.controller';
 
@@ -10,6 +11,6 @@ import { WorkspaceBillingController } from './presentation/workspace-billing.con
 @Module({
   imports: [CommerceModule],
   controllers: [WorkspaceBillingController],
-  providers: [PlanCatalogService, SubscriptionsService, BillingAdminService, BillingJobs],
+  providers: [PlanCatalogService, SubscriptionsService, BillingAdminService, BillingReportService, BillingJobs],
 })
 export class WorkspaceBillingModule {}

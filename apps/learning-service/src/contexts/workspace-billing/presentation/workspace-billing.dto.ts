@@ -145,3 +145,10 @@ export class AuditQuery extends BillingPage {
   @IsOptional() @IsIn(['plan', 'subscription', 'order', 'payment', 'coupon', 'adjustment', 'settings']) category?: string;
   @Type(() => Number) @IsInt() @Min(5) @Max(100) limit = 20;
 }
+
+/** A revenue report period, both ends inclusive in Vietnam time, grouped by day, month, quarter or year. */
+export class ReportQuery {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from: YYYY-MM-DD' }) from!: string;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to: YYYY-MM-DD' }) to!: string;
+  @IsIn(['day', 'month', 'quarter', 'year']) bucket: 'day' | 'month' | 'quarter' | 'year' = 'month';
+}
