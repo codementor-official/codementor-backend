@@ -204,8 +204,9 @@ Lệch so với thiết kế ở trên, và vì sao:
 - Thu hồi lưu `revoked_by`/`revoke_reason` trên hàng chứng chỉ, không ghi `audit_logs` (bảng của
   core-service).
 - `MODE_LABELS` giữ nguyên: nhãn đó đúng ở cấp bài học, còn studio lộ trình không có ô chọn chế độ.
-- Báo cáo: một endpoint `GET /learning-reports?days&scope` (tổng hợp + theo khóa + theo lộ trình
-  + phễu). `STALLED_DAYS = 14`. `scope=all` chỉ admin.
+- Báo cáo: một endpoint `GET /learning-reports?days` (tổng hợp + theo khóa + theo lộ trình
+  + phễu), **chỉ admin**, toàn nền tảng — người dùng bỏ trang báo cáo bên lecturer. Giảng viên
+  chỉ thấy thêm 2 KPI ở dashboard (ngưng học, chứng chỉ đã cấp). `STALLED_DAYS = 14`.
 - Lecter: model gửi id của mẫu MẶC ĐỊNH khi được bảo "tạo mẫu mới" dù prompt cấm; thẻ xác nhận
   tự đọc mẫu và chuyển thành tạo mới.
 - Kong thêm `/certificate-templates`, `/certificates`, `/learning-reports` — phải restart Kong khi
