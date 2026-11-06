@@ -89,6 +89,8 @@ export const TOPICS = {
    */
   NOTIFICATION_CREATED: 'evt.notification.created.v1',
   COMMERCE_UPDATED: 'evt.commerce.updated.v1',
+  /** Học viên vừa nhận chứng chỉ (ADR 0005). notification-service gửi chúc mừng. */
+  CERTIFICATE_ISSUED: 'evt.certificate.issued.v1',
   REMINDER_SOURCE_CHANGED: 'evt.reminder.source-changed.v1',
 
   // ---- Workspace ----
@@ -148,6 +150,7 @@ export const PARTITION_KEY: Record<TopicName, string> = {
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: 'announcementId',
   [TOPICS.NOTIFICATION_CREATED]: 'notificationId',
   [TOPICS.COMMERCE_UPDATED]: 'recipientExternalId',
+  [TOPICS.CERTIFICATE_ISSUED]: 'recipientExternalId',
   [TOPICS.REMINDER_SOURCE_CHANGED]: 'entityId',
 
   [TOPICS.ASSIGNMENT_CREATED]: 'groupId',

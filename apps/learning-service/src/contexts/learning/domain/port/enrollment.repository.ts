@@ -93,6 +93,10 @@ export interface RoadmapCourseProgress {
   durationHours: number | null;
   enrollmentStatus: EnrollmentStatus | null;
   progressPercent: number;
+  /**
+   * Luôn `true`: thứ tự lộ trình là khóa mềm (ADR 0005), xem `blockedBy` ở use case. Giữ field
+   * cho client cũ còn đọc nó.
+   */
   isAvailable: boolean;
 }
 
@@ -115,7 +119,12 @@ export interface EnrollmentRepository {
    * sẽ đặt lại `started_at` — người quay lại sau ba tháng sẽ mất mốc "bắt đầu từ bao giờ",
    * còn `lesson_progress` thì vẫn còn nguyên nên phần trăm lại không khớp ngày bắt đầu.
    */
-  enroll(userId: string, courseId: string, viaRoadmapId: string | null): Promise<CourseEnrollment>;
+  enroll(
+    userId: string,
+    courseId: string,
+    viaRoadmapId: string | null,
+    startedOutOfOrder: boolean,
+  ): Promise<CourseEnrollment>;
 
   /** Bỏ học. Tiến độ giữ nguyên — quay lại là học tiếp, không phải học lại. */
   drop(userId: string, courseId: string): Promise<void>;

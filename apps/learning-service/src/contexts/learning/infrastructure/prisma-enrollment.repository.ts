@@ -191,8 +191,9 @@ export class PrismaEnrollmentRepository implements EnrollmentRepository {
              c.cover_image_url AS "coverImageUrl", c.duration_hours AS "durationHours",
              ce.status::text AS "enrollmentStatus",
              COALESCE(ce.progress_percent, 0) AS "progressPercent",
-             (fn_course_available(${userId}::uuid, c.id)
-              AND fn_roadmap_course_available(${userId}::uuid, rc.id)) AS "isAvailable"
+             -- Khóa mềm (ADR 0005): không còn khóa nào bị chặn. Không gọi
+             -- fn_roadmap_course_available nữa — migration 0021 đã xóa hàm đó.
+             true AS "isAvailable"
       FROM roadmap_courses rc
       JOIN courses c ON c.id = rc.course_id
       LEFT JOIN course_enrollments ce
@@ -206,13 +207,16 @@ export class PrismaEnrollmentRepository implements EnrollmentRepository {
     userId: string,
     courseId: string,
     viaRoadmapId: string | null,
+    startedOutOfOrder: boolean,
   ): Promise<CourseEnrollment> {
     try {
       // Ghi danh lại sau khi bỏ chỉ đổi `status`: `started_at` giữ nguyên mốc thật, và
       // `completed_at` phải về NULL để không vi phạm `completed_consistency`.
       const rows = await this.prisma.$queryRaw<EnrollmentRow[]>`
-        INSERT INTO course_enrollments (user_id, course_id, via_roadmap_id, status, last_activity_at)
-        VALUES (${userId}::uuid, ${courseId}::uuid, ${viaRoadmapId}::uuid, 'active', now())
+        INSERT INTO course_enrollments
+          (user_id, course_id, via_roadmap_id, status, last_activity_at, started_out_of_order)
+        VALUES (${userId}::uuid, ${courseId}::uuid, ${viaRoadmapId}::uuid, 'active', now(),
+                ${startedOutOfOrder})
         ON CONFLICT (user_id, course_id) DO UPDATE
           SET status = CASE WHEN course_enrollments.status = 'dropped'
                             THEN 'active'::enrollment_status
@@ -220,6 +224,9 @@ export class PrismaEnrollmentRepository implements EnrollmentRepository {
               completed_at = CASE WHEN course_enrollments.status = 'dropped'
                                   THEN NULL ELSE course_enrollments.completed_at END,
               via_roadmap_id = COALESCE(EXCLUDED.via_roadmap_id, course_enrollments.via_roadmap_id),
+              -- Một lần bỏ qua là đã bỏ qua: ghi danh lại sau này không xóa dấu đó.
+              started_out_of_order = course_enrollments.started_out_of_order
+                                     OR EXCLUDED.started_out_of_order,
               last_activity_at = now()
         RETURNING id, user_id AS "userId", course_id AS "courseId",
                   via_roadmap_id AS "viaRoadmapId", status::text AS status,

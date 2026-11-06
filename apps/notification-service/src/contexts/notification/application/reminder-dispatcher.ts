@@ -22,6 +22,8 @@ const INAPP_TYPES: Record<string, NotificationType> = {
   LEARNING_REMINDER: 'LEARNING_REMINDER',
   STUDY_SESSION_REMINDER: 'STUDY_SESSION_REMINDER',
   COURSE_COMPLETED: 'COURSE_COMPLETED',
+  ROADMAP_COMPLETED: 'ROADMAP_COMPLETED',
+  CERTIFICATE_ISSUED: 'CERTIFICATE_ISSUED',
   WORKSPACE_MEMBER_ADDED: 'WORKSPACE_MEMBER_ADDED',
 };
 @Injectable()
@@ -89,8 +91,20 @@ export class ReminderDispatcher implements OnModuleInit, OnModuleDestroy {
           audienceKey: user.external_id,
           title: r.payload.title,
           message: r.payload.message,
-          referenceType: r.entity_type === 'STUDY_SCHEDULE' ? null : r.entity_type === 'COURSE' ? 'COURSE' : 'WORKSPACE',
-          referenceId: r.entity_type === 'STUDY_SCHEDULE' ? null : r.payload.referenceId ?? r.entity_id,
+          // CERTIFICATE: chứng chỉ có thể của khóa học hoặc lộ trình, hàng nhắc không ghi là
+          // loại nào — để null, nút bấm (`actionUrl`) đã trỏ đúng trang chứng chỉ.
+          referenceType:
+            r.entity_type === 'STUDY_SCHEDULE' || r.entity_type === 'CERTIFICATE'
+              ? null
+              : r.entity_type === 'COURSE'
+                ? 'COURSE'
+                : r.entity_type === 'ROADMAP'
+                  ? 'ROADMAP'
+                  : 'WORKSPACE',
+          referenceId:
+            r.entity_type === 'STUDY_SCHEDULE' || r.entity_type === 'CERTIFICATE'
+              ? null
+              : r.payload.referenceId ?? r.entity_id,
           actionUrl: r.payload.actionUrl,
           actionLabel: r.payload.actionLabel,
           metadata: { reminderId: r.id },
@@ -174,6 +188,13 @@ export class ReminderDispatcher implements OnModuleInit, OnModuleDestroy {
           await this.repo.defer(r, at);
           return false;
         }
+      }
+    } else if (r.entity_type === 'ROADMAP') {
+      // Lộ trình có thể quay về `active` khi giảng viên thêm khóa bắt buộc trước giờ gửi.
+      const c = await this.repo.roadmapLearning(r.entity_id);
+      if (!c || !c.eligible || c.status !== 'completed') {
+        await this.repo.skip(r, user, 'ROADMAP_NO_LONGER_COMPLETED');
+        return false;
       }
     } else if (r.entity_type === 'MEMBERSHIP') {
       if ((await this.repo.membership(r.entity_id))?.status !== 'active') {
