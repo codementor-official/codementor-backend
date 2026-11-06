@@ -42,6 +42,11 @@ services:
           # Hoạt động học tập của một tài khoản. KHÔNG đặt dưới `/api/v1/users/:id/activity`
           # được: Kong khớp theo tiền tố, và `/api/v1/users` đã thuộc core-service.
           - /api/v1/activity
+          # Chứng chỉ và báo cáo học tập (ADR 0005). `learning-reports`, không phải `reports`:
+          # `/api/v1/reports` đã thuộc core-service (báo cáo vi phạm nội dung).
+          - /api/v1/certificate-templates
+          - /api/v1/certificates
+          - /api/v1/learning-reports
         strip_path: false
 
   - name: exercise-service
