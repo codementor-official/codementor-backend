@@ -12,6 +12,7 @@ import {
   type RecordProgressInput,
 } from '../domain/port/enrollment.repository';
 import { ROADMAP_REPOSITORY, type RoadmapRepository } from '../domain/port/roadmap.repository';
+import { blockedBy } from '../domain/model/roadmap-order';
 
 export interface CourseProgressView {
   enrollment: CourseEnrollment | null;
@@ -46,7 +47,21 @@ export class EnrollmentUseCases {
       throw new BusinessRuleViolation('Khóa học chưa được công khai');
     }
     await this.access.grantFreeOrRequirePurchase(userId, courseId);
-    return this.enrollments.enroll(userId, courseId, viaRoadmapId);
+    const outOfOrder = viaRoadmapId
+      ? await this.skipsRoadmapOrder(userId, courseId, viaRoadmapId)
+      : false;
+    return this.enrollments.enroll(userId, courseId, viaRoadmapId, outOfOrder);
+  }
+
+  /**
+   * Học viên bắt đầu khóa này khi còn khóa bắt buộc phía trước chưa xong? Chỉ để ghi nhận cho
+   * báo cáo — client đã hỏi xác nhận trước, backend không chặn (ADR 0005).
+   */
+  private async skipsRoadmapOrder(userId: string, courseId: string, roadmapId: string) {
+    const roadmap = await this.roadmaps.findById(roadmapId);
+    if (!roadmap) return false;
+    const courses = await this.enrollments.findRoadmapProgress(userId, roadmapId);
+    return blockedBy(courses, courseId, roadmap.progressionMode).length > 0;
   }
 
   async drop(user: AuthenticatedUser, courseId: string): Promise<void> {
@@ -83,7 +98,13 @@ export class EnrollmentUseCases {
       this.enrollments.findRoadmapEnrollment(userId, roadmapId),
       this.enrollments.findRoadmapProgress(userId, roadmapId),
     ]);
-    return { enrollment, courses };
+    return {
+      enrollment,
+      courses: courses.map((course) => ({
+        ...course,
+        blockedBy: blockedBy(courses, course.courseId, roadmap.progressionMode),
+      })),
+    };
   }
 
   /**
