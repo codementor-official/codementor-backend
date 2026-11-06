@@ -22,6 +22,7 @@ const CATEGORY: Record<EmailCategory, { label: string; why: string }> = {
   learning: { label: 'Học tập', why: 'Bạn đang bật “Email học tập” trong cài đặt tài khoản.' },
   workspace: { label: 'Nhóm học tập', why: 'Bạn đang bật “Email cập nhật Workspace” trong cài đặt tài khoản.' },
   system: { label: 'Thông báo hệ thống', why: 'Bạn đang bật “Email thông báo hệ thống” trong cài đặt tài khoản.' },
+  billing: { label: 'Gói & thanh toán', why: 'Email về thanh toán, hoàn tiền và thời hạn gói luôn được gửi cho chủ tài khoản.' },
 };
 
 /** One sentence that says why this email matters, and one that says what to do next. */
@@ -43,6 +44,7 @@ const COPY: Partial<Record<ReminderType, { lead: string; next?: string }>> = {
   STUDY_SESSION_REMINDER: { lead: 'Đến giờ học theo lịch bạn đã đặt.', next: 'Mở bài đang học dở và bắt đầu ngay.' },
   COURSE_COMPLETED: { lead: 'Chúc mừng! Bạn đã hoàn thành một khóa học.', next: 'Thử sức với bài luyện tập hoặc khóa học tiếp theo trong lộ trình.' },
   SYSTEM_ANNOUNCEMENT: { lead: 'CodeMentor có thông báo mới dành cho bạn.' },
+  BILLING_UPDATE: { lead: 'Gói Workspace của bạn vừa có thay đổi.', next: 'Xem chi tiết hoá đơn và thời hạn gói ở trang Gói & thanh toán.' },
 };
 
 export interface EmailKind {

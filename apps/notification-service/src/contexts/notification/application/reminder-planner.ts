@@ -226,9 +226,13 @@ export class ReminderPlanner {
       WORKSPACE_DOCUMENT_REJECTED: 'WORKSPACE_DOCUMENT_REJECTED',
       WORKSPACE_EXERCISE_UPDATED: 'WORKSPACE_EXERCISE_UPDATED',
       ADMIN_ANNOUNCEMENT: 'SYSTEM_ANNOUNCEMENT',
+      COMMERCE_UPDATED: 'BILLING_UPDATE',
     };
     const type = types[content.type];
     if (!type) return;
+    // Only the buyer's workspace-billing notices: admin copies link into the admin app, which an
+    // email button on the client origin cannot open.
+    if (type === 'BILLING_UPDATE' && !content.actionUrl?.startsWith('/workspace/billing')) return;
     const isDocument = type.startsWith('WORKSPACE_DOCUMENT_');
     const documentId = isDocument ? content.metadata.entityId : undefined;
     if (isDocument && (typeof documentId !== 'string' || !content.referenceId))
@@ -237,7 +241,7 @@ export class ReminderPlanner {
       this.repo.schedule({
         userId,
         type,
-        category: type === 'SYSTEM_ANNOUNCEMENT' ? 'system' : 'workspace',
+        category: type === 'SYSTEM_ANNOUNCEMENT' ? 'system' : type === 'BILLING_UPDATE' ? 'billing' : 'workspace',
         entityType: isDocument ? 'WORKSPACE_DOCUMENT' : 'NOTIFICATION',
         entityId: isDocument ? documentId as string : envelope.eventId,
         dedupeKey: 'notification:' + envelope.eventId + ':' + userId,
