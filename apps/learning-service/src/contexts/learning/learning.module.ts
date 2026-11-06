@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { CommerceModule } from '../commerce/commerce.module';
 import { LearningDashboardService } from './application/learning-dashboard.service';
 import { LecturerInsightsService } from './application/lecturer-insights.service';
+import { LearningReportService } from './application/learning-report.service';
+import { LearningReportController } from './presentation/learning-report.controller';
 import { ArticleUseCases } from './application/article.usecases';
 import { CourseUseCases } from './application/course.usecases';
 import { EnrollmentUseCases } from './application/enrollment.usecases';
@@ -25,10 +27,11 @@ import { RoadmapController } from './presentation/roadmap.controller';
 
 @Module({
   imports: [CommerceModule],
-  controllers: [RoadmapController, CourseController, ArticleController, UserActivityController],
+  controllers: [RoadmapController, CourseController, ArticleController, UserActivityController, LearningReportController],
   providers: [
     LearningDashboardService,
     LecturerInsightsService,
+    LearningReportService,
     RoadmapUseCases,
     CourseUseCases,
     ArticleUseCases,

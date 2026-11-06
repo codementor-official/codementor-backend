@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@codementor/platform';
+import { STALLED_DAYS } from './learning-report.service';
 
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
@@ -8,6 +9,12 @@ export interface LecturerInsights {
   /** Ghi danh đang học (active/paused) và đã xong, trên khoá CỦA giảng viên, mọi thời điểm. */
   activeLearners: number;
   completedLearners: number;
+  /** Tập con của `activeLearners`: đã học được một phần (ADR 0005, cùng định nghĩa báo cáo học tập). */
+  inProgressLearners: number;
+  /** Học dở mà không hoạt động quá `STALLED_DAYS` ngày. */
+  stalledLearners: number;
+  /** Chứng chỉ đang hiệu lực trên khóa học và lộ trình của giảng viên, mọi thời điểm. */
+  certificatesIssued: number;
   newEnrollments: number;
   /** `null` khi khoá của giảng viên chưa có đánh giá nào. */
   avgRating: number | null;
@@ -36,7 +43,8 @@ export class LecturerInsightsService {
     const [[totals], daily, topCourses] = await Promise.all([
       this.prisma.$queryRaw<
         {
-          active: number; completed: number; recent: number; rating: string | null; reviews: number;
+          active: number; completed: number; inProgress: number; stalled: number; certificates: number;
+          recent: number; rating: string | null; reviews: number;
           submissions: number; accepted: number; revenue: bigint;
         }[]
       >`
@@ -46,6 +54,15 @@ export class LecturerInsightsService {
              WHERE e.status IN ('active', 'paused')) AS active,
           (SELECT count(*)::int FROM course_enrollments e JOIN mine ON mine.id = e.course_id
              WHERE e.status = 'completed') AS completed,
+          (SELECT count(*)::int FROM course_enrollments e JOIN mine ON mine.id = e.course_id
+             WHERE e.status IN ('active', 'paused') AND e.progress_percent > 0) AS "inProgress",
+          (SELECT count(*)::int FROM course_enrollments e JOIN mine ON mine.id = e.course_id
+             WHERE e.status IN ('active', 'paused') AND e.progress_percent > 0
+               AND COALESCE(e.last_activity_at, e.started_at) < now() - make_interval(days => ${STALLED_DAYS}::int)) AS stalled,
+          (SELECT count(*)::int FROM certificates k
+             WHERE k.revoked_at IS NULL AND (
+               (k.subject = 'course' AND k.subject_id IN (SELECT id FROM mine))
+               OR (k.subject = 'roadmap' AND k.subject_id IN (SELECT id FROM roadmaps WHERE created_by = ${lecturerId}::uuid)))) AS certificates,
           (SELECT count(*)::int FROM course_enrollments e JOIN mine ON mine.id = e.course_id
              WHERE e.started_at >= ${since}) AS recent,
           (SELECT round(avg(r.rating), 2)::text FROM course_reviews r JOIN mine ON mine.id = r.course_id) AS rating,
@@ -88,6 +105,9 @@ export class LecturerInsightsService {
       days,
       activeLearners: totals.active,
       completedLearners: totals.completed,
+      inProgressLearners: totals.inProgress,
+      stalledLearners: totals.stalled,
+      certificatesIssued: totals.certificates,
       newEnrollments: totals.recent,
       avgRating: totals.rating === null ? null : Number(totals.rating),
       reviews: totals.reviews,

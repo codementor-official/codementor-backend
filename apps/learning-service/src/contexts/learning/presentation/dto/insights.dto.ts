@@ -7,3 +7,10 @@ export class InsightsQueryDto {
   @IsIn([7, 30])
   days: 7 | 30 = 30;
 }
+
+export class LearningReportQueryDto extends InsightsQueryDto {
+  /** `all` = toàn nền tảng, chỉ admin. Mặc định là nội dung của chính người hỏi. */
+  @IsOptional()
+  @IsIn(['mine', 'all'])
+  scope: 'mine' | 'all' = 'mine';
+}
