@@ -178,3 +178,51 @@ describe('reminder planner', () => {
     );
   });
 });
+
+describe('completion and certificate emails (ADR 0005)', () => {
+  const schedule = jest.fn();
+  const roadmapLearning = jest.fn();
+  const recipientByExternalId = jest.fn();
+  const repo = { schedule, roadmapLearning, recipientByExternalId } as unknown as ReminderRepository;
+  const planner = new ReminderPlanner(repo, new ConfigService());
+  beforeEach(() => jest.clearAllMocks());
+
+  it('emails once when a roadmap becomes completed, pointing at its certificate section', async () => {
+    roadmapLearning.mockResolvedValue({ id: 're1', user_id: 'u1', course_id: 'r1', title: 'Backend', status: 'completed', eligible: true });
+    await planner.source({ entityType: 'ROADMAP', entityId: 're1', change: 'UPDATE', changedAt: '' });
+    expect(schedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'ROADMAP_COMPLETED',
+        dedupeKey: 'roadmap-completed:re1',
+        payload: expect.objectContaining({ actionUrl: '/roadmaps/r1#certificate' }),
+      }),
+    );
+  });
+
+  it('skips a roadmap that is no longer completed or published', async () => {
+    roadmapLearning.mockResolvedValue({ id: 're1', user_id: 'u1', course_id: 'r1', title: 'B', status: 'active', eligible: true });
+    await planner.source({ entityType: 'ROADMAP', entityId: 're1', change: 'UPDATE', changedAt: '' });
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it('links the certificate email to the public verification page', async () => {
+    recipientByExternalId.mockResolvedValue(user);
+    await planner.certificateIssued({
+      recipientExternalId: 'subject',
+      certificateId: 'c1',
+      code: 'K7Q2M9XD3F',
+      subject: 'course',
+      subjectId: 'course1',
+      subjectTitle: 'Node.js',
+      recipientName: 'An',
+    });
+    expect(schedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'CERTIFICATE_ISSUED',
+        category: 'learning',
+        dedupeKey: 'certificate-issued:c1',
+        payload: expect.objectContaining({ actionUrl: '/certificates/K7Q2M9XD3F' }),
+      }),
+    );
+  });
+});

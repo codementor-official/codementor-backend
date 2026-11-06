@@ -16,6 +16,8 @@ export type ReminderType =
   | 'LEARNING_REMINDER'
   | 'STUDY_SESSION_REMINDER'
   | 'COURSE_COMPLETED'
+  | 'ROADMAP_COMPLETED'
+  | 'CERTIFICATE_ISSUED'
   | 'SYSTEM_ANNOUNCEMENT'
   | 'BILLING_UPDATE';
 export interface EmailPayload {

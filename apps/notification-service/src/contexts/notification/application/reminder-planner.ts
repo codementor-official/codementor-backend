@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { EventEnvelope, ReminderSourceChangedV1 } from '@codementor/contracts';
+import type { CertificateIssuedV1, EventEnvelope, ReminderSourceChangedV1 } from '@codementor/contracts';
 import type { NotificationContent } from '../domain/model/notification-content';
 import type { EmailCategory, EmailPayload, ReminderType } from '../domain/model/reminder';
 import { ReminderRepository } from '../infrastructure/reminder.repository';
@@ -26,6 +26,7 @@ export class ReminderPlanner {
       for (const a of await this.repo.assignmentsForExercise(event.entityId))
         await this.assignment(a.id, event);
     } else if (event.entityType === 'COURSE') await this.course(event);
+    else if (event.entityType === 'ROADMAP') await this.roadmap(event);
     else if (event.entityType === 'MEMBERSHIP') {
       for (const a of await this.repo.assignmentsForMember(event.entityId))
         await this.assignment(a.id, { ...event, change: 'SYNC' });
@@ -192,8 +193,9 @@ export class ReminderPlanner {
         payload: {
           ...payload,
           title: 'Chúc mừng bạn đã hoàn thành khóa học',
-          message: `Bạn đã hoàn thành “${c.title}”.`,
-          actionLabel: 'Xem khóa học',
+          message: `Bạn đã hoàn thành “${c.title}”. Chứng chỉ của bạn đang chờ được nhận.`,
+          actionUrl: '/courses/' + c.course_id + '#certificate',
+          actionLabel: 'Nhận chứng chỉ',
         },
       });
     } else if (c.status === 'active') {
@@ -216,6 +218,52 @@ export class ReminderPlanner {
       });
     }
   }
+  /** Trigger 0049 chỉ bắn đúng lúc lộ trình chuyển sang `completed`, nên không cần lọc thêm. */
+  private async roadmap(event: ReminderSourceChangedV1) {
+    if (event.change === 'SYNC') return;
+    const c = await this.repo.roadmapLearning(event.entityId);
+    if (!c || !c.eligible || c.status !== 'completed') return;
+    await this.repo.schedule({
+      userId: c.user_id,
+      type: 'ROADMAP_COMPLETED',
+      category: 'learning',
+      entityType: 'ROADMAP',
+      entityId: c.id,
+      dedupeKey: 'roadmap-completed:' + c.id,
+      scheduledAt: new Date(),
+      payload: {
+        title: 'Chúc mừng bạn đã hoàn thành lộ trình',
+        message: `Bạn đã hoàn thành “${c.title}”. Chứng chỉ lộ trình đang chờ được nhận.`,
+        actionUrl: '/roadmaps/' + c.course_id + '#certificate',
+        actionLabel: 'Nhận chứng chỉ',
+        referenceId: c.course_id,
+      },
+    });
+  }
+
+  /** Học viên vừa nhận chứng chỉ: email chúc mừng kèm liên kết xác thực công khai. */
+  async certificateIssued(payload: CertificateIssuedV1) {
+    const user = await this.repo.recipientByExternalId(payload.recipientExternalId);
+    if (!user) return;
+    const kind = payload.subject === 'course' ? 'khóa học' : 'lộ trình';
+    await this.repo.schedule({
+      userId: user.id,
+      type: 'CERTIFICATE_ISSUED',
+      category: 'learning',
+      entityType: 'CERTIFICATE',
+      entityId: payload.certificateId,
+      dedupeKey: 'certificate-issued:' + payload.certificateId,
+      scheduledAt: new Date(),
+      payload: {
+        title: 'Chúc mừng! Chứng chỉ của bạn đã được cấp',
+        message: `Chứng chỉ hoàn thành ${kind} “${payload.subjectTitle}” cấp cho ${payload.recipientName}. Mã xác thực: ${payload.code}.`,
+        actionUrl: '/certificates/' + payload.code,
+        actionLabel: 'Xem chứng chỉ',
+        referenceId: payload.subjectId,
+      },
+    });
+  }
+
   async fromNotification(envelope: EventEnvelope<unknown>, content: NotificationContent) {
     // Explicit opt-in categories only. Chat still never generates email.
     const types: Record<string, ReminderType> = {

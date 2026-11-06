@@ -139,6 +139,11 @@ export class NotificationModule implements OnModuleInit {
         replaySafe: true,
         fromBeginning: true,
       })
+      // dedupeKey theo certificateId: giao lại message không gửi email hai lần.
+      .on(TOPICS.CERTIFICATE_ISSUED, (payload) => this.reminders.certificateIssued(payload), {
+        replaySafe: true,
+        fromBeginning: true,
+      })
       .on(TOPICS.ASSIGNMENT_REMINDER, (payload, envelope) =>
         this.record.record(envelope, fromAssignmentReminder(payload)),
       )

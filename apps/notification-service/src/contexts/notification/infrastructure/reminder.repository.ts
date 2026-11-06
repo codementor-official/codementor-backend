@@ -162,6 +162,18 @@ export class ReminderRepository {
       )
     )[0];
   }
+  /** Cùng hình dạng với `learning()`, nhưng trên `roadmap_enrollments` (ADR 0005). */
+  async roadmapLearning(id: string): Promise<LearningContext | undefined> {
+    return (
+      await this.db.$queryRawUnsafe<LearningContext[]>(
+        `SELECT re.id, re.user_id, re.roadmap_id AS course_id, r.title, re.status::text,
+                COALESCE(re.last_activity_at, re.started_at) AS last_activity_at,
+                (r.status = 'published') AS eligible
+         FROM roadmap_enrollments re JOIN roadmaps r ON r.id = re.roadmap_id WHERE re.id = $1::uuid`,
+        id,
+      )
+    )[0];
+  }
   coursesForUser(id: string): Promise<LearningContext[]> {
     return this.db.$queryRawUnsafe(
       "SELECT * FROM notification_learning_context WHERE user_id=$1::uuid AND status='active'",

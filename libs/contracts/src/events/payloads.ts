@@ -388,7 +388,7 @@ export interface NotificationCreatedV1 {
 /* --------------------------------------------------------------- Workspace */
 
 export interface ReminderSourceChangedV1 {
-  entityType: 'ASSIGNMENT' | 'GROUP_EXERCISE' | 'SUBMISSION' | 'COURSE' | 'MEMBERSHIP' | 'SETTINGS';
+  entityType: 'ASSIGNMENT' | 'GROUP_EXERCISE' | 'SUBMISSION' | 'COURSE' | 'ROADMAP' | 'MEMBERSHIP' | 'SETTINGS';
   entityId: string;
   change: 'INSERT' | 'UPDATE' | 'DELETE' | 'SYNC';
   changedAt: string;

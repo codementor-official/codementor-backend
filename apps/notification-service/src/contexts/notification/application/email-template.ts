@@ -42,7 +42,9 @@ const COPY: Partial<Record<ReminderType, { lead: string; next?: string }>> = {
   WORKSPACE_EXERCISE_UPDATED: { lead: 'Một bài tập trong nhóm vừa được cập nhật.' },
   LEARNING_REMINDER: { lead: 'Đã một thời gian bạn chưa quay lại khóa học.', next: 'Chỉ 15 phút mỗi ngày cũng giúp bạn giữ nhịp học.' },
   STUDY_SESSION_REMINDER: { lead: 'Đến giờ học theo lịch bạn đã đặt.', next: 'Mở bài đang học dở và bắt đầu ngay.' },
-  COURSE_COMPLETED: { lead: 'Chúc mừng! Bạn đã hoàn thành một khóa học.', next: 'Thử sức với bài luyện tập hoặc khóa học tiếp theo trong lộ trình.' },
+  COURSE_COMPLETED: { lead: 'Chúc mừng! Bạn đã hoàn thành một khóa học.', next: 'Nhận chứng chỉ của bạn ở cuối trang khóa học, rồi thử sức với khóa tiếp theo.' },
+  ROADMAP_COMPLETED: { lead: 'Chúc mừng! Bạn đã hoàn thành trọn một lộ trình.', next: 'Nhận chứng chỉ lộ trình ở cuối trang lộ trình.' },
+  CERTIFICATE_ISSUED: { lead: 'Chứng chỉ của bạn đã được cấp.', next: 'Chia sẻ liên kết xác thực để người khác kiểm tra chứng chỉ.' },
   SYSTEM_ANNOUNCEMENT: { lead: 'CodeMentor có thông báo mới dành cho bạn.' },
   BILLING_UPDATE: { lead: 'Gói Workspace của bạn vừa có thay đổi.', next: 'Xem chi tiết hoá đơn và thời hạn gói ở trang Gói & thanh toán.' },
 };
