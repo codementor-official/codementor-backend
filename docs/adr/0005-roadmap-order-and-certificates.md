@@ -1,6 +1,8 @@
 # 0005. Học lộ trình theo thứ tự (khóa mềm) và chứng chỉ hoàn thành
 
-- Status: proposed 2026-11-06 — chưa code
+- Status: accepted, implemented 2026-11-06 on branch `feat/roadmap-order-certificates` in backend,
+  frontend and infra — **not deployed** (DB changes 0047–0049 and the Mongo validator are already
+  on production; the code that uses them is not). See "Implementation" at the end.
 - Scope: `apps/learning-service` (enrollment, context `certificate` mới), `apps/notification-service`,
   `apps/ai-service/app/lecter`, `codementor-infra` migration, frontend `client` + `lecturer` +
   `packages/ui`
@@ -174,3 +176,40 @@ Phase 4 và 5 làm song song được sau phase 3.
 - Trang công khai lộ tên học viên và tên khóa cho ai có mã. Mã 10 ký tự base32 (~50 bit) không
   đoán được. Cho học viên ẩn chứng chỉ thì để sau.
 - Không làm trong v1: canvas kéo thả tự do, PDF phía server, chứng chỉ có điểm số/xếp loại.
+
+## Implementation (2026-11-06)
+
+Quyết định đã chốt với người dùng: mọi khóa học/lộ trình mặc định có chứng chỉ (mẫu nền tảng),
+có trang xác thực công khai, sửa tên in sai = admin thu hồi rồi học viên nhận lại. Bổ sung
+**phase báo cáo học tập** (không có trong bản đề xuất), nên thứ tự cuối là:
+
+| # | Nội dung | backend | frontend | infra |
+|---|---|---|---|---|
+| 1 | Thứ tự mềm | `03107a4` | `2a9c3f4` | `f8e71a5` (0047) |
+| 2 | Mẫu chứng chỉ | `3b37ef3` | `9597f2e` | `b01841c` (0048) |
+| 3 | Nhận / xác thực / thu hồi | `f371e6a` | `a417a0f` | — |
+| 4 | Email + thông báo | `1814ced` | `3e750f4` | `50f5b42` (0049 + Mongo) |
+| 5 | Báo cáo học tập | `a1b91b2` | `428f527` | — |
+| 6 | Lecter | `eb3c170` | `a7e3b60` | — |
+
+Lệch so với thiết kế ở trên, và vì sao:
+
+- Trạng thái chứng chỉ là endpoint riêng `GET /certificates/status/:subject/:id`, không nhúng
+  vào `courseProgress`/`roadmapProgress`: context `certificate` không phải phụ thuộc vào context
+  `learning`.
+- `POST /certificates` trả `{ status: 'issued', certificate }`, không trả thẳng chứng chỉ:
+  response interceptor coi mọi body có khóa `data` là đã bọc sẵn, mà chứng chỉ có trường `data`.
+- Không bắt buộc `{{learnerName}}` trong nội dung: mọi bố cục tự in tên cỡ lớn.
+- "Chứng chỉ của tôi" ở `/my-certificates` (route `/certificates/[code]` là trang công khai).
+- Thu hồi lưu `revoked_by`/`revoke_reason` trên hàng chứng chỉ, không ghi `audit_logs` (bảng của
+  core-service).
+- `MODE_LABELS` giữ nguyên: nhãn đó đúng ở cấp bài học, còn studio lộ trình không có ô chọn chế độ.
+- Báo cáo: một endpoint `GET /learning-reports?days&scope` (tổng hợp + theo khóa + theo lộ trình
+  + phễu). `STALLED_DAYS = 14`. `scope=all` chỉ admin.
+- Lecter: model gửi id của mẫu MẶC ĐỊNH khi được bảo "tạo mẫu mới" dù prompt cấm; thẻ xác nhận
+  tự đọc mẫu và chuyển thành tạo mới.
+- Kong thêm `/certificate-templates`, `/certificates`, `/learning-reports` — phải restart Kong khi
+  deploy.
+
+Deploy cần: build lại learning, notification, ai (và core/recommendation vì `libs/contracts`
+đổi), restart Kong; frontend client/lecturer/admin.
