@@ -9,7 +9,7 @@ import { SubscriptionsService } from './subscriptions.service';
 import type { AdjustmentDto, AuditQuery, BillingPage, CouponDto, RefundDto, SettingsDto, SubscriberQuery, UpdateCouponDto } from '../presentation/workspace-billing.dto';
 
 /** SQL twin of `subscriptionState()`; `s` is a subscription, `t` its term summary. */
-const STATE_SQL = Prisma.sql`CASE
+export const STATE_SQL = Prisma.sql`CASE
   WHEN s.suspended_at IS NOT NULL THEN 'SUSPENDED'
   WHEN t.covered THEN CASE WHEN s.cancel_at_period_end THEN 'CANCEL_SCHEDULED' ELSE 'ACTIVE' END
   WHEN s.cancel_at_period_end THEN 'CANCELLED'
@@ -19,7 +19,7 @@ const STATE_SQL = Prisma.sql`CASE
 /** What an order earned: paid minus whatever was refunded. */
 const NET_SQL = Prisma.sql`amount_vnd - COALESCE(refunded_vnd, 0)`;
 
-const TERMS_SQL = Prisma.sql`LEFT JOIN LATERAL (
+export const TERMS_SQL = Prisma.sql`LEFT JOIN LATERAL (
   SELECT max(ends_at) AS paid_through, bool_or(starts_at <= now() AND ends_at > now()) AS covered
   FROM workspace_paid_terms WHERE subscription_id = s.id) t ON true`;
 
