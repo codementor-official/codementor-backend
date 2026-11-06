@@ -33,7 +33,7 @@ from fastapi import HTTPException
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from app.lecter import http, validate
+from app.lecter import certificate, http, validate
 from app.lecter.http import ToolCallError, clip
 from app.lecter.validate import JUDGE_LANGUAGES, normalize_language
 
@@ -652,6 +652,64 @@ async def validate_roadmap_courses(
     return head
 
 
+# --- Chứng chỉ (ADR 0005) -------------------------------------------------
+
+
+@tool
+async def list_certificate_templates(config: RunnableConfig) -> str:
+    """Liệt kê mẫu chứng chỉ giảng viên dùng được: mẫu mặc định của nền tảng (chỉ đọc) và mẫu
+    của chính họ. Dùng id ở đây cho `read_certificate_template` và `attach_certificate_template`.
+    """
+    items = await http.learning("GET", "/api/v1/certificate-templates", config) or []
+    if not items:
+        return "Chưa có mẫu nào."
+    subjects = {"course": "chỉ khóa học", "roadmap": "chỉ lộ trình", None: "khóa học và lộ trình"}
+    return "\n".join(
+        f"- {item['id']} · {item.get('name')} · {subjects.get(item.get('subject'), '?')}"
+        + (" · MẶC ĐỊNH (chỉ đọc)" if item.get("isDefault") else f" · đang gắn {item.get('usage', 0)} nội dung")
+        for item in items
+    )
+
+
+@tool
+async def read_certificate_template(template_id: str, config: RunnableConfig) -> str:
+    """Đọc một mẫu chứng chỉ. Phần `design` ở cuối có ĐÚNG hình dạng của
+    `save_certificate_template` — sao chép rồi sửa, đừng gõ lại từ đầu.
+    """
+    data = await http.learning("GET", f"/api/v1/certificate-templates/{template_id}", config) or {}
+    meta = {
+        "id": data.get("id"),
+        "name": data.get("name"),
+        "subject": data.get("subject"),
+        "isDefault": data.get("isDefault"),
+        "editable": data.get("editable"),
+        "usage": data.get("usage"),
+    }
+    return (
+        "THÔNG TIN CHUNG\n"
+        + json.dumps(meta, ensure_ascii=False)
+        + "\n\nTHIẾT KẾ — sao chép nguyên khối này cho `save_certificate_template`:\n"
+        + clip(json.dumps(data.get("design") or {}, ensure_ascii=False), MAX_TREE_CHARS)
+    )
+
+
+@tool
+async def validate_certificate_design(design: dict, config: RunnableConfig) -> str:
+    """Kiểm thiết kế chứng chỉ TRƯỚC khi đề xuất lưu. BẮT BUỘC gọi trước `save_certificate_template`.
+
+    Hình dạng: {"version": 1, "layout": "classic"|"modern"|"minimal",
+    "accent": "orange"|"ink"|"emerald"|"blue"|"violet", "heading": str, "body": str,
+    "signerName": str, "signerTitle"?: str, "fields": [{"label": str, "value": str}] (tối đa 6)}.
+    Ô điền chỉ được dùng: {{learnerName}} {{subjectKind}} {{subjectTitle}} {{instructorName}}
+    {{startedAt}} {{completedAt}} {{durationHours}} {{issuedAt}} {{certificateCode}}.
+    Tên học viên luôn được in cỡ lớn — đừng chèn {{learnerName}} vào nội dung. Không đặt ảnh.
+    """
+    errors = certificate.check_design(design)
+    if errors:
+        return "CHƯA LƯU ĐƯỢC, phải sửa:\n" + "\n".join(f"- {line}" for line in errors)
+    return "HỢP LỆ. Gọi `save_certificate_template` NGAY BÂY GIỜ với đúng thiết kế này."
+
+
 # --- Tài liệu -------------------------------------------------------------
 
 # Trần toàn văn. Trên mức này thì `read_document` trả mục lục và bắt tìm theo chủ đề: một đề
@@ -942,6 +1000,10 @@ LECTURER_TOOLS: tuple[Any, ...] = (
     search_roadmaps,
     read_roadmap,
     validate_roadmap_courses,
+    # Chứng chỉ — ghi qua HITL trình duyệt: save_certificate_template, attach_certificate_template
+    list_certificate_templates,
+    read_certificate_template,
+    validate_certificate_design,
     # Tài liệu
     read_document,
     search_document,
