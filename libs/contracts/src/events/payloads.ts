@@ -470,6 +470,17 @@ export interface CommerceUpdatedV1 {
   entityId: string;
 }
 
+export interface CertificateIssuedV1 {
+  recipientExternalId: string;
+  certificateId: string;
+  /** Mã xác thực công khai — đường dẫn `/certificates/:code` bên client. */
+  code: string;
+  subject: 'course' | 'roadmap';
+  subjectId: string;
+  subjectTitle: string;
+  recipientName: string;
+}
+
 export interface TopicPayloadMap {
   [TOPICS.USER_PROVISIONED]: UserProvisionedV1;
 
@@ -502,6 +513,7 @@ export interface TopicPayloadMap {
   [TOPICS.ADMIN_ANNOUNCEMENT_CREATED]: AdminAnnouncementCreatedV1;
   [TOPICS.NOTIFICATION_CREATED]: NotificationCreatedV1;
   [TOPICS.COMMERCE_UPDATED]: CommerceUpdatedV1;
+  [TOPICS.CERTIFICATE_ISSUED]: CertificateIssuedV1;
   [TOPICS.REMINDER_SOURCE_CHANGED]: ReminderSourceChangedV1;
 
   [TOPICS.ASSIGNMENT_CREATED]: AssignmentCreatedV1;
