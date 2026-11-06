@@ -324,6 +324,12 @@ export class ObjectStorageService {
     return objectKey.startsWith(expected) && !objectKey.includes('..');
   }
 
+  /** URL do chính `presignImageUpload` trả về cho `prefix` (đã gồm `AWS_S3_IMAGE_PREFIX`). */
+  isImageUrlFor(url: string, prefix: string): boolean {
+    const key = [this.imagePrefix, prefix.replace(/^\/+|\/+$/g, '')].filter(Boolean).join('/') + '/';
+    return url.startsWith(this.publicUrlFor(key)) && !url.includes('..');
+  }
+
   async deleteObject(objectKey: string): Promise<void> {
     if (this.client === null || !this.bucket) return;
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: objectKey }));

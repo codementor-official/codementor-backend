@@ -135,9 +135,8 @@ export class CertificateTemplateUseCases {
     if (!design) throw new InvalidInput('Thiết kế chứng chỉ không hợp lệ', { errors });
     // Ảnh phải là thứ đã tải lên kho của mình: một URL tùy ý sẽ được nhúng vào trang xác thực
     // công khai, tức là cho phép giảng viên chèn ảnh từ bất kỳ đâu lên trang của nền tảng.
-    const base = this.storage.publicUrl(`${ASSET_PREFIX}/`);
     for (const url of [design.logoUrl, design.signatureUrl]) {
-      if (url && !url.startsWith(base)) {
+      if (url && !this.storage.isImageUrlFor(url, ASSET_PREFIX)) {
         throw new InvalidInput('Ảnh logo/chữ ký phải được tải lên qua trang soạn mẫu');
       }
     }
