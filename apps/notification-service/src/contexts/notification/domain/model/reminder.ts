@@ -28,6 +28,8 @@ export interface EmailPayload {
   dueAt?: string;
   notificationId?: string;
   referenceId?: string;
+  /** Chỉ hàng CERTIFICATE ghi: chứng chỉ của khóa học hay lộ trình (`referenceId` là id của nó). */
+  referenceType?: 'COURSE' | 'ROADMAP';
 }
 export interface Reminder {
   id: string;

@@ -259,6 +259,7 @@ export class ReminderPlanner {
         message: `Chứng chỉ hoàn thành ${kind} “${payload.subjectTitle}” cấp cho ${payload.recipientName}. Mã xác thực: ${payload.code}.`,
         actionUrl: '/certificates/' + payload.code,
         actionLabel: 'Xem chứng chỉ',
+        referenceType: payload.subject === 'course' ? 'COURSE' : 'ROADMAP',
         referenceId: payload.subjectId,
       },
     });

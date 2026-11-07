@@ -221,7 +221,7 @@ describe('completion and certificate emails (ADR 0005)', () => {
         type: 'CERTIFICATE_ISSUED',
         category: 'learning',
         dedupeKey: 'certificate-issued:c1',
-        payload: expect.objectContaining({ actionUrl: '/certificates/K7Q2M9XD3F' }),
+        payload: expect.objectContaining({ actionUrl: '/certificates/K7Q2M9XD3F', referenceType: 'COURSE', referenceId: 'course1' }),
       }),
     );
   });

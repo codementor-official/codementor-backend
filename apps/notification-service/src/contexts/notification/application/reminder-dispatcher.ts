@@ -57,12 +57,20 @@ export class ReminderDispatcher implements OnModuleInit, OnModuleDestroy {
       for (let i = 0; i < 50; i++) {
         const r = await this.repo.claim();
         if (!r) break;
-        await this.deliver(r);
+        try {
+          await this.deliver(r);
+        } catch (e) {
+          // One broken reminder must not stall the queue behind it. The row stays PROCESSING
+          // and `recover()` decides after the lease (a send that may have happened is never
+          // retried), so this only moves on to the next reminder.
+          this.logger.error(
+            `Reminder ${r.id} (${r.type}) failed: ${e instanceof Error ? `${e.name}: ${e.message}` : 'unknown'}`,
+          );
+        }
       }
     } catch (e) {
       this.logger.error(
-        'Reminder processing failed; durable queue retained',
-        e instanceof Error ? e.name : 'unknown',
+        `Reminder processing failed; durable queue retained: ${e instanceof Error ? `${e.name}: ${e.message}` : 'unknown'}`,
       );
     } finally {
       this.running = false;
@@ -91,20 +99,26 @@ export class ReminderDispatcher implements OnModuleInit, OnModuleDestroy {
           audienceKey: user.external_id,
           title: r.payload.title,
           message: r.payload.message,
-          // CERTIFICATE: chứng chỉ có thể của khóa học hoặc lộ trình, hàng nhắc không ghi là
-          // loại nào — để null, nút bấm (`actionUrl`) đã trỏ đúng trang chứng chỉ.
+          // CERTIFICATE trỏ về khóa học/lộ trình của nó: NotificationContent bắt buộc mọi
+          // thông báo (trừ thông báo hệ thống và lịch học) gắn với một tài nguyên.
           referenceType:
-            r.entity_type === 'STUDY_SCHEDULE' || r.entity_type === 'CERTIFICATE'
+            r.entity_type === 'STUDY_SCHEDULE'
               ? null
-              : r.entity_type === 'COURSE'
-                ? 'COURSE'
-                : r.entity_type === 'ROADMAP'
-                  ? 'ROADMAP'
-                  : 'WORKSPACE',
+              : r.entity_type === 'CERTIFICATE'
+                ? r.payload.referenceType ?? null
+                : r.entity_type === 'COURSE'
+                  ? 'COURSE'
+                  : r.entity_type === 'ROADMAP'
+                    ? 'ROADMAP'
+                    : 'WORKSPACE',
           referenceId:
-            r.entity_type === 'STUDY_SCHEDULE' || r.entity_type === 'CERTIFICATE'
+            r.entity_type === 'STUDY_SCHEDULE'
               ? null
-              : r.payload.referenceId ?? r.entity_id,
+              : r.entity_type === 'CERTIFICATE'
+                ? r.payload.referenceType
+                  ? r.payload.referenceId ?? null
+                  : null
+                : r.payload.referenceId ?? r.entity_id,
           actionUrl: r.payload.actionUrl,
           actionLabel: r.payload.actionLabel,
           metadata: { reminderId: r.id },
