@@ -93,6 +93,17 @@ def read_last_run(result: dict | None, error: str | None = None) -> str:
     for case in [c for c in result.get("cases", []) if c.get("verdict") != "accepted"][
         :MAX_FAILING
     ]:
+        if case.get("hidden"):
+            # Frontend sau bản sửa `fix/hidden-test-redaction`: test ẩn chỉ báo chưa đạt.
+            failing.append(
+                {
+                    "order": case.get("order"),
+                    "verdict": case.get("verdict"),
+                    "hidden": True,
+                    "note": f"Test ẩn #{case.get('order')}: chưa đạt",
+                }
+            )
+            continue
         item = {
             "order": case.get("order"),
             "verdict": case.get("verdict"),
