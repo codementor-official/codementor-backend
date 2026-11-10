@@ -155,8 +155,10 @@ REPEATED_CALL = (
 
 
 def _call_key(call: dict) -> str:
-    return call["name"] + "\x00" + json.dumps(
-        call.get("args") or {}, sort_keys=True, ensure_ascii=False
+    return (
+        call["name"]
+        + "\x00"
+        + json.dumps(call.get("args") or {}, sort_keys=True, ensure_ascii=False)
     )
 
 
@@ -212,9 +214,7 @@ def repeated_calls(
         for call in (message.tool_calls or [])
         if call["id"] in answered
     }
-    nudged = {
-        message.content for message in recent if isinstance(message, ToolMessage)
-    }
+    nudged = {message.content for message in recent if isinstance(message, ToolMessage)}
     nudges: list[ToolMessage] = []
     for call in calls:
         text = REPEATED_CALL.format(name=call["name"])
@@ -246,9 +246,7 @@ def chat_model(capability: Capability, **overrides: Any) -> ChatOpenAI:
         # Không truyền khoá này khi capability không khai: để `None` đi qua sẽ ghi đè mặc định
         # của nhà cung cấp bằng một giá trị rỗng thay vì bỏ qua nó.
         **(
-            {"reasoning_effort": capability.reasoning_effort}
-            if capability.reasoning_effort
-            else {}
+            {"reasoning_effort": capability.reasoning_effort} if capability.reasoning_effort else {}
         ),
         **overrides,
     )
@@ -273,9 +271,13 @@ def make_chat(capability: Capability):
         )
 
         history = drop_dangling_tool_calls(list(state["messages"]))
-        response = await model.ainvoke(
-            [SystemMessage(capability.instructions), *history], config
+        # Ngữ cảnh trang (Codey: đề bài đang mở) nối SAU prompt cố định: phần đầu giữ nguyên giữa
+        # các bài nên OpenAI vẫn cache được. Bề mặt không truyền khoá này thì không có gì thêm.
+        context = ((config or {}).get("configurable") or {}).get("page_context") or ""
+        instructions = (
+            f"{capability.instructions}\n\n{context}" if context else capability.instructions
         )
+        response = await model.ainvoke([SystemMessage(instructions), *history], config)
         calls = getattr(response, "tool_calls", None) or []
 
         # Tool của trình duyệt: kết thúc lượt. Trình duyệt hiện hộp xác nhận, thi hành bằng
@@ -326,9 +328,7 @@ def make_chat(capability: Capability):
                     goto="chat",
                     update={"messages": [response, *nudges], "step": calls[0]["name"]},
                 )
-            return Command(
-                goto="tools", update={"messages": response, "step": calls[0]["name"]}
-            )
+            return Command(goto="tools", update={"messages": response, "step": calls[0]["name"]})
         return Command(goto="__end__", update={"messages": response, "step": "done"})
 
     return chat
