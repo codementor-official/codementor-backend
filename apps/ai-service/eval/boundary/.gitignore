@@ -1,0 +1,6 @@
+# Bản ghi thô và chi phí: sinh lại được, có id môi trường dev.
+results/**/*.jsonl
+results/spend.json
+results/manual-review.csv
+# Id sinh ra trên DB dev cục bộ.
+data/seed-ids.json
