@@ -3,3 +3,4 @@ export * from './events/topics';
 export * from './events/audience';
 export * from './events/payloads';
 export * from './clients/workspace-ai';
+export * from './clients/judge-cases';
