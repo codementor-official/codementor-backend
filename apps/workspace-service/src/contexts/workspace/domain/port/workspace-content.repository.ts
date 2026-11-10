@@ -93,6 +93,7 @@ export interface AssignmentSubmissionContext {
 export interface WorkspaceSubmissionRecord {
   id: string;
   userId: string;
+  exerciseId: string;
   language: string;
   sourceCode: string;
   verdict: string;

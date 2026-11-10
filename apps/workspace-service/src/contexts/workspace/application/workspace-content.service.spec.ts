@@ -241,3 +241,66 @@ describe('WorkspaceContentService uploads against the owner plan', () => {
     expect(content.createDocument).not.toHaveBeenCalled();
   });
 });
+
+describe('WorkspaceContentService.submissionHistory', () => {
+  const HIDDEN_EXPECTED = '918273645';
+  const runDetail = {
+    submissionId: 'sub-1',
+    cases: [
+      { order: 1, passed: true, verdict: 'accepted', expected: '21', actual: '21', stderr: '', runtimeMs: 1, memoryKb: 1 },
+      {
+        order: 2,
+        passed: false,
+        verdict: 'wrong_answer',
+        expected: HIDDEN_EXPECTED,
+        actual: '1',
+        stderr: 'hidden stderr',
+        runtimeMs: 1,
+        memoryKb: 1,
+      },
+    ],
+  };
+
+  function createService(canReview: boolean) {
+    const collections: Record<string, unknown[]> = {
+      submission_run_details: [runDetail],
+      exercise_contents: [
+        { exerciseId: 'ex-1', testCases: [{ order: 1, visibility: 'public' }, { order: 2, visibility: 'hidden' }] },
+      ],
+    };
+    const mongo = {
+      collection: (name: string) => ({ find: () => ({ toArray: async () => collections[name] }) }),
+    };
+    const workspaces = {
+      detail: jest.fn().mockResolvedValue({
+        id: 'group-1',
+        currentMembership: { id: 'member-1', role: 'member', permissions: { review_submission: canReview } },
+      }),
+    };
+    const content = {
+      assignmentExists: jest.fn().mockResolvedValue(true),
+      submissionHistory: jest.fn().mockResolvedValue([{ id: 'sub-1', exerciseId: 'ex-1' }]),
+    };
+    return new WorkspaceContentService(
+      workspaces as never,
+      content as never,
+      {} as never,
+      {} as never,
+      mongo as never,
+      { publish: jest.fn() } as never,
+    );
+  }
+
+  it('thành viên thường không thấy expected, actual, stderr của test ẩn', async () => {
+    const history = await createService(false).submissionHistory('user-1', 'g', 'assignment-1');
+    const serialized = JSON.stringify(history);
+    expect(serialized).not.toContain(HIDDEN_EXPECTED);
+    expect(serialized).not.toContain('hidden stderr');
+    expect(serialized).toContain('"expected":"21"');
+  });
+
+  it('người duyệt vẫn thấy bản đầy đủ', async () => {
+    const history = await createService(true).submissionHistory('user-1', 'g', 'assignment-1');
+    expect(JSON.stringify(history)).toContain(HIDDEN_EXPECTED);
+  });
+});

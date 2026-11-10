@@ -917,6 +917,7 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
     return rows.map((row) => ({
       id: row.id,
       userId: row.user_id,
+      exerciseId: row.exercise_id,
       language: row.language,
       sourceCode: row.source_code,
       verdict: row.verdict,
