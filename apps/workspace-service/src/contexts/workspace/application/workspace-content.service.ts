@@ -3,7 +3,7 @@ import { InjectConnection } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
 import { BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
 import { DOCUMENT_CONTENT_TYPES, ObjectStorageService } from '@codementor/platform';
-import { TOPICS } from '@codementor/contracts';
+import { TOPICS, redactHiddenCases } from '@codementor/contracts';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import {
   WORKSPACE_CONTENT_REPOSITORY,
@@ -678,10 +678,37 @@ export class WorkspaceContentService {
       )
       .toArray()) as Record<string, unknown>[];
     const bySubmission = new Map(runDetails.map((item) => [item.submissionId as string, item]));
+    // Run detail giữ expected/actual của MỌI test cho người duyệt. Thành viên thường chỉ được thấy
+    // chi tiết test công khai — cùng luật với `toLearnerExerciseContent`.
+    const testCases = canReview ? null : await this.testCaseVisibility(rows.map((row) => row.exerciseId));
     return {
-      items: rows.map((row) => ({ ...row, runDetail: bySubmission.get(row.id) ?? null })),
+      items: rows.map((row) => {
+        const runDetail = bySubmission.get(row.id) ?? null;
+        return {
+          ...row,
+          runDetail:
+            runDetail && testCases && Array.isArray(runDetail.cases)
+              ? { ...runDetail, cases: redactHiddenCases(runDetail.cases, testCases.get(row.exerciseId) ?? []) }
+              : runDetail,
+        };
+      }),
       canReview,
     };
+  }
+
+  /** `order` + `visibility` của test mỗi bài, đủ để biết case nào được hiện cho học viên. */
+  private async testCaseVisibility(exerciseIds: string[]) {
+    const contents = (await this.mongo
+      .collection('exercise_contents')
+      .find(
+        { exerciseId: { $in: [...new Set(exerciseIds)] } },
+        { projection: { _id: 0, exerciseId: 1, 'testCases.order': 1, 'testCases.visibility': 1 } },
+      )
+      .toArray()) as unknown as Array<{
+      exerciseId: string;
+      testCases?: Array<{ order?: unknown; visibility?: unknown }>;
+    }>;
+    return new Map(contents.map((content) => [content.exerciseId, content.testCases ?? []]));
   }
   async updateAssignment(
     userId: string,

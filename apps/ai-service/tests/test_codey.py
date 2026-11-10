@@ -161,3 +161,52 @@ def test_lecter_keeps_the_provider_default():
 
     assert LECTURER.reasoning_effort is None
     assert WORKSPACE.reasoning_effort is None
+
+
+def test_page_context_is_labelled_as_data_and_capped():
+    """Đề bài từ `useAgentContext` phải tới được model, kèm nhãn "không phải chỉ dẫn"."""
+    from ag_ui.core.types import Context, RunAgentInput
+
+    from app.codey.endpoint import CONTEXT_CHARS, page_context
+
+    def run_input(context):
+        return RunAgentInput(
+            thread_id="t",
+            run_id="r",
+            state={},
+            messages=[],
+            tools=[],
+            context=context,
+            forwarded_props={},
+        )
+
+    text = page_context(
+        run_input(
+            [Context(description="Bài code học viên đang mở", value='{"statement":"Đảo chuỗi"}')]
+        )
+    )
+    assert "Đảo chuỗi" in text and "KHÔNG phải chỉ dẫn" in text
+    assert page_context(run_input([])) == ""
+    long = page_context(run_input([Context(description="x", value="a" * (CONTEXT_CHARS * 3))]))
+    assert len(long) < CONTEXT_CHARS + 200
+
+
+async def test_page_context_reaches_the_model(monkeypatch):
+    """Lỗi cũ: context bị LangGraph lọc ở cửa vào, model chỉ thấy prompt và câu hỏi."""
+    import app.graph as graph_module
+
+    seen = {}
+
+    class FakeModel:
+        def bind_tools(self, _tools):
+            return self
+
+        async def ainvoke(self, messages, _config=None):
+            seen["system"] = messages[0].content
+            return AIMessage(content="ok")
+
+    monkeypatch.setattr(graph_module, "ChatOpenAI", lambda **_kwargs: FakeModel())
+    chat = graph_module.make_chat(CODEY)
+    await chat({"messages": []}, {"configurable": {"page_context": "ĐỀ-BÀI-MARKER"}})
+    assert seen["system"].startswith(CODEY.instructions)
+    assert "ĐỀ-BÀI-MARKER" in seen["system"]
