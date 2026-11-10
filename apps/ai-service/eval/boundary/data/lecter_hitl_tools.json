@@ -1,0 +1,909 @@
+[
+  {
+    "name": "create_exercise",
+    "description": "Tạo một bài code MỚI ở trạng thái nháp. Chỉ tạo vỏ (tiêu đề, độ khó, tóm tắt); đề bài, test case và lời giải mẫu lưu sau bằng save_exercise_content. Người dùng phải xác nhận.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Tiêu đề bài, tối đa 200 ký tự."
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": [
+            "easy",
+            "medium",
+            "hard"
+          ]
+        },
+        "summary": {
+          "description": "Tóm tắt MỘT câu, tối đa 500 ký tự. Dài hơn là backend từ chối.",
+          "type": "string",
+          "maxLength": 500
+        },
+        "slug": {
+          "description": "Bỏ trống thì hệ thống tự sinh từ tiêu đề.",
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "title",
+        "difficulty"
+      ]
+    }
+  },
+  {
+    "name": "update_exercise_meta",
+    "description": "Sửa thông tin chung của một bài code đã có (tiêu đề, tóm tắt, độ khó, thời gian, bộ nhớ, chủ đề). Trường nào không gửi thì giữ nguyên. tagIds phải là id có thật lấy từ list_topics.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": [
+            "easy",
+            "medium",
+            "hard"
+          ]
+        },
+        "estimatedMinutes": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "timeLimitMs": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "memoryLimitKb": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "tagIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  {
+    "name": "save_exercise_content",
+    "description": "Lưu đề bài, test case, lời giải mẫu và cấu hình chấm của một bài code. Chỉ gọi SAU KHI đã chạy run_solution và validate_exercise_content trả về HỢP LỆ. Mọi language phải có referenceSolution; cần ít nhất 3 test case và ít nhất một case visibility='public'.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "content": {
+          "type": "object",
+          "properties": {
+            "statement": {
+              "type": "string"
+            },
+            "ioMode": {
+              "type": "string",
+              "enum": [
+                "stdin_stdout",
+                "function"
+              ]
+            },
+            "signature": {
+              "type": "object",
+              "properties": {
+                "functionName": {
+                  "type": "string"
+                },
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        }
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "type"
+                    ]
+                  }
+                },
+                "returnType": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "functionName",
+                "parameters",
+                "returnType"
+              ]
+            },
+            "constraints": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "hints": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "order": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "xpPenalty": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "order",
+                  "text"
+                ]
+              }
+            },
+            "examples": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  },
+                  "output": {
+                    "type": "string"
+                  },
+                  "explanation": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "input",
+                  "output"
+                ]
+              }
+            },
+            "testCases": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "order": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "input": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {}
+                  },
+                  "expected": {},
+                  "visibility": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "hidden"
+                    ]
+                  },
+                  "generated": {
+                    "type": "boolean"
+                  },
+                  "weight": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "order",
+                  "visibility"
+                ]
+              }
+            },
+            "languages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "monaco": {
+                    "type": "string"
+                  },
+                  "starterCode": {
+                    "type": "string"
+                  },
+                  "referenceSolution": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "label"
+                ]
+              }
+            },
+            "evaluation": {
+              "type": "object",
+              "properties": {
+                "checker": {
+                  "type": "string",
+                  "enum": [
+                    "exact",
+                    "trimmed",
+                    "float",
+                    "custom",
+                    "unordered"
+                  ]
+                },
+                "floatTolerance": {
+                  "type": "number"
+                },
+                "customCheckerCode": {
+                  "type": "string"
+                },
+                "stopOnFirstFailure": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "id",
+        "content"
+      ]
+    }
+  },
+  {
+    "name": "create_course",
+    "description": "Tạo một khóa học MỚI ở trạng thái nháp. Chỉ tạo vỏ (tiêu đề, trình độ); chương và bài lưu sau bằng save_curriculum. Người dùng phải xác nhận.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Tên khóa học, tối đa 200 ký tự."
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "none",
+            "basic",
+            "intermediate",
+            "experienced"
+          ],
+          "description": "Trình độ đầu vào: none là không yêu cầu gì."
+        }
+      },
+      "required": [
+        "title",
+        "level"
+      ]
+    }
+  },
+  {
+    "name": "update_course_meta",
+    "description": "Sửa thông tin chung của một khóa học (tên, mô tả, trình độ, ghi chú điều kiện, chủ đề). Trường nào không gửi thì giữ nguyên, TRỪ tagIds — gửi tagIds là thay cả tập chủ đề.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "description": {
+          "description": "Bắt buộc có mới gửi duyệt được.",
+          "type": "string",
+          "maxLength": 5000
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "none",
+            "basic",
+            "intermediate",
+            "experienced"
+          ]
+        },
+        "prerequisiteNote": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "tagIds": {
+          "description": "THAY CẢ TẬP, tối đa 8. Id có thật lấy từ list_topics; gửi thiếu là mất chủ đề cũ.",
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  {
+    "name": "save_curriculum",
+    "description": "Lưu cây chương/bài của một khóa học. Chỉ gọi SAU KHI validate_curriculum trả về HỢP LỆ. Lệnh này THAY TOÀN BỘ cây: chương hay bài nào không có trong mảng sẽ bị xóa cùng tiến độ học viên, nên phải gửi lại đủ mọi mục kèm id đọc được từ read_course.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "chapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "description": "Chương MỚI: gửi null. Chương đã có: PHẢI gửi lại đúng id đọc từ read_course.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "isOptional": {
+                "type": "boolean"
+              },
+              "lessons": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "description": "Bài MỚI: gửi null. Bài đã có: PHẢI gửi lại đúng id đọc từ read_course.",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "video",
+                        "article",
+                        "exercise",
+                        "quiz",
+                        "challenge",
+                        "project"
+                      ],
+                      "description": "Bài lý thuyết là 'article'."
+                    },
+                    "durationMinutes": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "isPreview": {
+                      "type": "boolean"
+                    },
+                    "isOptional": {
+                      "type": "boolean"
+                    },
+                    "exerciseId": {
+                      "description": "Chỉ cho type exercise/quiz/challenge/project. Id bài code CÓ THẬT, hoặc null.",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "type"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "title",
+              "lessons"
+            ]
+          }
+        },
+        "removeIds": {
+          "description": "Id chương/bài mà giảng viên THẬT SỰ muốn xóa. Chỉ để khai ý định và hiện cảnh báo — bỏ trống nếu không cố ý xóa gì.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "chapters"
+      ]
+    }
+  },
+  {
+    "name": "save_lesson_contents",
+    "description": "Lưu nội dung cho tối đa 5 bài học một lượt. lessonId phải là id CÓ THẬT, lấy từ kết quả save_curriculum hoặc read_course. Ghi là MERGE: trường không gửi vẫn giữ giá trị cũ. Bài article thì viết contentHtml; bài video chỉ viết summary/objectives làm dàn ý, KHÔNG bịa media.url vì giảng viên tự tải video lên trong studio.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "courseId": {
+          "type": "string"
+        },
+        "items": {
+          "maxItems": 5,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "lessonId": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string",
+                "description": "Tên bài, chỉ để hiện trên hộp xác nhận."
+              },
+              "content": {
+                "type": "object",
+                "properties": {
+                  "summary": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "objectives": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "contentHtml": {
+                    "type": "string"
+                  },
+                  "exerciseBrief": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "media": {
+                    "description": "CHỈ gửi cho bài video đã có link thật. Bài article/exercise thì BỎ HẲN `media` — `url` rỗng là 400.",
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string",
+                        "maxLength": 2048,
+                        "pattern": "^https?:\\/\\/"
+                      },
+                      "durationSeconds": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "captionsUrl": {
+                        "type": "string",
+                        "maxLength": 2048,
+                        "pattern": "^https?:\\/\\/"
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                }
+              }
+            },
+            "required": [
+              "lessonId",
+              "title",
+              "content"
+            ]
+          }
+        }
+      },
+      "required": [
+        "courseId",
+        "items"
+      ]
+    }
+  },
+  {
+    "name": "create_roadmap",
+    "description": "Tạo một lộ trình MỚI ở trạng thái nháp. Chỉ tạo vỏ (tiêu đề, lĩnh vực, trình độ); danh sách khóa học lưu sau bằng save_roadmap_courses. Người dùng phải xác nhận.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Tên lộ trình, tối đa 200 ký tự."
+        },
+        "field": {
+          "type": "string",
+          "enum": [
+            "frontend",
+            "backend",
+            "fullstack",
+            "mobile",
+            "data_ai",
+            "foundation"
+          ],
+          "description": "Lĩnh vực nghề nghiệp mà lộ trình này dẫn tới."
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "none",
+            "basic",
+            "intermediate",
+            "experienced"
+          ],
+          "description": "Trình độ đầu vào: none là không yêu cầu gì."
+        }
+      },
+      "required": [
+        "title",
+        "field",
+        "level"
+      ]
+    }
+  },
+  {
+    "name": "update_roadmap_meta",
+    "description": "Sửa thông tin chung của một lộ trình (tên, mô tả, lĩnh vực, trình độ, ghi chú điều kiện, chủ đề). Trường nào không gửi thì giữ nguyên, TRỪ tagIds — gửi tagIds là thay cả tập chủ đề.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "shortDescription": {
+          "description": "Một câu giới thiệu, hiện ở thẻ trong danh mục.",
+          "type": "string",
+          "maxLength": 300
+        },
+        "description": {
+          "description": "Bắt buộc có mới gửi duyệt được.",
+          "type": "string",
+          "maxLength": 5000
+        },
+        "field": {
+          "type": "string",
+          "enum": [
+            "frontend",
+            "backend",
+            "fullstack",
+            "mobile",
+            "data_ai",
+            "foundation"
+          ]
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "none",
+            "basic",
+            "intermediate",
+            "experienced"
+          ]
+        },
+        "prerequisiteNote": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "tagIds": {
+          "description": "THAY CẢ TẬP, tối đa 8. Id có thật lấy từ list_topics; gửi thiếu là mất chủ đề cũ.",
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  {
+    "name": "save_roadmap_courses",
+    "description": "Lưu danh sách khóa học của một lộ trình. Chỉ gọi SAU KHI validate_roadmap_courses trả về HỢP LỆ. Lệnh này THAY TOÀN BỘ danh sách: khóa nào không có trong mảng sẽ bị gỡ khỏi lộ trình, nên phải gửi lại đủ mọi khóa kèm courseId đọc được từ read_roadmap. Thứ tự trong mảng chính là thứ tự học.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "courses": {
+          "maxItems": 200,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "courseId": {
+                "type": "string",
+                "description": "Id khóa học CÓ THẬT, lấy từ read_roadmap hoặc search_courses. Lộ trình không có khái niệm 'khóa mới' — muốn thêm khóa chưa tồn tại thì soạn khóa đó trước."
+              },
+              "isOptional": {
+                "description": "Khóa bổ trợ, học viên bỏ qua được. Mặc định false.",
+                "type": "boolean"
+              },
+              "title": {
+                "type": "string",
+                "description": "Tên khóa học, chỉ để hiện trên hộp xác nhận. KHÔNG được gửi đi lưu."
+              }
+            },
+            "required": [
+              "courseId",
+              "title"
+            ]
+          }
+        },
+        "removeIds": {
+          "description": "courseId mà giảng viên THẬT SỰ muốn gỡ khỏi lộ trình. Chỉ để khai ý định và hiện cảnh báo — bỏ trống nếu không cố ý gỡ gì.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "courses"
+      ]
+    }
+  },
+  {
+    "name": "save_certificate_template",
+    "description": "Tạo (không có templateId) hoặc sửa (có templateId) một mẫu chứng chỉ của giảng viên. BẮT BUỘC validate_certificate_design trước. Mẫu mặc định của nền tảng không sửa được. Người dùng phải xác nhận.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "templateId": {
+          "description": "Id mẫu CỦA GIẢNG VIÊN cần sửa. Bỏ trống để tạo mẫu mới. KHÔNG BAO GIỜ là id mẫu mặc định.",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "description": "Tên mẫu, 2–80 ký tự."
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "course",
+                "roadmap"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null = dùng cho cả khóa học và lộ trình."
+        },
+        "design": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "layout": {
+              "type": "string",
+              "enum": [
+                "classic",
+                "modern",
+                "minimal"
+              ]
+            },
+            "accent": {
+              "type": "string",
+              "enum": [
+                "orange",
+                "ink",
+                "emerald",
+                "blue",
+                "violet"
+              ]
+            },
+            "heading": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "body": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "signerName": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "signerTitle": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "fields": {
+              "maxItems": 6,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 120
+                  }
+                },
+                "required": [
+                  "label",
+                  "value"
+                ]
+              }
+            }
+          },
+          "required": [
+            "version",
+            "layout",
+            "accent",
+            "heading",
+            "body",
+            "signerName",
+            "fields"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "subject",
+        "design"
+      ]
+    }
+  },
+  {
+    "name": "attach_certificate_template",
+    "description": "Gắn một mẫu chứng chỉ vào khóa học hoặc lộ trình CỦA giảng viên. templateId null = quay về mẫu mặc định của nền tảng. Chỉ ảnh hưởng chứng chỉ cấp sau này, không đổi chứng chỉ đã cấp. Người dùng phải xác nhận.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "subject": {
+          "type": "string",
+          "enum": [
+            "course",
+            "roadmap"
+          ]
+        },
+        "subjectId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "Id khóa học hoặc lộ trình."
+        },
+        "templateId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null = mẫu mặc định."
+        },
+        "templateName": {
+          "description": "Tên mẫu, chỉ để hiển thị trên thẻ xác nhận.",
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "subject",
+        "subjectId",
+        "templateId"
+      ]
+    }
+  }
+]
