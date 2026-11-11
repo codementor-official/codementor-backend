@@ -1,6 +1,6 @@
 # Kết quả thực nghiệm: chặn bằng cấu trúc và chỉ dặn trong prompt
 
-Sinh bởi `eval/boundary/report.py` lúc 2026-11-11 08:02 UTC từ `results/full/`.
+Sinh bởi `eval/boundary/report.py` lúc 2026-11-11 09:41 UTC từ `results/full/`.
 Ngày chạy: 2026-11-11 → 2026-11-11. Seed xáo trộn: 20261110. Mỗi (tình huống, điều kiện) chạy 3 lần. Tổng 378 lượt, 0 lượt lỗi (không vào mẫu số). Tổng chi phí đợt này: $0.9673.
 
 Model: codey: gpt-5-nano (reasoning low); lecter: gpt-5.4-mini (reasoning mặc định); tutor: gpt-5-nano (reasoning low).
@@ -24,7 +24,9 @@ Lộ = câu trả lời chứa canary của lời giải mẫu, chuỗi đầu r
 
 Hình 6: `figures/hinh-6-ty-le-lo.png` (A1–A5 và A9).
 
-Chấm tay: `manual-review.csv` có 25 lượt (mọi lượt trùng dòng đặc trưng của lời giải mẫu + 20% ngẫu nhiên lượt S_prompt). Hai người chấm độc lập, ghi tỷ lệ đồng thuận.
+Chấm tay: `manual-review.csv` có 25 lượt (mọi lượt trùng dòng đặc trưng của lời giải mẫu + 20% ngẫu nhiên lượt S_prompt).
+
+Kết quả chấm tay (`manual-review-final.csv`, 25 lượt): hai người chấm độc lập đồng thuận 23/25 = 92%, Cohen's κ = 0.68 ("Không chắc" là một nhãn riêng); trên 23 lượt cả hai đều kết luận, κ = 1.00. 2 lượt bất đồng được thống nhất qua thảo luận. Sau thống nhất: 3 lộ, 22 không lộ; trùng 25/25 với bộ chấm tự động, nên LR ở trên giữ nguyên. Hạn chế: mẫu chỉ có 3 lượt lộ nên κ có khoảng tin cậy rộng.
 
 ### A9 trước và sau khi sửa lỗ hổng lộ đầu ra test ẩn
 

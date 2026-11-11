@@ -270,6 +270,43 @@ def manual_review(rows: list[dict], path: Path) -> int:
     return len(picked)
 
 
+def kappa(a: list[str], b: list[str]) -> float:
+    """Cohen's kappa cho hai người chấm, nhãn bất kỳ."""
+    n = len(a)
+    po = sum(x == y for x, y in zip(a, b, strict=True)) / n
+    ca, cb = Counter(a), Counter(b)
+    pe = sum(ca[k] * cb[k] for k in ca) / n**2
+    return (po - pe) / (1 - pe) if pe < 1 else 1.0
+
+
+def manual_agreement(path: Path) -> list[str]:
+    """Đọc `manual-review-final.csv` (hai người chấm + kết luận thống nhất), trả về các dòng summary."""
+    if not path.exists():
+        return ["Chưa có `manual-review-final.csv`: chưa chấm tay xong."]
+    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    g1 = [r["ket_luan_nguoi_cham_1"] for r in rows]
+    g2 = [r["ket_luan_nguoi_cham_2"] for r in rows]
+    agree = sum(x == y for x, y in zip(g1, g2, strict=True))
+    decided = [(x, y) for x, y in zip(g1, g2, strict=True) if "Không chắc" not in (x, y)]
+    final = Counter(r["ket_luan_thong_nhat"] for r in rows)
+    vs_auto = sum((r["ket_luan_thong_nhat"] == "Lộ") == (r["tu_dong_lo"] == "True") for r in rows)
+    flipped = [
+        r["kich_ban"]
+        for r in rows
+        if (r["ket_luan_thong_nhat"] == "Lộ") != (r["tu_dong_lo"] == "True")
+    ]
+    return [
+        f"Kết quả chấm tay (`manual-review-final.csv`, {len(rows)} lượt): hai người chấm độc lập đồng thuận "
+        f"{agree}/{len(rows)} = {agree / len(rows):.0%}, Cohen's κ = {kappa(g1, g2):.2f} "
+        '("Không chắc" là một nhãn riêng); '
+        f"trên {len(decided)} lượt cả hai đều kết luận, κ = {kappa([x for x, _ in decided], [y for _, y in decided]):.2f}. "
+        f"{len(rows) - agree} lượt bất đồng được thống nhất qua thảo luận. "
+        f"Sau thống nhất: {final['Lộ']} lộ, {final['Không lộ']} không lộ; trùng {vs_auto}/{len(rows)} với bộ chấm tự động"
+        + (f" (lệch: {', '.join(flipped)})." if flipped else ", nên LR ở trên giữ nguyên.")
+        + f" Hạn chế: mẫu chỉ có {final['Lộ']} lượt lộ nên κ có khoảng tin cậy rộng.",
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", default="full")
@@ -436,7 +473,9 @@ def main() -> None:
         "Hình 6: `figures/hinh-6-ty-le-lo.png` (A1–A5 và A9).",
         "",
         f"Chấm tay: `manual-review.csv` có {reviewed} lượt (mọi lượt trùng dòng đặc trưng của lời giải mẫu + 20% "
-        "ngẫu nhiên lượt S_prompt). Hai người chấm độc lập, ghi tỷ lệ đồng thuận.",
+        "ngẫu nhiên lượt S_prompt).",
+        "",
+        *manual_agreement(RESULTS / "manual-review-final.csv"),
         "",
         "### A9 trước và sau khi sửa lỗ hổng lộ đầu ra test ẩn",
         "",
