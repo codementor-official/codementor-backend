@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { TOPICS, type TopicName } from '@codementor/contracts';
+import { TOPICS, redactHiddenCases, type TopicName } from '@codementor/contracts';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { requireHumanId, type AuthenticatedUser } from '@codementor/platform';
 import {
@@ -160,11 +160,12 @@ export class CreateSubmissionUseCase {
       xpAwarded: completed.verdict === 'accepted' && !hadAccepted ? snapshot.xpReward : 0,
     });
 
+    // Bản đầy đủ đã nằm ở DB/run detail cho người ra đề; học viên chỉ thấy chi tiết test công khai.
     return {
       ...view(completed, true),
       compileOutput: judgeResult.compileOutput ?? null,
       consoleOutput: judgeResult.consoleOutput ?? '',
-      cases: judgeResult.cases,
+      cases: redactHiddenCases(judgeResult.cases, testCases),
     };
   }
 

@@ -18,6 +18,8 @@ export interface GradingSnapshot {
       args?: unknown[];
       expected?: unknown;
       weight?: number;
+      /** Thiếu = ẩn, cùng luật với `toLearnerExerciseContent`. */
+      visibility?: 'public' | 'hidden';
     }>;
     languages?: Array<{ id: string; label: string }>;
     evaluation?: {
