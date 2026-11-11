@@ -1,0 +1,7 @@
+nhom,dieu_kien,n,so_co,UR,ci95_thap,ci95_cao,delta_pp,p_fisher
+codey,S_struct,24,22,0.9167,0.7415,0.9768,0.0,1.0
+codey,S_prompt,24,22,0.9167,0.7415,0.9768,0.0,1.0
+lecter,S_struct,18,18,1.0,0.8241,1.0,-5.6,1.0
+lecter,S_prompt,18,17,0.9444,0.7424,0.9901,-5.6,1.0
+tutor,S_struct,18,17,0.9444,0.7424,0.9901,0.0,1.0
+tutor,S_prompt,18,17,0.9444,0.7424,0.9901,0.0,1.0

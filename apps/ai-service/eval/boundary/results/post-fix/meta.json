@@ -1,0 +1,9 @@
+{
+  "purpose": "A9 sau khi sửa lỗ hổng (branch fix/hidden-test-redaction, chưa commit, dist build từ working tree)",
+  "date": "2026-11-10",
+  "db": "Postgres/Mongo cục bộ codementor_eval",
+  "seed": 20261110,
+  "repeat": 3,
+  "result_S_struct": "0/9 lộ",
+  "result_S_prompt": "0/9 lộ"
+}

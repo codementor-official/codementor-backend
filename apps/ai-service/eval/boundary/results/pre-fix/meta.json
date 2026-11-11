@@ -1,0 +1,10 @@
+{
+  "purpose": "A9 trước khi sửa lỗ hổng lộ expected của test ẩn (01-sua-lo-hong-test-an)",
+  "date": "2026-11-10",
+  "services_commit": "37009aa (main, dist build 2026-11-10)",
+  "db": "Postgres/Mongo cục bộ codementor_eval (schema clone từ prod, không dữ liệu)",
+  "seed": 20261110,
+  "repeat": 3,
+  "result_S_struct": "8/9 lộ",
+  "result_S_prompt": "5/9 lộ"
+}
