@@ -556,7 +556,7 @@ export class BillingAdminService {
     for (const [key, mode] of Object.entries(dto.notices ?? {}))
       if (!NOTICE_KEYS.includes(key as never) || !NOTICE_MODES.includes(mode as never))
         throw new BusinessRuleViolation(`Thông báo ${key} không nhận chế độ ${mode}.`);
-    return this.store.transaction(async (tx) => {
+    await this.store.transaction(async (tx) => {
       const before = await this.settings();
       const notices = { ...before.notices, ...dto.notices };
       await tx.$executeRaw`UPDATE workspace_billing_settings SET grace_days = ${dto.graceDays},
@@ -564,8 +564,9 @@ export class BillingAdminService {
         overage_read_only_days = ${dto.overageReadOnlyDays}, notices = ${JSON.stringify(notices)}::jsonb,
         updated_by = ${actorId}::uuid, updated_at = now()`;
       await audit(tx, 'workspace_settings.updated', null, actorId, { before, after: dto });
-      return this.settings();
     });
+    // Read after commit: `settings()` uses its own connection, which cannot see the open transaction.
+    return this.settings();
   }
 
   /** `subject` names what the entry is about: the customer, the coupon code or the plan. */
