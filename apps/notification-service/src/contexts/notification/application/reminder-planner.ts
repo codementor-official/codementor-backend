@@ -233,6 +233,8 @@ export class ReminderPlanner {
     // Only the buyer's workspace-billing notices: admin copies link into the admin app, which an
     // email button on the client origin cannot open.
     if (type === 'BILLING_UPDATE' && !content.actionUrl?.startsWith('/workspace/billing')) return;
+    // The administrator set this billing notice to in-app only.
+    if (content.metadata.email === false) return;
     const isDocument = type.startsWith('WORKSPACE_DOCUMENT_');
     const documentId = isDocument ? content.metadata.entityId : undefined;
     if (isDocument && (typeof documentId !== 'string' || !content.referenceId))

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AlreadyExists, BusinessRuleViolation, NotFound } from '@codementor/kernel';
 import { CommerceStore, audit, journal, lock, type Tx } from '../../commerce/infrastructure/commerce.store';
-import { notifyCommerce } from '../../commerce/infrastructure/commerce-notification';
+import { NOTICE_KEYS, NOTICE_MODES, noticeModes, notifyBilling } from './billing-notices';
 import { refundEffect, refundableVnd } from '../domain/billing';
 import { entitlementsOf, orderView, type EffectiveRow, type OrderRow, type SubscriptionRow } from '../infrastructure/billing.rows';
 import { SubscriptionsService } from './subscriptions.service';
@@ -404,7 +404,7 @@ export class BillingAdminService {
         drop_future_term: ' Kỳ đã trả trước được huỷ; kỳ hiện tại vẫn giữ nguyên đến hết hạn.',
         money_only: '',
       }[effect];
-      await notifyCommerce(tx, order.buyer_id, orderId, 'Đã hoàn tiền gói Workspace',
+      await notifyBilling(tx, 'refund', order.buyer_id, orderId, 'Đã hoàn tiền gói Workspace',
         `Đã hoàn ${amount.toLocaleString('vi-VN')} ₫${amount < order.amount_vnd ? ` cho phần thời gian chưa dùng (đã thanh toán ${order.amount_vnd.toLocaleString('vi-VN')} ₫)` : ''} của gói ${order.quote.plan.name}.${consequence}`,
         `/workspace/billing/checkout/result?order=${orderId}`);
       return { refunded: true, amountVnd: amount, effect, endedSubscription };
@@ -535,9 +535,9 @@ export class BillingAdminService {
   async settings() {
     const [row] = await this.store.db.$queryRaw<{
       grace_days: number; renewal_reminder_days: number; overage_notice_days: number; overage_read_only_days: number;
-      terms_version: string; updated_at: Date; updated_by_name: string | null;
+      terms_version: string; updated_at: Date; updated_by_name: string | null; notices: Record<string, unknown>;
     }[]>`
-      SELECT s.grace_days, s.renewal_reminder_days, s.overage_notice_days, s.overage_read_only_days, s.terms_version,
+      SELECT s.grace_days, s.renewal_reminder_days, s.overage_notice_days, s.overage_read_only_days, s.terms_version, s.notices,
         s.updated_at, u.display_name AS updated_by_name
       FROM workspace_billing_settings s LEFT JOIN users u ON u.id = s.updated_by`;
     return {
@@ -545,6 +545,7 @@ export class BillingAdminService {
       renewalReminderDays: row.renewal_reminder_days,
       overageNoticeDays: row.overage_notice_days,
       overageReadOnlyDays: row.overage_read_only_days,
+      notices: noticeModes(row.notices),
       termsVersion: row.terms_version,
       updatedAt: row.updated_at,
       updatedBy: row.updated_by_name,
@@ -552,11 +553,16 @@ export class BillingAdminService {
   }
 
   async updateSettings(actorId: string, dto: SettingsDto) {
+    for (const [key, mode] of Object.entries(dto.notices ?? {}))
+      if (!NOTICE_KEYS.includes(key as never) || !NOTICE_MODES.includes(mode as never))
+        throw new BusinessRuleViolation(`Thông báo ${key} không nhận chế độ ${mode}.`);
     return this.store.transaction(async (tx) => {
       const before = await this.settings();
+      const notices = { ...before.notices, ...dto.notices };
       await tx.$executeRaw`UPDATE workspace_billing_settings SET grace_days = ${dto.graceDays},
         renewal_reminder_days = ${dto.renewalReminderDays}, overage_notice_days = ${dto.overageNoticeDays},
-        overage_read_only_days = ${dto.overageReadOnlyDays}, updated_by = ${actorId}::uuid, updated_at = now()`;
+        overage_read_only_days = ${dto.overageReadOnlyDays}, notices = ${JSON.stringify(notices)}::jsonb,
+        updated_by = ${actorId}::uuid, updated_at = now()`;
       await audit(tx, 'workspace_settings.updated', null, actorId, { before, after: dto });
       return this.settings();
     });

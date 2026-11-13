@@ -28,6 +28,14 @@ describe('Workspace billing email', () => {
       notice('/workspace-plans?tab=orders&order=order'));
     expect(repo.schedule).not.toHaveBeenCalled();
   });
+  it('keeps a notice the administrator set to in-app only out of email', async () => {
+    const repo = { schedule: jest.fn(), recipientByExternalId: jest.fn().mockResolvedValue(buyer) };
+    const appOnly = NotificationContent.create({ type: 'COMMERCE_UPDATED', title: 'Đã gia hạn', message: 'Hiệu lực đến 05/12/2026.',
+      audienceType: 'USER', audienceKey: 'subject', referenceType: 'COMMERCE', referenceId: 'order',
+      actionUrl: '/workspace/billing', actionLabel: 'Xem giao dịch', metadata: { entityId: 'order', email: false } }).value;
+    await new ReminderPlanner(repo as never, new ConfigService()).fromNotification({ eventId: 'event' } as never, appOnly);
+    expect(repo.schedule).not.toHaveBeenCalled();
+  });
   it('sends billing email even with system announcements turned off, never to an unverified address', () => {
     expect(permitsEmail(buyer, 'BILLING_UPDATE', 'billing')).toBe(true);
     expect(permitsEmail({ ...buyer, email_verified_at: null }, 'BILLING_UPDATE', 'billing')).toBe(false);

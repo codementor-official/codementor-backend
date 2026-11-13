@@ -10,7 +10,7 @@ import { BusinessRuleViolation, NotFound } from '@codementor/kernel';
 import { CommerceStore, audit, journal, lock, type Tx } from '../../commerce/infrastructure/commerce.store';
 import { PaymentProviders } from '../../commerce/infrastructure/payment-providers';
 import { OrdersService } from '../../commerce/application/orders.service';
-import { notifyAdmins, notifyCommerce } from '../../commerce/infrastructure/commerce-notification';
+import { notifyBilling, notifyBillingAdmins } from './billing-notices';
 import type { PaymentEvidence, PaymentProvider } from '../../commerce/domain/money';
 import {
   MIN_CHARGE_VND,
@@ -560,10 +560,10 @@ export class SubscriptionsService implements OnModuleInit {
       await tx.$executeRaw`UPDATE workspace_orders SET status = 'review' WHERE id = ${order.id}::uuid`;
       await this.releaseCoupon(tx, order.id);
       await audit(tx, 'workspace_payment.review', order.id, undefined, { provider, reference, reason: reviewReason });
-      await notifyCommerce(tx, order.buyer_id, order.id, 'Thanh toán cần kiểm tra',
+      await notifyBilling(tx, 'payment_review', order.buyer_id, order.id, 'Thanh toán cần kiểm tra',
         'Chúng tôi đã nhận thanh toán nhưng chưa áp dụng tự động được. Quản trị viên sẽ kiểm tra.',
         `${RESULT_PATH}?order=${order.id}`);
-      await notifyAdmins(tx, order.id, 'Thanh toán gói Workspace cần kiểm tra',
+      await notifyBillingAdmins(tx, order.id, 'Thanh toán gói Workspace cần kiểm tra',
         `Đơn ${order.amount_vnd.toLocaleString('vi-VN')} ₫ đã được trả nhưng chưa áp dụng tự động: ${reviewReason}.`,
         `/workspace-plans?tab=orders&order=${order.id}`);
       return;
@@ -601,12 +601,12 @@ export class SubscriptionsService implements OnModuleInit {
     await tx.$executeRaw`UPDATE workspace_coupon_redemptions SET status = 'redeemed' WHERE order_id = ${order.id}::uuid`;
     await audit(tx, `workspace_subscription.${order.kind === 'renewal' ? 'renewed' : order.kind === 'upgrade' ? 'upgraded' : 'activated'}`,
       subscriptionId, order.buyer_id, { orderId: order.id, provider, reference, startsAt, endsAt });
-    await notifyCommerce(tx, order.buyer_id, order.id,
+    await notifyBilling(tx, 'subscription_paid', order.buyer_id, order.id,
       order.kind === 'renewal' ? 'Đã gia hạn gói Workspace' : `Gói ${snapshot.plan.name} đã kích hoạt`,
       `Gói Workspace ${snapshot.plan.name} có hiệu lực đến ${vnDate(endsAt)}.`,
       '/workspace/billing');
     const [buyer] = await tx.$queryRaw<{ name: string }[]>`SELECT display_name AS name FROM users WHERE id = ${order.buyer_id}::uuid`;
-    await notifyAdmins(tx, order.id,
+    await notifyBillingAdmins(tx, order.id,
       `${order.kind === 'renewal' ? 'Gia hạn' : order.kind === 'upgrade' ? 'Nâng cấp' : 'Đăng ký mới'} gói ${snapshot.plan.name}`,
       `${buyer?.name ?? 'Một chủ nhóm'} đã thanh toán ${order.amount_vnd.toLocaleString('vi-VN')} ₫, hiệu lực đến ${vnDate(endsAt)}.`,
       `/workspace-plans?tab=orders&order=${order.id}`);
