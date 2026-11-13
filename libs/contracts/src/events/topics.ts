@@ -9,6 +9,8 @@
 export const TOPICS = {
   // ---- Identity ----
   USER_PROVISIONED: 'evt.user.provisioned.v1',
+  /** core-service asks notification-service to email a password reset link. Carries a live token: never replay. */
+  PASSWORD_RESET_EMAIL: 'cmd.identity.password-reset-email.v1',
 
   // ---- Document ----
   DOCUMENT_UPLOADED: 'evt.document.uploaded.v1',
@@ -113,6 +115,7 @@ export type TopicName = (typeof TOPICS)[keyof typeof TOPICS];
  */
 export const PARTITION_KEY: Record<TopicName, string> = {
   [TOPICS.USER_PROVISIONED]: 'userId',
+  [TOPICS.PASSWORD_RESET_EMAIL]: 'email',
 
   [TOPICS.DOCUMENT_UPLOADED]: 'documentId',
   [TOPICS.DOCUMENT_ANALYZE]: 'documentId',

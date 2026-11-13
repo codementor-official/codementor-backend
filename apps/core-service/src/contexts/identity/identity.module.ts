@@ -20,6 +20,8 @@ import { IDENTITY_QUERY } from './identity.public';
 import { AdminUsersController } from './presentation/admin-users.controller';
 import { IdentityController } from './presentation/identity.controller';
 import { EmailVerificationService } from './application/email-verification.service';
+import { PasswordResetService } from './application/password-reset.service';
+import { PasswordResetController } from './presentation/password-reset.controller';
 import { EMAIL_VERIFICATION_PROVIDER } from './domain/port/email-verification.provider';
 
 /**
@@ -31,7 +33,7 @@ import { EMAIL_VERIFICATION_PROVIDER } from './domain/port/email-verification.pr
 @Module({
   // Hai controller, hai đường dẫn: hồ sơ ở `/me` (Kong định tuyến đường đó), quản trị
   // tài khoản Keycloak ở `/users`.
-  controllers: [IdentityController, AdminUsersController],
+  controllers: [IdentityController, AdminUsersController, PasswordResetController],
   providers: [
     GetAdminUserUseCase,
     GetProfileUseCase,
@@ -43,6 +45,7 @@ import { EMAIL_VERIFICATION_PROVIDER } from './domain/port/email-verification.pr
     PresignAvatarUploadUseCase,
     KeycloakAdminService,
     EmailVerificationService,
+    PasswordResetService,
     { provide: EMAIL_VERIFICATION_PROVIDER, useExisting: KeycloakAdminService },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
     { provide: ACCOUNT_PREFERENCES_REPOSITORY, useClass: PrismaAccountPreferencesRepository },

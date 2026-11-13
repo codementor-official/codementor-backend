@@ -10,6 +10,14 @@ export interface UserProvisionedV1 {
   displayName: string;
 }
 
+/** Email `token` as a link to the client's `/reset-password` page until `expiresAt`. */
+export interface PasswordResetEmailV1 {
+  email: string;
+  displayName: string;
+  token: string;
+  expiresAt: string;
+}
+
 /* ---------------------------------------------------------------- Document */
 
 export interface DocumentUploadedV1 {
@@ -485,6 +493,7 @@ export interface CertificateIssuedV1 {
 
 export interface TopicPayloadMap {
   [TOPICS.USER_PROVISIONED]: UserProvisionedV1;
+  [TOPICS.PASSWORD_RESET_EMAIL]: PasswordResetEmailV1;
 
   [TOPICS.DOCUMENT_UPLOADED]: DocumentUploadedV1;
   [TOPICS.DOCUMENT_ANALYZE]: DocumentAnalyzeV1;

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HUMAN_ROLES, type UserRole } from '@codementor/platform';
+import { BusinessRuleViolation } from '@codementor/kernel';
 import type { EmailVerificationProvider, ProviderEmailStatus } from '../domain/port/email-verification.provider';
 
 interface KeycloakTokenResponse {
@@ -44,6 +45,24 @@ interface KeycloakEventRepresentation {
   ipAddress?: string;
   clientId?: string;
   details?: Record<string, string>;
+}
+
+/** What a password reset needs to know about an account. */
+export interface ResetAccount {
+  id: string;
+  email: string;
+  displayName: string;
+  enabled: boolean;
+}
+
+function resetAccount(user: KeycloakUserRepresentation): ResetAccount {
+  const email = user.email ?? '';
+  return {
+    id: user.id,
+    email,
+    displayName: [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username || email,
+    enabled: user.enabled ?? false,
+  };
 }
 
 /** Một lần đăng nhập, đăng xuất hoặc đăng nhập hỏng. */
@@ -237,6 +256,34 @@ export class KeycloakAdminService implements EmailVerificationProvider {
       clientId: event.clientId ?? null,
       error: event.details?.['error'] ?? null,
     }));
+  }
+
+  /** The account an email belongs to, or null. Keycloak matches `email` as a prefix unless `exact`. */
+  async findByEmail(email: string): Promise<ResetAccount | null> {
+    const users = await this.request<KeycloakUserRepresentation[]>(`/users?${new URLSearchParams({ email, exact: 'true' })}`);
+    const user = users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+    return user ? resetAccount(user) : null;
+  }
+
+  async account(id: string): Promise<ResetAccount> {
+    return resetAccount(await this.request<KeycloakUserRepresentation>(`/users/${encodeURIComponent(id)}`));
+  }
+
+  /** Changes whenever the password does (`none` without one), so a link signed with it works once. */
+  async passwordStamp(id: string): Promise<string> {
+    const credentials = await this.request<{ type: string; createdDate?: number }[]>(`/users/${encodeURIComponent(id)}/credentials`);
+    const password = credentials.find((c) => c.type === 'password');
+    return password ? String(password.createdDate ?? 0) : 'none';
+  }
+
+  async setPassword(id: string, password: string): Promise<void> {
+    const response = await this.rawRequest(`/users/${encodeURIComponent(id)}/reset-password`, {
+      method: 'PUT',
+      body: JSON.stringify({ type: 'password', value: password, temporary: false }),
+    });
+    // 400 = the realm's password policy refused it (too short, same as a recent one...).
+    if (response.status === 400) throw new BusinessRuleViolation('Mật khẩu chưa đạt yêu cầu bảo mật. Hãy dùng mật khẩu dài hơn và khác các mật khẩu cũ.');
+    await this.ensureSuccess(response);
   }
 
   private async getUser(id: string): Promise<ManagedUser> {

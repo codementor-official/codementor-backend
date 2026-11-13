@@ -1,4 +1,5 @@
 import { Module, type OnModuleInit } from '@nestjs/common';
+import { PasswordResetEmail } from './application/password-reset-email';
 import { MongooseModule } from '@nestjs/mongoose';
 import { EventConsumer } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
@@ -60,6 +61,7 @@ import { WorkspaceActivityNotifications } from './application/workspace-activity
     NotificationQuery,
     ReminderPlanner,
     ReminderDispatcher,
+    PasswordResetEmail,
     ReminderRepository,
     WorkspaceActivityRepository,
     WorkspaceActivityNotifications,
@@ -80,6 +82,7 @@ export class NotificationModule implements OnModuleInit {
     private readonly record: RecordNotificationUseCase,
     private readonly reminders: ReminderPlanner,
     private readonly workspaceActivity: WorkspaceActivityNotifications,
+    private readonly passwordReset: PasswordResetEmail,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -94,6 +97,8 @@ export class NotificationModule implements OnModuleInit {
       await this.consumer.start('notification-service-commerce-test');
       return;
     }
+    // Not from the beginning: an old request must never send a link again.
+    this.consumer.on(TOPICS.PASSWORD_RESET_EMAIL, (payload) => this.passwordReset.send(payload).then(() => undefined));
     this.consumer.on(
         TOPICS.ASSIGNMENT_REVIEWED,
         (payload, envelope) => this.workspaceActivity.assignmentReviewed(payload, envelope),
