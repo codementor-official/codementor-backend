@@ -9,6 +9,7 @@ export async function notifyCommerce(
   title: string,
   message: string,
   actionUrl: string,
+  email = true,
 ) {
   const [user] = await tx.$queryRaw<
     { external_id: string | null }[]
@@ -22,7 +23,7 @@ export async function notifyCommerce(
     occurredAt: new Date().toISOString(),
     correlationId: entityId,
     producer: 'learning-service',
-    payload: { recipientExternalId: user.external_id, title, message, actionUrl, entityId },
+    payload: { recipientExternalId: user.external_id, title, message, actionUrl, entityId, ...(email ? {} : { email: false }) },
   };
   await tx.$executeRaw`INSERT INTO outbox(id,topic,partition_key,payload) VALUES (${eventId}::uuid,${topic},${user.external_id},${JSON.stringify(envelope)}::jsonb)`;
 }

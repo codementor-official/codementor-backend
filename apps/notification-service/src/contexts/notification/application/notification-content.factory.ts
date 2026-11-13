@@ -47,7 +47,7 @@ export function fromCommerceUpdated(payload: CommerceUpdatedV1): Draft {
     referenceId: payload.entityId,
     actionLabel: 'Xem giao dịch',
     actionUrl: payload.actionUrl,
-    metadata: { entityId: payload.entityId },
+    metadata: { entityId: payload.entityId, ...(payload.email === false ? { email: false } : {}) },
   });
 }
 

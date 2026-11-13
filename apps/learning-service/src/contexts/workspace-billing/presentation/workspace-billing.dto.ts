@@ -6,6 +6,7 @@ import {
   IsDateString,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -139,6 +140,8 @@ export class SettingsDto {
   @IsInt() @Min(1) @Max(30) renewalReminderDays!: number;
   @IsInt() @Min(0) @Max(60) overageNoticeDays!: number;
   @IsInt() @Min(1) @Max(365) overageReadOnlyDays!: number;
+  /** Billing notice → `all` | `app` | `off`; keys left out keep their mode. Checked in the service. */
+  @IsOptional() @IsObject() notices?: Record<string, string>;
 }
 
 export class AuditQuery extends BillingPage {

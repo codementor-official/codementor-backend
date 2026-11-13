@@ -468,6 +468,8 @@ export interface CommerceUpdatedV1 {
   message: string;
   actionUrl: string;
   entityId: string;
+  /** `false` keeps the notice in the app only; absent means it may also be emailed. */
+  email?: boolean;
 }
 
 export interface CertificateIssuedV1 {

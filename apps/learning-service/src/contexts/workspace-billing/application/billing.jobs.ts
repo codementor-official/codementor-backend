@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { CommerceStore, audit, lock } from '../../commerce/infrastructure/commerce.store';
-import { notifyCommerce } from '../../commerce/infrastructure/commerce-notification';
+import { notifyBilling } from './billing-notices';
 import { SubscriptionsService } from './subscriptions.service';
 
 /**
@@ -93,7 +93,7 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
           AND a.entity_id = s.id AND a.details->>'paidThrough' = to_char(t.paid_through AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
       LIMIT 100`;
     for (const s of due)
-      await this.notifyOnce(s.id, s.user_id, 'workspace_subscription.renewal_reminder', s.paid_through,
+      await this.notifyOnce(s.id, s.user_id, 'renewal_reminder', 'workspace_subscription.renewal_reminder', s.paid_through,
         `Gói ${s.plan_name} sắp hết hạn`,
         `Gói có hiệu lực đến ${vnDate(s.paid_through)}. Gia hạn trước ngày này để giữ hạn mức và giá đã ký.`);
     return due.length;
@@ -111,7 +111,7 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
           AND a.entity_id = s.id AND a.details->>'paidThrough' = to_char(t.paid_through AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
       LIMIT 100`;
     for (const s of due)
-      await this.notifyOnce(s.id, s.user_id, 'workspace_subscription.grace_notice', s.paid_through,
+      await this.notifyOnce(s.id, s.user_id, 'grace_notice', 'workspace_subscription.grace_notice', s.paid_through,
         `Gói ${s.plan_name} đã hết kỳ thanh toán`,
         'Nhóm và tài liệu của bạn vẫn được giữ nguyên. Gia hạn trong thời gian ân hạn để giữ hạn mức của gói.');
     return due.length;
@@ -142,7 +142,7 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
     };
     for (const r of due) {
       const [title, message] = text[r.stage](r);
-      await this.notifyOnce(r.owner_id, r.owner_id, 'workspace_subscription.overage_notice', r.over_since, title, message, { stage: r.stage });
+      await this.notifyOnce(r.owner_id, r.owner_id, 'overage_notice', 'workspace_subscription.overage_notice', r.over_since, title, message, { stage: r.stage });
     }
     return due.length;
   }
@@ -150,6 +150,7 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
   private async notifyOnce(
     entityId: string,
     userId: string,
+    notice: 'renewal_reminder' | 'grace_notice' | 'overage_notice',
     action: string,
     since: Date,
     title: string,
@@ -164,7 +165,8 @@ export class BillingJobs implements OnModuleInit, OnModuleDestroy {
         AND (${extra.stage ?? null}::text IS NULL OR details->>'stage' = ${extra.stage ?? null})`;
       if (sent) return;
       await audit(tx, action, entityId, undefined, { [key]: since.toISOString(), ...extra });
-      await notifyCommerce(tx, userId, entityId, title, message, '/workspace/billing');
+      // Recorded even when switched off, so turning it back on never sends a stale notice.
+      await notifyBilling(tx, notice, userId, entityId, title, message, '/workspace/billing');
     });
   }
 }
