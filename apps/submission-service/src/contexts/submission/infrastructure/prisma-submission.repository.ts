@@ -80,6 +80,22 @@ export class PrismaSubmissionRepository implements SubmissionRepository {
     );
   }
 
+  async failPending(id: string): Promise<void> {
+    await this.prisma.submissions.updateMany({
+      where: { id, verdict: 'pending' },
+      data: { verdict: 'system_error' },
+    });
+  }
+
+  async sweepStuckPending(minutes: number): Promise<number> {
+    // Một câu UPDATE có điều kiện nên nhiều instance cùng chạy cũng không đụng nhau.
+    const { count } = await this.prisma.submissions.updateMany({
+      where: { verdict: 'pending', submitted_at: { lt: new Date(Date.now() - minutes * 60_000) } },
+      data: { verdict: 'system_error' },
+    });
+    return count;
+  }
+
   async findOwned(id: string, userId: string): Promise<SubmissionRecord | null> {
     const row = await this.prisma.submissions.findFirst({ where: { id, user_id: userId } });
     return row ? toRecord(row) : null;
@@ -137,7 +153,7 @@ export class PrismaSubmissionRepository implements SubmissionRepository {
                percentile_cont(0.95) WITHIN GROUP (ORDER BY runtime_ms) AS rt95,
                percentile_cont(0.5) WITHIN GROUP (ORDER BY memory_kb) AS mem50,
                percentile_cont(0.95) WITHIN GROUP (ORDER BY memory_kb) AS mem95
-        FROM submissions WHERE submitted_at >= ${since} AND verdict <> 'pending'`,
+        FROM submissions WHERE submitted_at >= ${since} AND verdict NOT IN ('pending', 'system_error')`,
       this.prisma.$queryRaw<{ count: number }[]>`
         SELECT count(*)::int AS count FROM submissions
         WHERE verdict = 'pending' AND submitted_at < now() - interval '5 minutes'`,

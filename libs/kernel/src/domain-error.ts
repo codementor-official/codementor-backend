@@ -34,7 +34,9 @@ export class InvalidInput extends DomainError {
 export class NotFound extends DomainError {
   readonly code = 'NOT_FOUND';
   constructor(resource: string, id?: string) {
-    super(`Không tìm thấy ${resource}${id ? ` với id ${id}` : ''}`, { resource, id });
+    // Nhiều chỗ gọi truyền cả câu ("Không tìm thấy nhóm học tập"); bỏ tiền tố để không lặp chữ.
+    const noun = resource.replace(/^Không tìm thấy\s+/u, '');
+    super(`Không tìm thấy ${noun}${id ? ` với id ${id}` : ''}`, { resource: noun, id });
   }
 }
 

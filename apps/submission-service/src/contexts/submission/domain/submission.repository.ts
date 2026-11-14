@@ -21,6 +21,10 @@ export interface SubmissionPage {
 export interface SubmissionRepository {
   createPending(input: CreateSubmissionInput): Promise<SubmissionRecord>;
   complete(id: string, result: JudgeResult): Promise<SubmissionRecord>;
+  /** Đánh dấu `system_error` nếu bài còn `pending`. */
+  failPending(id: string): Promise<void>;
+  /** Chuyển các bài `pending` lâu hơn `minutes` phút sang `system_error`; trả số dòng đã đổi. */
+  sweepStuckPending(minutes: number): Promise<number>;
   findOwned(id: string, userId: string): Promise<SubmissionRecord | null>;
   listOwned(userId: string, exerciseId: string | undefined, page: number, limit: number): Promise<SubmissionPage>;
   hasAccepted(userId: string, exerciseId: string): Promise<boolean>;

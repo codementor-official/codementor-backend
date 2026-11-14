@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
-import { AuthenticatedUser, CurrentUser, Public, Roles, requireHumanId } from '@codementor/platform';
+import { AuthenticatedUser, CurrentUser, ObjectStorageService, Public, Roles, requireHumanId } from '@codementor/platform';
+import { capUploadBytes } from '../domain/upload-cap';
 import { PlanCatalogService } from '../application/plan-catalog.service';
 import { SubscriptionsService } from '../application/subscriptions.service';
 import { BillingAdminService } from '../application/billing-admin.service';
@@ -33,20 +34,26 @@ export class WorkspaceBillingController {
     private readonly subscriptions: SubscriptionsService,
     private readonly admin: BillingAdminService,
     private readonly reports: BillingReportService,
+    private readonly storage: ObjectStorageService,
   ) {}
+
+  /** Learner-facing responses show the upload size that actually works: min(plan, platform). */
+  private async capped<T>(result: T | Promise<T>): Promise<T> {
+    return capUploadBytes(await result, this.storage.maxDocumentUploadBytes);
+  }
 
   // ---------------------------------------------------------------- learners
   @Public() @Get('plans') plans() {
-    return this.catalog.onSale();
+    return this.capped(this.catalog.onSale());
   }
   @Get('subscription') subscription(@CurrentUser() u: AuthenticatedUser) {
-    return this.subscriptions.overview(requireHumanId(u));
+    return this.capped(this.subscriptions.overview(requireHumanId(u)));
   }
   @Post('quote') quote(@CurrentUser() u: AuthenticatedUser, @Body() b: QuoteDto) {
-    return this.subscriptions.quote(requireHumanId(u), b);
+    return this.capped(this.subscriptions.quote(requireHumanId(u), b));
   }
   @Post('checkout') checkout(@CurrentUser() u: AuthenticatedUser, @Body() b: CheckoutDto) {
-    return this.subscriptions.checkout(requireHumanId(u), b);
+    return this.capped(this.subscriptions.checkout(requireHumanId(u), b));
   }
   @Post('subscription/cancel') cancel(@CurrentUser() u: AuthenticatedUser) {
     return this.subscriptions.cancelRenewal(requireHumanId(u));
@@ -58,18 +65,18 @@ export class WorkspaceBillingController {
     return this.subscriptions.scheduleChange(requireHumanId(u), b);
   }
   @Get('orders') orders(@CurrentUser() u: AuthenticatedUser, @Query() q: BillingPage) {
-    return this.subscriptions.orderList(requireHumanId(u), q.page);
+    return this.capped(this.subscriptions.orderList(requireHumanId(u), q.page));
   }
   @Get('orders/:id') order(@CurrentUser() u: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.subscriptions.order(requireHumanId(u), id);
+    return this.capped(this.subscriptions.order(requireHumanId(u), id));
   }
   @Post('orders/:id/reconcile') async reconcile(@CurrentUser() u: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     await this.subscriptions.order(requireHumanId(u), id);
     await this.subscriptions.reconcile(id);
-    return this.subscriptions.order(requireHumanId(u), id);
+    return this.capped(this.subscriptions.order(requireHumanId(u), id));
   }
   @Post('orders/:id/mock') mock(@CurrentUser() u: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string, @Body() b: MockPaymentDto) {
-    return this.subscriptions.mock(requireHumanId(u), id, b.result);
+    return this.capped(this.subscriptions.mock(requireHumanId(u), id, b.result));
   }
 
   // ----------------------------------------------------------- administrators

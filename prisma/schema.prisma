@@ -1177,6 +1177,7 @@ enum submission_verdict {
   timeout
   memory_exceeded
   pending
+  system_error
 }
 
 enum weekday {
