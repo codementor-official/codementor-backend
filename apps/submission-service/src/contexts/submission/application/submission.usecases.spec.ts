@@ -2,6 +2,7 @@
 jest.mock('@codementor/platform', () => ({ requireHumanId: (user: { id: string }) => user.id }));
 jest.mock('@codementor/messaging', () => ({ EVENT_BUS: Symbol('EVENT_BUS') }));
 
+import { ServiceUnavailableException } from '@nestjs/common';
 import type { AuthenticatedUser } from '@codementor/platform';
 import type {
   ExerciseGradingPort,
@@ -117,5 +118,26 @@ describe('CreateSubmissionUseCase', () => {
       'Bearer t',
     );
     expect(submissions.complete).toHaveBeenCalledWith('sub-1', judgeResult);
+  });
+
+  // TC-19: ghi lại hành vi HIỆN TẠI khi mất kết nối judge. Học viên nhận 503, nhưng bản ghi
+  // đã tạo ở `pending` không được chuyển sang trạng thái lỗi — nó chỉ hiện ở chỉ số
+  // `stuckPending` (pending > 5 phút) của trang admin. Sửa luồng này thì đổi test cho khớp.
+  it('TC-19: mất kết nối judge thì báo 503 và bài nộp kẹt ở pending', async () => {
+    (submissions.createPending as jest.Mock).mockClear();
+    (submissions.complete as jest.Mock).mockClear();
+    (judge.run as jest.Mock).mockRejectedValueOnce(
+      new ServiceUnavailableException('Không kết nối được judge-service'),
+    );
+
+    await expect(
+      useCase.execute(
+        user,
+        { exerciseId: record().exerciseId, language: 'python', sourceCode: 'x' },
+        'Bearer t',
+      ),
+    ).rejects.toMatchObject({ status: 503, message: 'Không kết nối được judge-service' });
+    expect(submissions.createPending).toHaveBeenCalledTimes(1);
+    expect(submissions.complete).not.toHaveBeenCalled();
   });
 });
