@@ -5,7 +5,9 @@ export type SubmissionVerdict =
   | 'compile_error'
   | 'runtime_error'
   | 'timeout'
-  | 'memory_exceeded';
+  | 'memory_exceeded'
+  /** Judge không trả kết quả (mất kết nối, quá giờ, process chết). Không tính lượt nộp. */
+  | 'system_error';
 
 export interface SubmissionRecord {
   id: string;
@@ -27,7 +29,7 @@ export interface SubmissionRecord {
 }
 
 export interface JudgeResult {
-  verdict: Exclude<SubmissionVerdict, 'pending'>;
+  verdict: Exclude<SubmissionVerdict, 'pending' | 'system_error'>;
   score: number;
   passedTests: number;
   totalTests: number;

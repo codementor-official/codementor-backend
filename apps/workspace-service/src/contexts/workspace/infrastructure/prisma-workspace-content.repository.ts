@@ -860,7 +860,8 @@ export class PrismaWorkspaceContentRepository implements WorkspaceContentReposit
       },
       select: {
         id: true,
-        _count: { select: { submissions: true } },
+        // Lượt lỗi hệ thống chấm không phải lỗi của học viên nên không tính vào giới hạn nộp.
+        _count: { select: { submissions: { where: { verdict: { not: 'system_error' } } } } },
         group_exercises: {
           select: {
             exercise_id: true,

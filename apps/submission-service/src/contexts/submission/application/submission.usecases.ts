@@ -1,4 +1,13 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { TOPICS, redactHiddenCases, type TopicName } from '@codementor/contracts';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { requireHumanId, type AuthenticatedUser } from '@codementor/platform';
@@ -10,7 +19,7 @@ import {
   type JudgePort,
   type WorkspaceAssignmentPort,
 } from '../domain/grading.port';
-import type { SubmissionRecord } from '../domain/submission';
+import type { JudgeResult, SubmissionRecord } from '../domain/submission';
 import {
   SUBMISSION_REPOSITORY,
   type SubmissionRepository,
@@ -104,7 +113,7 @@ export class CreateSubmissionUseCase {
 
     const signature = snapshot.content.signature;
     const checker = snapshot.content.evaluation?.checker;
-    const judgeResult = await this.judge.run({
+    const judgeRequest: Parameters<JudgePort['run']>[0] = {
       authorization,
       submissionId: pending.id,
       language: dto.language,
@@ -146,7 +155,22 @@ export class CreateSubmissionUseCase {
             },
           }
         : {}),
-    });
+    };
+
+    let judgeResult: JudgeResult;
+    try {
+      judgeResult = await this.judge.run(judgeRequest);
+    } catch (error) {
+      // Không để bài kẹt `pending`: ghi `system_error` (không tính lượt, không cộng XP) rồi báo lỗi.
+      await this.submissions.failPending(pending.id).catch((cause: unknown) =>
+        this.logger.error(`Không ghi được system_error cho ${pending.id}`, cause as Error),
+      );
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(`Judge lỗi khi chấm ${pending.id}`, error as Error);
+      throw new ServiceUnavailableException(
+        'Hệ thống chấm tạm thời gián đoạn. Bài nộp này không bị tính lượt, bạn hãy nộp lại sau ít phút.',
+      );
+    }
 
     const completed = await this.submissions.complete(pending.id, judgeResult);
     await this.publishBestEffort(TOPICS.SUBMISSION_EVALUATED, {
@@ -175,6 +199,37 @@ export class CreateSubmissionUseCase {
       await this.events.publish(topic, payload as never);
     } catch (error) {
       this.logger.error(`Không phát được ${topic}; submission vẫn đã được lưu`, error as Error);
+    }
+  }
+}
+
+/** Lưới an toàn khi process chết giữa lúc chấm: bài `pending` quá 10 phút thành `system_error`. */
+@Injectable()
+export class StuckSubmissionSweeper implements OnModuleInit, OnModuleDestroy {
+  private timer?: NodeJS.Timeout;
+  private readonly logger = new Logger(StuckSubmissionSweeper.name);
+
+  constructor(@Inject(SUBMISSION_REPOSITORY) private readonly submissions: SubmissionRepository) {}
+
+  onModuleInit() {
+    if (process.env.SUBMISSION_SWEEPER_ENABLED === 'false') return;
+    this.timer = setInterval(() => void this.sweep(), 5 * 60_000);
+    this.timer.unref();
+    setTimeout(() => void this.sweep(), 30_000).unref();
+  }
+
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  async sweep() {
+    try {
+      const count = await this.submissions.sweepStuckPending(10);
+      if (count) this.logger.warn(`Đã chuyển ${count} bài nộp kẹt pending sang system_error`);
+      return count;
+    } catch (error) {
+      this.logger.error('Không dọn được bài nộp kẹt pending', error as Error);
+      return 0;
     }
   }
 }

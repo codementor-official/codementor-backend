@@ -6,7 +6,7 @@ export interface SubmissionStats {
   days: number;
   /** Mọi lượt nộp trong cửa sổ, kể cả đang `pending`. */
   total: number;
-  /** Đã chấm xong (khác `pending`) — mẫu số đúng cho tỉ lệ AC. */
+  /** Đã chấm xong (khác `pending` và `system_error`) — mẫu số đúng cho tỉ lệ AC. */
   completed: number;
   accepted: number;
   byVerdict: Record<string, number>;
@@ -74,5 +74,6 @@ export function foldVerdictLanguage(rows: VerdictLanguageRow[]) {
     }))
     .sort((a, b) => b.total - a.total || a.language.localeCompare(b.language));
 
-  return { total, accepted, completed: total - (byVerdict.pending ?? 0), byVerdict, byLanguage };
+  const unfinished = (byVerdict.pending ?? 0) + (byVerdict.system_error ?? 0);
+  return { total, accepted, completed: total - unfinished, byVerdict, byLanguage };
 }
