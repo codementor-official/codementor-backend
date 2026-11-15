@@ -71,6 +71,22 @@ export class PasswordResetService {
     return { email: account.email };
   }
 
+  /** Change password from Settings: the current password is required, then every session ends. */
+  async change(externalId: string, current: string, next: string) {
+    this.limit(`change:${externalId}`, 5, 15 * 60_000);
+    if (current === next) throw new BusinessRuleViolation('Mật khẩu mới phải khác mật khẩu hiện tại.');
+    const account = await this.keycloak.account(externalId);
+    if ((await this.keycloak.passwordStamp(externalId)) === 'none')
+      throw new BusinessRuleViolation('Tài khoản đăng nhập bằng Google/Facebook chưa có mật khẩu. Hãy dùng "Quên mật khẩu" ở trang đăng nhập để tạo mật khẩu.', {
+        code: 'PASSWORD_NOT_SET',
+      });
+    if (!account.enabled || !(await this.keycloak.checkPassword(account.email, current)))
+      throw new BusinessRuleViolation('Mật khẩu hiện tại không đúng.', { code: 'PASSWORD_INCORRECT' });
+    await this.keycloak.setPassword(externalId, next);
+    await this.keycloak.logoutSessions(externalId);
+    return { signedOut: true };
+  }
+
   private async verify(token: string): Promise<ResetAccount | null> {
     const parts = token.split('.');
     if (parts.length !== 3) return null;

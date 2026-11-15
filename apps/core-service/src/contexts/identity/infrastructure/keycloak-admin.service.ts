@@ -276,6 +276,32 @@ export class KeycloakAdminService implements EmailVerificationProvider {
     return password ? String(password.createdDate ?? 0) : 'none';
   }
 
+  /**
+   * Whether `password` is the account's current one: a password grant on our own confidential
+   * client (direct access grants on), whose session is closed at once. Failed tries count
+   * toward the realm's brute-force lockout, as a failed sign-in would.
+   */
+  async checkPassword(username: string, password: string): Promise<boolean> {
+    const endpoint = `${this.baseUrl}/realms/${this.realm}/protocol/openid-connect`;
+    const client = { client_id: this.clientId, client_secret: this.clientSecret };
+    const response = await fetch(`${endpoint}/token`, {
+      method: 'POST',
+      body: new URLSearchParams({ grant_type: 'password', ...client, username, password, scope: 'openid' }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      // invalid_grant = wrong password (or a locked/disabled account); anything else is our setup.
+      if (body?.error === 'invalid_grant') return false;
+      throw new BadGatewayException(`Keycloak password check: HTTP ${response.status} ${body?.error ?? ''}`.trim());
+    }
+    const { refresh_token: refreshToken } = (await response.json()) as { refresh_token?: string };
+    if (refreshToken)
+      await fetch(`${endpoint}/logout`, { method: 'POST', body: new URLSearchParams({ ...client, refresh_token: refreshToken }), signal: AbortSignal.timeout(10_000) })
+        .catch(() => undefined);
+    return true;
+  }
+
   async setPassword(id: string, password: string): Promise<void> {
     const response = await this.rawRequest(`/users/${encodeURIComponent(id)}/reset-password`, {
       method: 'PUT',

@@ -4,7 +4,7 @@
   "displayName": "CodeMentor",
   "registrationAllowed": true,
   "registrationEmailAsUsername": true,
-  "resetPasswordAllowed": true,
+  "resetPasswordAllowed": false,
   "verifyEmail": false,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
