@@ -15,6 +15,7 @@ function setup() {
     passwordStamp: jest.fn(async () => stamp),
     setPassword: jest.fn(async () => { stamp = String(Date.now()); }),
     logoutSessions: jest.fn(),
+    checkPassword: jest.fn(async (_u: string, p: string) => p === 'old-password'),
   };
   const eventBus = { publish: jest.fn() };
   const service = new PasswordResetService(keycloak as never, eventBus as never,
@@ -61,6 +62,22 @@ describe('PasswordResetService', () => {
     expect((await service.check(`${id}.${Number(expires) + 1}.${sig}`, 'ip')).valid).toBe(false);
     expect((await service.check(`${id}.1600000000000.${sig}`, 'ip')).valid).toBe(false);
     expect((await other.check('junk', 'ip')).valid).toBe(false);
+  });
+
+  it('changes the password only with the current one, then signs out everywhere', async () => {
+    const { service, keycloak } = setup();
+    await expect(service.change(ID, 'wrong', 'new-password-1')).rejects.toThrow('không đúng');
+    await expect(service.change(ID, 'old-password', 'old-password')).rejects.toThrow('khác mật khẩu hiện tại');
+    expect(keycloak.setPassword).not.toHaveBeenCalled();
+    await expect(service.change(ID, 'old-password', 'new-password-1')).resolves.toEqual({ signedOut: true });
+    expect(keycloak.setPassword).toHaveBeenCalledWith(ID, 'new-password-1');
+    expect(keycloak.logoutSessions).toHaveBeenCalledWith(ID);
+  });
+
+  it('sends a social-only account to the reset flow instead', async () => {
+    const { service, keycloak } = setup();
+    keycloak.passwordStamp.mockResolvedValueOnce('none');
+    await expect(service.change(ID, 'x', 'new-password-1')).rejects.toThrow('Quên mật khẩu');
   });
 
   it('masks the email it shows', () => {

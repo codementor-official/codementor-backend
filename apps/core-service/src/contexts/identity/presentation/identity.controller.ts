@@ -1,4 +1,4 @@
-import {
+import { HttpCode,
   Body,
   Controller,
   Delete,
@@ -13,6 +13,8 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiProperty, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
 import { CurrentUser, requireHumanId } from '@codementor/platform';
+import { PasswordResetService } from '../application/password-reset.service';
+import { ChangePasswordDto } from './dto/password-reset.dto';
 import type { AuthenticatedUser } from '@codementor/platform';
 import { GetProfileUseCase } from '../application/get-profile.usecase';
 import { UpdateProfileUseCase } from '../application/update-profile.usecase';
@@ -113,6 +115,7 @@ export class IdentityController {
     private readonly accountPreferences: AccountPreferencesService,
     private readonly presignAvatarUpload: PresignAvatarUploadUseCase,
     private readonly emailVerification: EmailVerificationService,
+    private readonly passwords: PasswordResetService,
   ) {}
 
   @Get()
@@ -143,6 +146,14 @@ export class IdentityController {
   @ApiOperation({ summary: 'Gửi email xác thực Keycloak cho chính tài khoản đang đăng nhập' })
   sendVerificationEmail(@CurrentUser() user: AuthenticatedUser) {
     return this.emailVerification.send(requireHumanId(user));
+  }
+
+  @Post('password')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Đổi mật khẩu (cần mật khẩu hiện tại); đăng xuất mọi phiên' })
+  changePassword(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChangePasswordDto) {
+    requireHumanId(user);
+    return this.passwords.change(user.externalId, dto.currentPassword, dto.newPassword);
   }
 
   @Post('avatar/upload-url')
