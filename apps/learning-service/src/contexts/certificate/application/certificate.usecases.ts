@@ -147,6 +147,15 @@ export class CertificateUseCases {
     return { status: 'valid', certificate: toView(row) };
   }
 
+  /** Who completed a course or roadmap: its author / instructor, or any administrator. */
+  async completions(user: AuthenticatedUser, subject: CertificateSubject, id: string) {
+    const userId = requireHumanId(user);
+    if (user.role !== 'admin' && !(await this.store.owns(userId, subject, id)))
+      throw new NotFound(subject === 'course' ? 'Khóa học' : 'Lộ trình', id);
+    const rows = await this.store.completions(subject, id);
+    return rows.map((r) => ({ ...r, certificate: r.certificate ? toView(r.certificate) : null }));
+  }
+
   async adminList(query: { q?: string; page: number; limit: number }) {
     const { items, total } = await this.store.adminList({
       q: query.q,
