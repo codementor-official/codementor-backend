@@ -9,6 +9,8 @@
 
 ## SMTP setup
 
+> **2026-11-15:** moving to Resend SMTP from `noreply@codementor.cloud` (see `docs/email-reminders.md`).
+>
 > **2026-10-14:** realm `codementor` now sends through Gmail SMTP (the same account as
 > notification-service), not SES — SES is still in the Sandbox. See
 > `docs/email-reminders.md` › *Email provider*. The SES notes below describe the earlier setup and

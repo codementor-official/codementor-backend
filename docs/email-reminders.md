@@ -93,6 +93,39 @@ system announcements are fully connected to the existing Admin producer.
 No automatic historical backfill: installing the migration will not email all old demo assignments.
 Subsequent source changes schedule current reminders. Overdue reminders older than seven days are not recreated.
 
+## Email provider: Resend over SMTP — 2026-11-15
+
+All mail now leaves from `noreply@codementor.cloud` through Resend: notification-service and
+Keycloak (verification mail) share one Resend account. The domain is verified in Resend (DKIM
+`resend._domainkey`, SPF/return path on `send.codementor.cloud`), so receivers see mail signed by
+our own domain instead of a personal Gmail address, and the ~500 recipients/day Gmail limit is gone.
+
+SMTP rather than Resend's HTTP API: Keycloak only speaks SMTP, `SmtpEmailProvider` already maps
+failures onto the queue semantics, and switching provider stays a configuration change.
+
+```env
+EMAIL_PROVIDER=smtp
+EMAIL_ENABLED=true
+EMAIL_FROM_ADDRESS=noreply@codementor.cloud   # must be on the Resend-verified domain
+EMAIL_FROM_NAME=CodeMentor
+SMTP_HOST=smtp.resend.com
+SMTP_PORT=465                                 # implicit TLS; 587 + SMTP_SECURE=false also works
+SMTP_SECURE=true
+SMTP_USER=resend                              # literally "resend"
+SMTP_PASSWORD=<re_... API key, Sending access, domain codementor.cloud only>
+```
+
+Rollout (production):
+
+1. Put the lines above in `.env.backend.prod`, then
+   `SSH_KEY=… ENV_SOURCE=.env.backend.prod scripts/deploy-branch-ec2.sh ec2-user@<ip> main`
+   (replaces only `EMAIL_*` / `SMTP_*` on the server).
+2. `node --env-file=.env.backend.prod scripts/check-smtp.mjs --send <your mailbox>`.
+3. Keycloak: `EMAIL_TEST_RECIPIENT=<your mailbox> INFRA_ENV_FILE=<infra env> node --env-file=.env.backend.prod scripts/configure-keycloak-smtp.mjs --apply --test-simulator`.
+4. Revoke the old Gmail app password once both work.
+
+The section below records the earlier Gmail choice.
+
 ## Email provider: SMTP (Gmail) or SES — 2026-10-14
 
 **Why mail was not arriving.** Read-only checks on 2026-10-14: the SES account is still in the

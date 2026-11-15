@@ -3,10 +3,11 @@
 //
 // EMAIL_PROVIDER=ses  (default): SES SMTP, password derived from the IAM key; test recipient is
 //                     the SES success simulator.
-// EMAIL_PROVIDER=smtp: the same SMTP_* account notification-service uses (e.g. Gmail + app
-//                     password). The test sends a real verification mail to a unique
-//                     "+tag" alias of SMTP_USER, so it lands in the operator's own mailbox and
-//                     can never collide with an existing user.
+// EMAIL_PROVIDER=smtp: the same SMTP_* account notification-service uses (Resend, Gmail...).
+//                     The test sends a real verification mail to a unique "+tag" alias of
+//                     EMAIL_TEST_RECIPIENT (default SMTP_USER, which is an address only on
+//                     Gmail-style accounts), so it lands in the operator's own mailbox and can
+//                     never collide with an existing user.
 import { createHmac, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
@@ -97,7 +98,9 @@ async function main() {
 
   // Isolated passwordless synthetic user; never alters an existing user's email.
   const username = `smtp-transport-check-${randomUUID()}`;
-  const recipient = useSmtp ? plusAlias(required('SMTP_USER').trim(), username) : 'success@simulator.amazonses.com';
+  const mailbox = (e.EMAIL_TEST_RECIPIENT || e.SMTP_USER || '').trim();
+  if (useSmtp && !mailbox.includes('@')) throw new Error('Set EMAIL_TEST_RECIPIENT to your own mailbox (SMTP_USER is not an address)');
+  const recipient = useSmtp ? plusAlias(mailbox, username) : 'success@simulator.amazonses.com';
   return sendTestVerification({ api, base, realm, headers, original, username, recipient, verificationClient, redirect, provider: useSmtp ? `Keycloak -> ${smtp.host}` : 'Keycloak -> SES SMTP' });
 }
 
@@ -110,7 +113,7 @@ function genericSmtp(original, from) {
     from, fromDisplayName: e.EMAIL_FROM_NAME || e.SES_FROM_NAME || 'CodeMentor', envelopeFrom: from,
     auth: 'true', ssl: String(secure), starttls: String(!secure),
     user: e.SMTP_USER.trim(),
-    // Gmail shows app passwords in groups of four separated by spaces; SMTP wants them joined.
+    // Gmail shows app passwords in groups of four separated by spaces; SMTP wants them joined (a Resend key has none).
     password: e.SMTP_PASSWORD.replace(/\s+/g, ''),
   };
 }
