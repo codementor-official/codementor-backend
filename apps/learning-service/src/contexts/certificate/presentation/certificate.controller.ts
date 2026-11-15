@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseEnumPipe, Pars
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Public, Roles, type AuthenticatedUser } from '@codementor/platform';
 import { CertificateUseCases } from '../application/certificate.usecases';
-import { AdminCertificatesQueryDto, ClaimCertificateDto, RevokeCertificateDto } from './certificate.dto';
+import { AdminCertificatesQueryDto, ClaimCertificateDto, CompletionsQueryDto, RevokeCertificateDto } from './certificate.dto';
 
 /** Chứng chỉ đã cấp (ADR 0005). Route cụ thể đặt trước `:code`. */
 @ApiTags('certificates')
@@ -46,15 +46,16 @@ export class CertificateController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('subject', new ParseEnumPipe(['course', 'roadmap'])) subject: 'course' | 'roadmap',
     @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: CompletionsQueryDto,
   ) {
-    return this.certificates.completions(user, subject, id);
+    return this.certificates.completions(user, subject, id, query);
   }
 
   @Get('admin')
   @Roles('admin')
   @ApiOperation({ summary: 'Mọi chứng chỉ đã cấp, kể cả đã thu hồi' })
   adminList(@Query() query: AdminCertificatesQueryDto) {
-    return this.certificates.adminList({ q: query.q, page: query.page ?? 1, limit: query.limit ?? 20 });
+    return this.certificates.adminList({ q: query.q, status: query.status, subject: query.subject, page: query.page ?? 1, limit: query.limit ?? 20 });
   }
 
   @Post(':id/revoke')

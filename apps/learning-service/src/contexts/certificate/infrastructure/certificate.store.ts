@@ -18,6 +18,22 @@ export interface CertificateData {
   certificateCode: string;
 }
 
+export interface CompletionsQuery {
+  q?: string;
+  certificate?: 'claimed' | 'unclaimed';
+  sort: 'newest' | 'oldest' | 'name';
+  page: number;
+  limit: number;
+}
+
+export interface CompletionRow {
+  userId: string;
+  name: string;
+  email: string | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+}
+
 export interface SubjectInfo {
   title: string;
   instructorName: string;
@@ -209,51 +225,65 @@ export class CertificateStore {
     return rows.length > 0;
   }
 
-  /** Learners who completed it, newest first, with their active certificate if they claimed one. */
-  async completions(subject: CertificateSubject, id: string): Promise<{
-    userId: string; name: string; email: string | null; startedAt: Date | null; completedAt: Date | null; certificate: CertificateRow | null;
-  }[]> {
+  /** Learners who completed it, with their active certificate if they claimed one; filtered and paged. */
+  async completions(subject: CertificateSubject, id: string, query: CompletionsQuery): Promise<{
+    items: (CompletionRow & { certificate: CertificateRow | null })[];
+    total: number;
+    completed: number;
+    claimed: number;
+  }> {
     const table = subject === 'course' ? 'course_enrollments' : 'roadmap_enrollments';
     const column = subject === 'course' ? 'course_id' : 'roadmap_id';
-    const [learners, certificates] = await Promise.all([
-      this.prisma.$queryRawUnsafe<{ userId: string; name: string; email: string | null; startedAt: Date | null; completedAt: Date | null }[]>(
+    const term = query.q?.trim() ? `%${query.q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+    const order = { newest: 'e.completed_at DESC NULLS LAST', oldest: 'e.completed_at ASC NULLS LAST', name: 'u.display_name ASC' }[query.sort];
+    const from = `FROM ${table} e JOIN users u ON u.id = e.user_id
+      LEFT JOIN LATERAL (SELECT ${CERT_COLUMNS} FROM certificates c
+        WHERE c.user_id = e.user_id AND c.subject = $1::certificate_subject AND c.subject_id = $2::uuid AND c.revoked_at IS NULL
+        ORDER BY c.issued_at DESC LIMIT 1) cert ON true
+      WHERE e.${column} = $2::uuid AND e.status = 'completed'`;
+    const filter = `AND ($3::text IS NULL OR u.display_name ILIKE $3 OR u.email::text ILIKE $3 OR cert.code ILIKE $3)
+      AND ($4::text IS NULL OR ($4 = 'claimed') = (cert.id IS NOT NULL))`;
+    const [items, [count], [totals]] = await Promise.all([
+      this.prisma.$queryRawUnsafe<(CompletionRow & { certificate: CertificateRow | null })[]>(
         `SELECT e.user_id AS "userId", u.display_name AS name, u.email::text AS email,
-                e.started_at AS "startedAt", e.completed_at AS "completedAt"
-         FROM ${table} e JOIN users u ON u.id = e.user_id
-         WHERE e.${column} = $1::uuid AND e.status = 'completed'
-         ORDER BY e.completed_at DESC NULLS LAST LIMIT 1000`,
-        id,
+                e.started_at AS "startedAt", e.completed_at AS "completedAt",
+                CASE WHEN cert.id IS NULL THEN NULL ELSE to_jsonb(cert) END AS certificate
+         ${from} ${filter} ORDER BY ${order} LIMIT $5 OFFSET $6`,
+        subject, id, term, query.certificate ?? null, query.limit, (query.page - 1) * query.limit,
       ),
-      this.prisma.$queryRawUnsafe<CertificateRow[]>(
-        `SELECT ${CERT_COLUMNS} FROM certificates c
-         WHERE c.subject = $1::certificate_subject AND c.subject_id = $2::uuid AND c.revoked_at IS NULL`,
-        subject,
-        id,
-      ),
+      this.prisma.$queryRawUnsafe<{ total: number }[]>(`SELECT count(*)::int AS total ${from} ${filter}`,
+        subject, id, term, query.certificate ?? null),
+      this.prisma.$queryRawUnsafe<{ completed: number; claimed: number }[]>(
+        `SELECT count(*)::int AS completed, count(cert.id)::int AS claimed ${from}`, subject, id),
     ]);
-    const byUser = new Map(certificates.map((c) => [c.userId, c]));
-    return learners.map((l) => ({ ...l, certificate: byUser.get(l.userId) ?? null }));
+    return { items, total: count.total, ...totals };
   }
 
   /** Danh sách cho admin: mới cấp trước, tìm theo mã / tên in / email / tên khóa-lộ trình. */
-  async adminList(query: { q?: string; limit: number; offset: number }): Promise<{
+  async adminList(query: { q?: string; status?: 'active' | 'revoked'; subject?: CertificateSubject; limit: number; offset: number }): Promise<{
     items: (CertificateRow & { email: string | null })[];
     total: number;
   }> {
     const q = query.q?.trim() ? `%${query.q.trim()}%` : null;
     const where = `($1::text IS NULL OR c.code ILIKE $1 OR c.recipient_name ILIKE $1
-                   OR u.email ILIKE $1 OR c.data->>'subjectTitle' ILIKE $1)`;
+                   OR u.email ILIKE $1 OR c.data->>'subjectTitle' ILIKE $1)
+                   AND ($2::text IS NULL OR ($2 = 'active') = (c.revoked_at IS NULL))
+                   AND ($3::text IS NULL OR c.subject::text = $3)`;
     const [items, [count]] = await Promise.all([
       this.prisma.$queryRawUnsafe<(CertificateRow & { email: string | null })[]>(
         `SELECT ${CERT_COLUMNS}, u.email FROM certificates c LEFT JOIN users u ON u.id = c.user_id
-         WHERE ${where} ORDER BY c.issued_at DESC LIMIT $2 OFFSET $3`,
+         WHERE ${where} ORDER BY c.issued_at DESC LIMIT $4 OFFSET $5`,
         q,
+        query.status ?? null,
+        query.subject ?? null,
         query.limit,
         query.offset,
       ),
       this.prisma.$queryRawUnsafe<{ total: number }[]>(
         `SELECT count(*)::int AS total FROM certificates c LEFT JOIN users u ON u.id = c.user_id WHERE ${where}`,
         q,
+        query.status ?? null,
+        query.subject ?? null,
       ),
     ]);
     return { items, total: count.total };
