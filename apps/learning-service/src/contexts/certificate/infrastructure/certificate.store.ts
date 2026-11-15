@@ -197,6 +197,44 @@ export class CertificateStore {
     });
   }
 
+  /** Whether `userId` authored or teaches this course / authored this roadmap. */
+  async owns(userId: string, subject: CertificateSubject, id: string): Promise<boolean> {
+    const rows = await this.prisma.$queryRawUnsafe<unknown[]>(
+      subject === 'course'
+        ? `SELECT 1 FROM courses WHERE id = $1::uuid AND (created_by = $2::uuid OR instructor_id = $2::uuid)`
+        : `SELECT 1 FROM roadmaps WHERE id = $1::uuid AND created_by = $2::uuid`,
+      id,
+      userId,
+    );
+    return rows.length > 0;
+  }
+
+  /** Learners who completed it, newest first, with their active certificate if they claimed one. */
+  async completions(subject: CertificateSubject, id: string): Promise<{
+    userId: string; name: string; email: string | null; startedAt: Date | null; completedAt: Date | null; certificate: CertificateRow | null;
+  }[]> {
+    const table = subject === 'course' ? 'course_enrollments' : 'roadmap_enrollments';
+    const column = subject === 'course' ? 'course_id' : 'roadmap_id';
+    const [learners, certificates] = await Promise.all([
+      this.prisma.$queryRawUnsafe<{ userId: string; name: string; email: string | null; startedAt: Date | null; completedAt: Date | null }[]>(
+        `SELECT e.user_id AS "userId", u.display_name AS name, u.email::text AS email,
+                e.started_at AS "startedAt", e.completed_at AS "completedAt"
+         FROM ${table} e JOIN users u ON u.id = e.user_id
+         WHERE e.${column} = $1::uuid AND e.status = 'completed'
+         ORDER BY e.completed_at DESC NULLS LAST LIMIT 1000`,
+        id,
+      ),
+      this.prisma.$queryRawUnsafe<CertificateRow[]>(
+        `SELECT ${CERT_COLUMNS} FROM certificates c
+         WHERE c.subject = $1::certificate_subject AND c.subject_id = $2::uuid AND c.revoked_at IS NULL`,
+        subject,
+        id,
+      ),
+    ]);
+    const byUser = new Map(certificates.map((c) => [c.userId, c]));
+    return learners.map((l) => ({ ...l, certificate: byUser.get(l.userId) ?? null }));
+  }
+
   /** Danh sách cho admin: mới cấp trước, tìm theo mã / tên in / email / tên khóa-lộ trình. */
   async adminList(query: { q?: string; limit: number; offset: number }): Promise<{
     items: (CertificateRow & { email: string | null })[];

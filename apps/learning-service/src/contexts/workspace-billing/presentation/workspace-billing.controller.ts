@@ -208,4 +208,7 @@ export class WorkspaceBillingController {
   @Get('admin/audit') @Roles('admin') auditLog(@Query() q: AuditQuery) {
     return this.admin.auditLog(q);
   }
+  @Get('admin/audit/:id') @Roles('admin') auditEntry(@Param('id', ParseUUIDPipe) id: string) {
+    return this.admin.auditEntry(id);
+  }
 }

@@ -572,27 +572,53 @@ export class BillingAdminService {
   /** `subject` names what the entry is about: the customer, the coupon code or the plan. */
   async auditLog(q: AuditQuery) {
     const filter = q.category ? `workspace\\_${q.category}.%` : 'workspace\\_%';
+    const search = q.q?.trim();
+    // Searches what the table shows (event code, who, about whom) and the raw record.
+    const term = search ? `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+    const matching = Prisma.sql`WITH x AS (${auditRows(Prisma.sql`a.action LIKE ${filter}`)})
+      SELECT * FROM x WHERE ${term}::text IS NULL OR x.action ILIKE ${term} OR x.actor ILIKE ${term} OR x.actor_email ILIKE ${term} OR x.subject ILIKE ${term}
+        OR x.entity_id::text ILIKE ${term} OR x.id::text ILIKE ${term} OR x.details::text ILIKE ${term}`;
     const [rows, [count]] = await Promise.all([
-      this.store.db.$queryRaw<{ id: string; action: string; entity_id: string | null; details: unknown; created_at: Date; actor: string | null; subject: string | null; target_user_id: string | null }[]>`
-        SELECT a.id, a.action, a.entity_id, a.details, a.created_at, u.display_name AS actor,
-          COALESCE(
-            (SELECT s.user_id FROM workspace_subscriptions s WHERE s.id = a.entity_id),
-            (SELECT o.buyer_id FROM workspace_orders o WHERE o.id = a.entity_id),
-            (SELECT ad.user_id FROM workspace_entitlement_adjustments ad WHERE ad.id = a.entity_id),
-            (SELECT x.id FROM users x WHERE x.id = a.entity_id)
-          ) AS target_user_id,
-          COALESCE(
-            (SELECT su.display_name FROM workspace_subscriptions s JOIN users su ON su.id = s.user_id WHERE s.id = a.entity_id),
-            (SELECT ou.display_name FROM workspace_orders o JOIN users ou ON ou.id = o.buyer_id WHERE o.id = a.entity_id),
-            (SELECT c.code::text FROM workspace_coupons c WHERE c.id = a.entity_id),
-            (SELECT 'Gói ' || p.code::text FROM workspace_plans p WHERE p.id = a.entity_id),
-            (SELECT au.display_name FROM workspace_entitlement_adjustments ad JOIN users au ON au.id = ad.user_id WHERE ad.id = a.entity_id),
-            (SELECT x.display_name FROM users x WHERE x.id = a.entity_id)
-          ) AS subject
-        FROM commerce_audit a LEFT JOIN users u ON u.id = a.actor_id
-        WHERE a.action LIKE ${filter} ORDER BY a.created_at DESC LIMIT ${q.limit} OFFSET ${(q.page - 1) * q.limit}`,
-      this.store.db.$queryRaw<{ total: bigint }[]>`SELECT count(*) AS total FROM commerce_audit WHERE action LIKE ${filter}`,
+      this.store.db.$queryRaw<AuditRow[]>(Prisma.sql`${matching} ORDER BY created_at DESC LIMIT ${q.limit} OFFSET ${(q.page - 1) * q.limit}`),
+      this.store.db.$queryRaw<{ total: bigint }[]>(Prisma.sql`SELECT count(*) AS total FROM (${matching}) m`),
     ]);
     return { items: rows, total: Number(count.total), page: q.page, limit: q.limit };
   }
+
+  /** One entry in full, with every workspace entry about the same thing (its trail), oldest first. */
+  async auditEntry(id: string) {
+    const [entry] = await this.store.db.$queryRaw<AuditRow[]>(auditRows(Prisma.sql`a.id = ${id}::uuid`));
+    if (!entry) throw new NotFound('Mục nhật ký');
+    const trail = entry.entity_id
+      ? await this.store.db.$queryRaw<AuditRow[]>(Prisma.sql`${auditRows(Prisma.sql`(a.entity_id = ${entry.entity_id}::uuid OR a.details->>'orderId' = ${entry.entity_id}) AND a.action LIKE 'workspace\\_%'`)} ORDER BY a.created_at LIMIT 200`)
+      : [entry];
+    return { entry, trail };
+  }
+}
+
+type AuditRow = {
+  id: string; action: string; entity_id: string | null; details: unknown; created_at: Date;
+  actor: string | null; actor_email: string | null; subject: string | null; target_user_id: string | null;
+};
+
+/** Audit entries with who did it and whom / what they are about, for `where`. */
+function auditRows(where: Prisma.Sql) {
+  return Prisma.sql`
+    SELECT a.id, a.action, a.entity_id, a.details, a.created_at, u.display_name AS actor, u.email::text AS actor_email,
+      COALESCE(
+        (SELECT s.user_id FROM workspace_subscriptions s WHERE s.id = a.entity_id),
+        (SELECT o.buyer_id FROM workspace_orders o WHERE o.id = a.entity_id),
+        (SELECT ad.user_id FROM workspace_entitlement_adjustments ad WHERE ad.id = a.entity_id),
+        (SELECT x.id FROM users x WHERE x.id = a.entity_id)
+      ) AS target_user_id,
+      COALESCE(
+        (SELECT su.display_name FROM workspace_subscriptions s JOIN users su ON su.id = s.user_id WHERE s.id = a.entity_id),
+        (SELECT ou.display_name FROM workspace_orders o JOIN users ou ON ou.id = o.buyer_id WHERE o.id = a.entity_id),
+        (SELECT c.code::text FROM workspace_coupons c WHERE c.id = a.entity_id),
+        (SELECT 'Gói ' || p.code::text FROM workspace_plans p WHERE p.id = a.entity_id),
+        (SELECT au.display_name FROM workspace_entitlement_adjustments ad JOIN users au ON au.id = ad.user_id WHERE ad.id = a.entity_id),
+        (SELECT x.display_name FROM users x WHERE x.id = a.entity_id)
+      ) AS subject
+    FROM commerce_audit a LEFT JOIN users u ON u.id = a.actor_id
+    WHERE ${where}`;
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseEnumPipe, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, Public, Roles, type AuthenticatedUser } from '@codementor/platform';
 import { CertificateUseCases } from '../application/certificate.usecases';
@@ -37,6 +37,17 @@ export class CertificateController {
     // bọc sẵn nên bỏ qua — client `unwrap` khi đó nhận nhầm `certificate.data`.
     const certificate = await this.certificates.claim(user, dto.subject, dto.subjectId, dto.recipientName);
     return { status: 'issued' as const, certificate };
+  }
+
+  @Get('completions/:subject/:id')
+  @Roles('admin', 'lecturer')
+  @ApiOperation({ summary: 'Học viên đã hoàn thành khóa học / lộ trình, kèm chứng chỉ nếu đã nhận' })
+  completions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('subject', new ParseEnumPipe(['course', 'roadmap'])) subject: 'course' | 'roadmap',
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.certificates.completions(user, subject, id);
   }
 
   @Get('admin')
