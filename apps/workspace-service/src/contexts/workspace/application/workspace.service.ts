@@ -105,6 +105,10 @@ export class WorkspaceService {
     return this.workspaces.summaryForUser(userId);
   }
 
+  isPlatformAdmin(userId: string) {
+    return this.workspaces.isPlatformAdmin(userId);
+  }
+
   async detail(userId: string, slug: string) {
     const data = await this.workspaces.findDetail(slug, userId);
     // Admin mở nhóm từ báo cáo vi phạm: vào thẳng để xem, không phải xin tham gia. Không tạo
