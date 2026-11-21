@@ -309,6 +309,15 @@ export class WorkspaceController {
     return this.content.reportDocument(requireHumanId(user), slug, id, dto);
   }
 
+  @Get(':slug/documents/:documentId')
+  document(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Param('documentId', ParseUUIDPipe) id: string,
+  ) {
+    return this.content.document(requireHumanId(user), slug, id);
+  }
+
   @Get(':slug/documents/:documentId/download')
   documentDownload(
     @CurrentUser() user: AuthenticatedUser,

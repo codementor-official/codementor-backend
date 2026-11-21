@@ -151,15 +151,40 @@ export class WorkspaceContentService {
       ...page,
       items: page.items.map((document) => ({
         ...document,
-        canEdit:
-          canEditAny || (document.uploaderId === userId && this.canAny(detail, ['edit_own_doc'])),
-        canDelete:
-          canDeleteAny ||
-          (document.uploaderId === userId && this.canAny(detail, ['delete_own_doc'])),
-        canApprove,
-        canViewUnpublished,
+        ...this.documentRights(detail, userId, document.uploaderId),
       })),
     };
+  }
+
+  /** One document, for a link straight to it: a content report opens the reported file this way. */
+  async document(userId: string, slug: string, id: string) {
+    const { detail, document } = await this.readableDocument(userId, slug, id);
+    return { ...document, ...this.documentRights(detail, userId, document.uploaderId) };
+  }
+
+  private documentRights(detail: Detail, userId: string, uploaderId: string | null) {
+    const canEditAny = this.canAny(detail, ['edit_doc']);
+    const canApprove = this.canAny(detail, ['approve_doc']);
+    const canDeleteAny = this.canAny(detail, ['delete_doc']);
+    return {
+      canEdit: canEditAny || (uploaderId === userId && this.canAny(detail, ['edit_own_doc'])),
+      canDelete: canDeleteAny || (uploaderId === userId && this.canAny(detail, ['delete_own_doc'])),
+      canApprove,
+      canViewUnpublished: canEditAny || canApprove || canDeleteAny,
+    };
+  }
+
+  /** Members see what their role allows; a platform admin reviewing a report also sees removed files. */
+  private async readableDocument(userId: string, slug: string, id: string) {
+    const detail = await this.workspaces.detail(userId, slug);
+    const admin = await this.workspaces.isPlatformAdmin(userId);
+    if (!admin) this.requireAny(detail, ['view_doc']);
+    const document = await this.content.findDocument(detail.id, id);
+    if (!document) throw new NotFound('Tài liệu', id);
+    const canViewUnpublished = this.canAny(detail, ['edit_doc', 'approve_doc', 'delete_doc']);
+    if (!admin && (document.deletedAt || (!canViewUnpublished && document.status !== 'published')))
+      throw new NotFound('Tài liệu', id);
+    return { detail, document };
   }
   async pendingDocumentCount(userId: string, slug: string) {
     const detail = await this.workspaces.detail(userId, slug);
@@ -278,13 +303,7 @@ export class WorkspaceContentService {
     });
   }
   async documentDownload(userId: string, slug: string, id: string, preview = false) {
-    const detail = await this.workspaces.detail(userId, slug);
-    this.requireAny(detail, ['view_doc']);
-    const document = await this.content.findDocument(detail.id, id);
-    if (!document) throw new NotFound('Tài liệu', id);
-    const canViewUnpublished = this.canAny(detail, ['edit_doc', 'approve_doc', 'delete_doc']);
-    if (document.deletedAt || (!canViewUnpublished && document.status !== 'published'))
-      throw new NotFound('Tài liệu', id);
+    const { document } = await this.readableDocument(userId, slug, id);
     if (!document.storageKey) return { url: document.url, expiresInSeconds: null };
     const result = await this.storage.presignDownload(
       document.storageKey,

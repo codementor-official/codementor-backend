@@ -1,4 +1,4 @@
-import { NotAuthorized, QuotaExceeded } from '@codementor/kernel';
+import { NotAuthorized, NotFound, QuotaExceeded } from '@codementor/kernel';
 import {
   WORKSPACE_PERMISSIONS,
   type EffectivePermissions,
@@ -22,6 +22,7 @@ describe('WorkspaceContentService permission boundaries', () => {
       WORKSPACE_PERMISSIONS.map((permission) => [permission, granted.includes(permission)]),
     ) as EffectivePermissions;
     const workspaces = {
+      isPlatformAdmin: jest.fn().mockResolvedValue(false),
       detail: jest.fn().mockResolvedValue({
         id: workspaceId,
         memberCount: 5,
@@ -56,8 +57,34 @@ describe('WorkspaceContentService permission boundaries', () => {
         { publish: jest.fn() } as never,
       ),
       content,
+      workspaces,
     };
   }
+
+  describe('reading one document (report deep link)', () => {
+    const removed = { id: contentId, uploaderId: otherUserId, status: 'published', deletedAt: new Date(), storageKey: null, url: 'https://x.test/doc.pdf' };
+
+    it('shows a platform admin a removed document, even without view_doc', async () => {
+      const { service, content, workspaces } = createService([]);
+      workspaces.isPlatformAdmin.mockResolvedValue(true);
+      content.findDocument.mockResolvedValue(removed);
+      await expect(service.document(userId, 'workspace', contentId)).resolves.toMatchObject({ id: contentId });
+      await expect(service.documentDownload(userId, 'workspace', contentId, true)).resolves.toMatchObject({ url: removed.url });
+    });
+
+    it('hides a removed document from a member, and an unpublished one without review rights', async () => {
+      const { service, content } = createService(['view_doc']);
+      content.findDocument.mockResolvedValue(removed);
+      await expect(service.document(userId, 'workspace', contentId)).rejects.toBeInstanceOf(NotFound);
+      content.findDocument.mockResolvedValue({ ...removed, deletedAt: null, status: 'pending' });
+      await expect(service.documentDownload(userId, 'workspace', contentId)).rejects.toBeInstanceOf(NotFound);
+    });
+
+    it('refuses a member without view_doc', async () => {
+      const { service } = createService([]);
+      await expect(service.document(userId, 'workspace', contentId)).rejects.toBeInstanceOf(NotAuthorized);
+    });
+  });
 
   it('allows approve_doc to change status without granting metadata editing', async () => {
     const { service, content } = createService(['approve_doc']);
