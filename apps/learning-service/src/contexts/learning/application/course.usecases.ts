@@ -354,11 +354,6 @@ export class CourseUseCases {
     if (conflict) throw new BusinessRuleViolation(conflict);
     const key = content.media?.url ? this.privateLessonKey(content.media.url, courseId, lessonId) : null;
     if (key && content.media) content = { ...content, media: { ...content.media, url: this.storage.publicUrl(key) } };
-    if (!lesson.isPreview && (await this.access.offer(requireHumanId(user), courseId)).priceVnd > 0 && content.media?.url &&
-      (!key || process.env.COMMERCE_PRIVATE_MEDIA_READY !== 'true' || content.media.captionsUrl)) {
-      throw new BusinessRuleViolation('Khóa trả phí chỉ chấp nhận video tải lên vùng riêng đã cấu hình; không dùng video/phụ đề URL công khai.');
-    }
-
     // Document trước, tham chiếu sau — cùng thứ tự như thân bài code.
     const contentRef = await this.contents.upsert(lessonId, content);
     if (lesson.contentRef !== contentRef) {
@@ -447,27 +442,6 @@ export class CourseUseCases {
     const curriculum = await this.courses.findCurriculum(id);
 
     const lessons = curriculum.flatMap((chapter) => chapter.lessons);
-    // Giá chờ duyệt (nếu có) được áp ngay khi admin duyệt, nên xét nó chứ không xét giá đang
-    // chạy: xét giá cũ thì khóa lên sóng với video công khai rồi kẹt ở lần sửa sau, và xin về
-    // miễn phí cũng không thoát được.
-    const offer = await this.access.offer(requireHumanId(user), id);
-    if ((offer.pendingPriceVnd ?? offer.priceVnd) > 0) {
-      // Chỉ bài VIDEO: studio lưu bài lý thuyết mà không gửi `media`, và `upsert` là `$set`,
-      // nên một bài từng là video (hoặc dữ liệu thử) giữ `media` cũ mãi mà giảng viên không
-      // thấy ô nào để gỡ. Bài lý thuyết cũng không bao giờ phát video cho học viên.
-      const blocked: string[] = [];
-      for (const lesson of lessons.filter(row => !row.isPreview && row.type === 'video')) {
-        const content = await this.contents.findByLessonId(lesson.id);
-        if (content?.media?.url && (process.env.COMMERCE_PRIVATE_MEDIA_READY !== 'true' || !this.privateLessonKey(content.media.url, id, lesson.id) || content.media.captionsUrl)) {
-          blocked.push(`"${lesson.title}"`);
-        }
-      }
-      if (blocked.length) {
-        throw new BusinessRuleViolation(
-          `Khóa đang đặt giá trả phí nên không nhận video hay phụ đề dạng URL công khai (YouTube…). Đổi giá về 0, đặt bài thành học thử, hoặc tải video lên vùng lưu trữ riêng cho: ${blocked.join(', ')}.`,
-        );
-      }
-    }
     // Bài lý thuyết chưa có `content_ref` là ô rỗng với học viên.
     const lessonsMissingContent = lessons.filter(
       (lesson) => !lesson.exerciseId && lesson.contentRef === null,
