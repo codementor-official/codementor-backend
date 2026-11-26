@@ -14,6 +14,8 @@ import { COURSE_REPOSITORY, LESSON_CONTENT_REPOSITORY } from './domain/port/cour
 import { ENROLLMENT_REPOSITORY } from './domain/port/enrollment.repository';
 import { PrismaEnrollmentRepository } from './infrastructure/prisma-enrollment.repository';
 import { ROADMAP_REPOSITORY } from './domain/port/roadmap.repository';
+import { EXERCISE_APPROVAL_PORT } from './domain/port/exercise-approval.port';
+import { HttpExerciseApprovalClient } from './infrastructure/http-exercise-approval.client';
 import { MongoArticleContentRepository } from './infrastructure/mongo-article-content.repository';
 import { MongoLessonContentRepository } from './infrastructure/mongo-lesson-content.repository';
 import { PrismaArticleRepository } from './infrastructure/prisma-article.repository';
@@ -44,6 +46,7 @@ import { RoadmapController } from './presentation/roadmap.controller';
     { provide: LESSON_CONTENT_REPOSITORY, useClass: MongoLessonContentRepository },
     { provide: ARTICLE_REPOSITORY, useClass: PrismaArticleRepository },
     { provide: ARTICLE_CONTENT_REPOSITORY, useClass: MongoArticleContentRepository },
+    { provide: EXERCISE_APPROVAL_PORT, useClass: HttpExerciseApprovalClient },
   ],
 })
 export class LearningModule {}

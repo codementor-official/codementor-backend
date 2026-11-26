@@ -1,10 +1,16 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { EVENT_BUS, type EventBus } from '@codementor/messaging';
 import { TOPICS } from '@codementor/contracts';
-import { NotAuthorized, NotFound } from '@codementor/kernel';
+import { BusinessRuleViolation, NotAuthorized, NotFound } from '@codementor/kernel';
 import { ContentAuthorLookup, type AuthenticatedUser } from '@codementor/platform';
 import type { Exercise } from '../domain/model/exercise';
-import { EXERCISE_REPOSITORY, type ExerciseRepository } from '../domain/port/exercise.repository';
+import {
+  EXERCISE_CONTENT_REPOSITORY,
+  EXERCISE_REPOSITORY,
+  type ExerciseContentRepository,
+  type ExerciseRepository,
+} from '../domain/port/exercise.repository';
+import { validateForSubmission } from '../domain/model/exercise-content';
 import { toExerciseView, type ExerciseView } from './exercise-view';
 
 export type ModerationDecision =
@@ -32,6 +38,7 @@ export class ModerateExerciseUseCase {
     @Inject(EXERCISE_REPOSITORY) private readonly exercises: ExerciseRepository,
     @Inject(EVENT_BUS) private readonly eventBus: EventBus,
     private readonly authors: ContentAuthorLookup,
+    @Inject(EXERCISE_CONTENT_REPOSITORY) private readonly contents: ExerciseContentRepository,
   ) {}
 
   async execute(
@@ -45,6 +52,41 @@ export class ModerateExerciseUseCase {
     const exercise = await this.exercises.findById(id);
     if (exercise === null) throw new NotFound('Bài tập', id);
 
+    return this.apply(user, exercise, decision, reason);
+  }
+
+  /**
+   * Admin duyệt một khóa học thì bài code đi kèm được duyệt luôn (learning-service gọi sang).
+   * Khác `approve` thường ở chỗ bài chưa từng gửi duyệt cũng công khai được, nên phải kiểm
+   * lại điều kiện gửi duyệt ở đây. Gọi lại trên bài đã công khai là không làm gì.
+   */
+  async approveWithCourse(user: AuthenticatedUser, id: string): Promise<ExerciseView> {
+    if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');
+
+    const exercise = await this.exercises.findById(id);
+    if (exercise === null) throw new NotFound('Bài tập', id);
+    if (exercise.status === 'published') return toExerciseView(exercise);
+    if (exercise.status === 'archived') {
+      throw new BusinessRuleViolation('Bài đã bị gỡ, phải khôi phục trước khi duyệt');
+    }
+
+    if (exercise.status !== 'pending_review') {
+      const content = await this.contents.findByExerciseId(id);
+      const valid = validateForSubmission(exercise.kind, content ?? {});
+      if (valid.isFail) throw valid.error;
+      const submitted = exercise.submit();
+      if (submitted.isFail) throw submitted.error;
+    }
+    return this.apply(user, exercise, 'approve', null);
+  }
+
+  private async apply(
+    user: AuthenticatedUser,
+    exercise: Exercise,
+    decision: ModerationDecision,
+    reason: string | null,
+  ): Promise<ExerciseView> {
+    const id = exercise.id;
     const moderated = exercise.moderate(decision, reason);
     if (moderated.isFail) throw moderated.error;
 

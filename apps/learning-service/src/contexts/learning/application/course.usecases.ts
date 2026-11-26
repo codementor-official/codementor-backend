@@ -19,6 +19,7 @@ import {
   type PresignedUpload,
 } from '@codementor/platform';
 import { Course } from '../domain/model/course';
+import { EXERCISE_APPROVAL_PORT, type ExerciseApprovalPort } from '../domain/port/exercise-approval.port';
 import type { CourseEdit } from '../domain/model/course';
 import {
   lessonDurationConflict,
@@ -141,6 +142,7 @@ export class CourseUseCases {
     private readonly authors: ContentAuthorLookup,
     private readonly storage: ObjectStorageService,
     private readonly access: CommerceAccessService,
+    @Inject(EXERCISE_APPROVAL_PORT) private readonly exerciseApproval: ExerciseApprovalPort,
   ) {}
 
   coverUploadConfig(): { enabled: boolean; maxBytes: number; acceptedTypes: string[] } {
@@ -352,11 +354,6 @@ export class CourseUseCases {
     if (conflict) throw new BusinessRuleViolation(conflict);
     const key = content.media?.url ? this.privateLessonKey(content.media.url, courseId, lessonId) : null;
     if (key && content.media) content = { ...content, media: { ...content.media, url: this.storage.publicUrl(key) } };
-    if (!lesson.isPreview && (await this.access.offer(requireHumanId(user), courseId)).priceVnd > 0 && content.media?.url &&
-      (!key || process.env.COMMERCE_PRIVATE_MEDIA_READY !== 'true' || content.media.captionsUrl)) {
-      throw new BusinessRuleViolation('Khóa trả phí chỉ chấp nhận video tải lên vùng riêng đã cấu hình; không dùng video/phụ đề URL công khai.');
-    }
-
     // Document trước, tham chiếu sau — cùng thứ tự như thân bài code.
     const contentRef = await this.contents.upsert(lessonId, content);
     if (lesson.contentRef !== contentRef) {
@@ -445,23 +442,6 @@ export class CourseUseCases {
     const curriculum = await this.courses.findCurriculum(id);
 
     const lessons = curriculum.flatMap((chapter) => chapter.lessons);
-    if ((await this.access.offer(requireHumanId(user), id)).priceVnd > 0) {
-      // Chỉ bài VIDEO: studio lưu bài lý thuyết mà không gửi `media`, và `upsert` là `$set`,
-      // nên một bài từng là video (hoặc dữ liệu thử) giữ `media` cũ mãi mà giảng viên không
-      // thấy ô nào để gỡ. Bài lý thuyết cũng không bao giờ phát video cho học viên.
-      const blocked: string[] = [];
-      for (const lesson of lessons.filter(row => !row.isPreview && row.type === 'video')) {
-        const content = await this.contents.findByLessonId(lesson.id);
-        if (content?.media?.url && (process.env.COMMERCE_PRIVATE_MEDIA_READY !== 'true' || !this.privateLessonKey(content.media.url, id, lesson.id) || content.media.captionsUrl)) {
-          blocked.push(`"${lesson.title}"`);
-        }
-      }
-      if (blocked.length) {
-        throw new BusinessRuleViolation(
-          `Khóa trả phí chỉ nhận video tải lên vùng lưu trữ riêng, không nhận video hay phụ đề dạng URL công khai. Sửa video của: ${blocked.join(', ')}.`,
-        );
-      }
-    }
     // Bài lý thuyết chưa có `content_ref` là ô rỗng với học viên.
     const lessonsMissingContent = lessons.filter(
       (lesson) => !lesson.exerciseId && lesson.contentRef === null,
@@ -608,6 +588,7 @@ export class CourseUseCases {
     id: string,
     decision: 'approve' | 'request_changes' | 'reject' | 'archive' | 'restore' | 'revert',
     reason: string | null,
+    authorization: string,
   ) {
     if (user.role !== 'admin') throw new NotAuthorized('kiểm duyệt nội dung');
 
@@ -615,6 +596,10 @@ export class CourseUseCases {
     const expectedUpdatedAt = entity.updatedAt;
     const moderated = entity.moderate(decision, reason);
     if (moderated.isFail) throw moderated.error;
+
+    // Trước khi ghi khóa học: một bài code không duyệt được thì khóa học vẫn chờ duyệt, chứ
+    // không lên sóng kèm một bài học viên mở ra không thấy.
+    if (decision === 'approve') await this.approveExercises(entity, authorization);
 
     await this.courses.save(entity, ['approve', 'request_changes', 'reject'].includes(decision)
       ? { approve: decision === 'approve', actorId: requireHumanId(user), reason: reason ?? 'Đã duyệt cấu hình', expectedUpdatedAt }
@@ -631,6 +616,28 @@ export class CourseUseCases {
       externalId: user.externalId,
     });
     return toView(entity, await this.courses.findCurriculum(id));
+  }
+
+  /** Chỉ bài của chính tác giả khóa học — bài của người khác không đi qua lượt duyệt này. */
+  private async approveExercises(course: Course, authorization: string): Promise<void> {
+    const lessons = (await this.courses.findCurriculum(course.id)).flatMap((chapter) => chapter.lessons);
+    const pending = new Map<string, string>();
+    for (const lesson of lessons) {
+      if (lesson.exerciseId && lesson.exerciseStatus !== 'published' && lesson.exerciseAuthorId === course.createdBy) {
+        pending.set(lesson.exerciseId, lesson.title);
+      }
+    }
+    // ponytail: tuần tự, không hoàn tác — bài đã duyệt trước bài lỗi vẫn công khai, bấm duyệt
+    // lại thì bỏ qua chúng.
+    for (const [exerciseId, title] of pending) {
+      try {
+        await this.exerciseApproval.approve(exerciseId, authorization);
+      } catch (error) {
+        throw new BusinessRuleViolation(
+          `Không duyệt được bài code ở bài học "${title}": ${(error as Error).message}`,
+        );
+      }
+    }
   }
 
   /**

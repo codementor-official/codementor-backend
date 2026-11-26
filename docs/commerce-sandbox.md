@@ -88,5 +88,5 @@ sign-in or a browser.
 - While a wallet has a payout on hold, refunds are blocked until that payout is reconciled; a payout with an unknown result is never clawed back automatically.
 - Unknown provider fees are shown as unknown; ledger clearing is not treated as a bank balance. The reconciliation dashboard checks internal states and the ledger, not external bank statements.
 - Merchant sandboxes, the IPN tunnel, real error responses and refund permissions must be tested with each partner before launch.
-- Paid video must live under a private prefix with anonymous GET blocked; set `COMMERCE_PRIVATE_MEDIA_READY=true` only after verifying the bucket/CDN. IAM is never changed automatically. Content that was previously public cannot be protected by hiding a button; move the public sources to private and review embedded links.
+- Paid courses accept any video URL (YouTube, public S3, captions), so anyone who has the link can watch without buying. Only uploads made with `COMMERCE_PRIVATE_MEDIA_READY=true` go under the private prefix and are served through signed links; set it only after verifying that anonymous GET on that prefix is denied.
 - A local browser session was tested for all three roles against an isolated commerce database. Production still needs a smoke test on a copy of the EC2 data and with provider sandbox credentials.
