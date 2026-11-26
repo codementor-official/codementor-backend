@@ -40,7 +40,7 @@ fi
 compose=(sudo docker compose -f docker-compose.yml -f docker-compose.ec2.yml)
 services=(kafka kong core-service learning-service exercise-service workspace-service
   submission-service realtime-service recommendation-service notification-service
-  judge-service ai-service)
+  judge-service ai-service caddy)
 
 # Image sandbox không do compose build; thiếu thì judge trả "image missing" cho mọi bài.
 sudo bash apps/judge-service/scripts/build-images.sh
