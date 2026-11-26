@@ -30,6 +30,7 @@ describe('CourseUseCases.submit — video của khoá trả phí', () => {
       {} as never,
       {} as never,
       { offer: jest.fn().mockResolvedValue({ priceVnd: 199000 }) } as never,
+      {} as never,
     );
 
     const error = await useCases.submit(lecturer, 'c1').catch((e: Error) => e);
@@ -38,5 +39,31 @@ describe('CourseUseCases.submit — video của khoá trả phí', () => {
     expect((error as Error).message).not.toContain('Lý thuyết cũ');
     expect(contents.findByLessonId).toHaveBeenCalledTimes(1);
     expect(contents.findByLessonId).toHaveBeenCalledWith('l2');
+  });
+
+  const submitWithOffer = (offer: { priceVnd: number; pendingPriceVnd: number | null }) => {
+    const contents = { findByLessonId: jest.fn().mockResolvedValue({ media: { url: 'https://youtube.com/watch?v=1' } }) };
+    const useCases = new CourseUseCases(
+      {
+        findById: jest.fn().mockResolvedValue({ id: 'c1', createdBy: lecturer.id, submit: () => ({ isFail: true, error: new Error('qua chốt video') }) }),
+        findCurriculum: jest.fn().mockResolvedValue([{ lessons: [lesson('l1', 'Video công khai', 'video')] }]),
+      } as never,
+      contents as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { offer: jest.fn().mockResolvedValue(offer) } as never,
+      {} as never,
+    );
+    return useCases.submit(lecturer, 'c1');
+  };
+
+  // Giá chờ duyệt là giá sẽ áp khi admin bấm duyệt, nên phải xét nó ngay lúc gửi.
+  it('đang xin chuyển sang trả phí thì chặn video công khai ngay', async () => {
+    await expect(submitWithOffer({ priceVnd: 0, pendingPriceVnd: 100000 })).rejects.toThrow('"Video công khai"');
+  });
+
+  it('đang xin chuyển về miễn phí thì không chặn', async () => {
+    await expect(submitWithOffer({ priceVnd: 100000, pendingPriceVnd: 0 })).rejects.toThrow('qua chốt video');
   });
 });

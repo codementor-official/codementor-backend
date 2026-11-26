@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Param,
@@ -281,8 +282,9 @@ export class CourseController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ModerateDto,
+    @Headers('authorization') authorization: string,
   ) {
-    return this.courses.moderate(user, id, dto.decision, dto.reason ?? null);
+    return this.courses.moderate(user, id, dto.decision, dto.reason ?? null, authorization);
   }
 
   @Post(':id/withdraw')

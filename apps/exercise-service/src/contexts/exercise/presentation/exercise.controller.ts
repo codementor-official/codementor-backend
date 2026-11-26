@@ -220,6 +220,17 @@ export class ExerciseController {
     return this.moderate.execute(user, id, dto.decision, dto.reason ?? null);
   }
 
+  @Post(':id/approve-with-course')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Duyệt bài code đi kèm một khóa học đang được duyệt' })
+  @ApiResponse({ status: 422, description: 'Bài thiếu nội dung hoặc đã bị gỡ' })
+  approveWithCourse(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.moderate.approveWithCourse(user, id);
+  }
+
   @Post(':id/withdraw')
   @Roles('lecturer')
   @ApiOperation({ summary: 'Hủy gửi duyệt, về draft để sửa tiếp' })
